@@ -1,0 +1,102 @@
+# ============================================================================
+# GitHub Labels — Standardized label definitions
+#
+# Apply with: gh label create "name" --color "hex" --description "desc"
+# ============================================================================
+
+# ─── Type Labels ────────────────────────────────────────────────────────────
+- name: bug
+  color: "d73a4a"
+  description: "Something isn't working"
+
+- name: enhancement
+  color: "a2eeef"
+  description: "New feature or request"
+
+- name: documentation
+  color: "0075ca"
+  description: "Documentation improvements"
+
+- name: proposal
+  color: "7057ff"
+  description: "New tool or feature proposal"
+
+- name: new-tool
+  color: "1d76db"
+  description: "New tool being added"
+
+# ─── Priority Labels ───────────────────────────────────────────────────────
+- name: "priority: critical"
+  color: "b60205"
+  description: "Must be fixed immediately"
+
+- name: "priority: high"
+  color: "d93f0b"
+  description: "Important, fix soon"
+
+- name: "priority: medium"
+  color: "fbca04"
+  description: "Normal priority"
+
+- name: "priority: low"
+  color: "0e8a16"
+  description: "Nice to have"
+
+# ─── Status Labels ─────────────────────────────────────────────────────────
+- name: triage
+  color: "ededed"
+  description: "Needs triage"
+
+- name: "status: blocked"
+  color: "b60205"
+  description: "Blocked by external dependency"
+
+- name: "status: in-progress"
+  color: "0052cc"
+  description: "Currently being worked on"
+
+- name: "status: needs-review"
+  color: "fbca04"
+  description: "Ready for review"
+
+# ─── Category Labels ───────────────────────────────────────────────────────
+- name: "category: math"
+  color: "c5def5"
+  description: "Math & Computation tools"
+
+- name: "category: genai"
+  color: "d4c5f9"
+  description: "GenAI & ML tools"
+
+- name: "category: devops"
+  color: "bfdadc"
+  description: "DevOps & Infrastructure tools"
+
+- name: "category: data"
+  color: "f9d0c4"
+  description: "Data & Analytics tools"
+
+- name: "category: utilities"
+  color: "c2e0c6"
+  description: "General utilities"
+
+# ─── Maintenance Labels ────────────────────────────────────────────────────
+- name: dependencies
+  color: "0366d6"
+  description: "Dependency updates"
+
+- name: ci/cd
+  color: "e4e669"
+  description: "CI/CD pipeline changes"
+
+- name: security
+  color: "d73a4a"
+  description: "Security-related issue"
+
+- name: "good first issue"
+  color: "7057ff"
+  description: "Good for newcomers"
+
+- name: "help wanted"
+  color: "008672"
+  description: "Extra attention is needed"

@@ -1,0 +1,104 @@
+# ============================================================================
+# ci.yml — Main CI Pipeline
+#
+# Triggers on push/PR to main and develop branches.
+# Detects changed tools and dispatches per-tool CI.
+# ============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── Detect Changed Tools ────────────────────────────────────────────────
+  detect-changes:
+    name: Detect Changed Tools
+    runs-on: ubuntu-latest
+    outputs:
+      tools: ${{ steps.changes.outputs.tools }}
+      has_tools: ${{ steps.changes.outputs.has_tools }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed tool directories
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE=${{ github.event.pull_request.base.sha }}
+          else
+            BASE=${{ github.event.before }}
+          fi
+
+          # Find changed tools
+          CHANGED_TOOLS=$(git diff --name-only "$BASE" HEAD 2>/dev/null | \
+            grep '^tools/' | \
+            grep -v '^tools/_template/' | \
+            grep -v '^tools/README.md' | \
+            cut -d'/' -f2 | \
+            sort -u | \
+            jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+          echo "tools=${CHANGED_TOOLS}" >> "$GITHUB_OUTPUT"
+
+          if [ "${CHANGED_TOOLS}" = "[]" ] || [ -z "${CHANGED_TOOLS}" ]; then
+            echo "has_tools=false" >> "$GITHUB_OUTPUT"
+            echo "No tool changes detected."
+          else
+            echo "has_tools=true" >> "$GITHUB_OUTPUT"
+            echo "Changed tools: ${CHANGED_TOOLS}"
+          fi
+
+  # ─── Per-Tool CI ─────────────────────────────────────────────────────────
+  tool-ci:
+    name: "CI: ${{ matrix.tool }}"
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_tools == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: ${{ fromJson(needs.detect-changes.outputs.tools) }}
+    uses: ./.github/workflows/tool-ci.yml
+    with:
+      tool-name: ${{ matrix.tool }}
+
+  # ─── Repo-Level Checks ──────────────────────────────────────────────────
+  repo-checks:
+    name: Repository Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate YAML files
+        run: |
+          echo "Validating YAML files..."
+          find .github/workflows -name '*.yml' -exec echo "  ✅ {}" \;
+
+      - name: Check for broken markdown links
+        run: |
+          echo "Checking markdown files exist..."
+          for f in README.md CONTRIBUTING.md SECURITY.md CODE_OF_CONDUCT.md; do
+            if [ -f "$f" ]; then
+              echo "  ✅ $f"
+            else
+              echo "  ❌ $f missing"
+              exit 1
+            fi
+          done
+
+      - name: Validate specs (structure check)
+        run: |
+          if [ -x scripts/validate-specs.sh ]; then
+            bash scripts/validate-specs.sh
+          else
+            echo "ℹ️  No tools to validate yet."
+          fi

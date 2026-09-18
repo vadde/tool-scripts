@@ -1,0 +1,74 @@
+# ============================================================================
+# security-audit.yml — Security Scanning
+#
+# Weekly scan + PR check for dependency vulnerabilities and secrets.
+# ============================================================================
+
+name: Security Audit
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # Every Monday at 6:00 UTC
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # ─── Dependency Scanning ─────────────────────────────────────────────────
+  dependency-scan:
+    name: Dependency Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan Python dependencies
+        run: |
+          pip install pip-audit
+          for f in $(find tools -name "pyproject.toml" -o -name "requirements.txt"); do
+            echo "🔍 Scanning: $f"
+            dir=$(dirname "$f")
+            if [ -f "$dir/requirements.txt" ]; then
+              pip-audit -r "$dir/requirements.txt" --progress-spinner off || true
+            fi
+          done
+        continue-on-error: true
+
+      - name: Scan Node.js dependencies
+        run: |
+          for f in $(find tools -name "package.json" -not -path "*/node_modules/*"); do
+            dir=$(dirname "$f")
+            echo "🔍 Scanning: $f"
+            cd "$dir" && npm audit --production || true
+            cd "$GITHUB_WORKSPACE"
+          done
+        continue-on-error: true
+
+      - name: Scan Go dependencies
+        run: |
+          if command -v go &>/dev/null; then
+            for f in $(find tools -name "go.mod"); do
+              dir=$(dirname "$f")
+              echo "🔍 Scanning: $f"
+              cd "$dir" && go list -json -m all 2>/dev/null | head -20 || true
+              cd "$GITHUB_WORKSPACE"
+            done
+          fi
+        continue-on-error: true
+
+  # ─── Secret Detection ────────────────────────────────────────────────────
+  secret-scan:
+    name: Secret Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

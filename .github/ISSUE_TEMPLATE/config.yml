@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation
+    url: https://github.com/vadde/tool-scripts/tree/main/docs
+    about: Read the docs before opening an issue
+  - name: 🗺️ Roadmap
+    url: https://github.com/vadde/tool-scripts/blob/main/sdlc/ROADMAP.md
+    about: Check the roadmap for planned tools and features

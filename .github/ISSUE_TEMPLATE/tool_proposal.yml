@@ -1,0 +1,53 @@
+name: 🔧 Tool Proposal
+description: Propose a new tool for the repository
+title: "proposal: "
+labels: ["proposal", "new-tool"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem will this tool solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Tool
+      description: Describe the tool you're proposing.
+      value: |
+        **Name**: `tool-name`
+        **Category**: Math / GenAI / DevOps / Data / Utilities
+        **Language**: Python / Go / Node.js / Rust / Shell
+        **Description**: Brief description of what the tool does.
+    validations:
+      required: true
+
+  - type: textarea
+    id: interface
+    attributes:
+      label: Proposed Interface
+      description: How would users interact with this tool?
+      placeholder: |
+        CLI: tool-name [OPTIONS] <input>
+        API: result = tool_name.process(data)
+    validations:
+      required: false
+
+  - type: textarea
+    id: prior_art
+    attributes:
+      label: Prior Art
+      description: Are there existing tools that do something similar?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I'm willing to implement this tool
+        - label: I can write the spec but need help implementing
+        - label: I'm just suggesting the idea

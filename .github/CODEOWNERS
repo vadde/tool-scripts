@@ -1,0 +1,32 @@
+# ============================================================================
+# CODEOWNERS — Ownership mapping for the tool-scripts repository
+#
+# Each line maps a file pattern to one or more owners.
+# Owners are automatically requested for review on PRs.
+# ============================================================================
+
+# ─── Repository-Wide ───────────────────────────────────────────────────────
+*                         @vadde
+
+# ─── Agent Rules & Skills ──────────────────────────────────────────────────
+/.agents/                 @vadde
+
+# ─── CI/CD Workflows (require extra review) ────────────────────────────────
+/.github/                 @vadde
+
+# ─── Specifications ────────────────────────────────────────────────────────
+/specs/                   @vadde
+
+# ─── SDLC Governance ───────────────────────────────────────────────────────
+/sdlc/                    @vadde
+
+# ─── Documentation ─────────────────────────────────────────────────────────
+/docs/                    @vadde
+
+# ─── Automation Scripts ────────────────────────────────────────────────────
+/scripts/                 @vadde
+
+# ─── Tools (add per-tool owners as they are created) ───────────────────────
+/tools/                   @vadde
+# /tools/json-validator/  @vadde @contributor
+# /tools/csv-merger/      @vadde @contributor

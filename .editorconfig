@@ -1,0 +1,61 @@
+# ============================================================================
+# EditorConfig — Consistent coding styles across editors and IDEs
+# https://editorconfig.org
+# ============================================================================
+
+root = true
+
+# ─── Default for all files ──────────────────────────────────────────────────
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 100
+
+# ─── Python ─────────────────────────────────────────────────────────────────
+[*.py]
+indent_size = 4
+max_line_length = 88
+
+# ─── Go ─────────────────────────────────────────────────────────────────────
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# ─── Rust ────────────────────────────────────────────────────────────────────
+[*.rs]
+indent_size = 4
+
+# ─── Makefile ────────────────────────────────────────────────────────────────
+[Makefile]
+indent_style = tab
+indent_size = 4
+
+[*.mk]
+indent_style = tab
+indent_size = 4
+
+# ─── Markdown ────────────────────────────────────────────────────────────────
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = off
+
+# ─── YAML ────────────────────────────────────────────────────────────────────
+[*.{yml,yaml}]
+indent_size = 2
+
+# ─── JSON ────────────────────────────────────────────────────────────────────
+[*.json]
+indent_size = 2
+
+# ─── Shell Scripts ───────────────────────────────────────────────────────────
+[*.sh]
+indent_size = 2
+shell_variant = bash
+
+# ─── TOML ────────────────────────────────────────────────────────────────────
+[*.toml]
+indent_size = 2

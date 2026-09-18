@@ -1,0 +1,65 @@
+name: 🐛 Bug Report
+description: Report a bug in an existing tool
+title: "fix(<tool>): "
+labels: ["bug", "triage"]
+body:
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Affected Tool
+      description: Which tool is affected?
+      options:
+        - "(Select a tool)"
+        - "Repository-wide"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of the bug.
+      placeholder: "What happened?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the bug.
+      value: |
+        1. Run `...`
+        2. With input `...`
+        3. Observe `...`
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Your system details.
+      value: |
+        - OS: macOS / Linux / Windows
+        - Language version: Python 3.x / Go 1.x / Node 2x
+        - Tool version: (from STATUS.md)
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Output / Logs
+      description: Paste any relevant error messages or logs.
+      render: shell
+    validations:
+      required: false

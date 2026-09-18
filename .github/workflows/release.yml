@@ -1,0 +1,79 @@
+# ============================================================================
+# release.yml — Release Workflow
+#
+# Triggered when a version tag is pushed. Creates a GitHub Release.
+# ============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "*/v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract release info
+        id: info
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          # Check if it's a tool-specific tag (e.g., json-validator/v1.0.0)
+          if [[ "$TAG" == *"/"* ]]; then
+            TOOL_NAME="${TAG%%/*}"
+            VERSION="${TAG##*/}"
+            echo "tool=${TOOL_NAME}" >> "$GITHUB_OUTPUT"
+            echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "is_tool=true" >> "$GITHUB_OUTPUT"
+            echo "title=${TOOL_NAME} ${VERSION}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tool=" >> "$GITHUB_OUTPUT"
+            echo "version=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "is_tool=false" >> "$GITHUB_OUTPUT"
+            echo "title=Release ${TAG}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          TAG="${{ steps.info.outputs.tag }}"
+          TOOL="${{ steps.info.outputs.tool }}"
+          VERSION="${{ steps.info.outputs.version }}"
+
+          if [ "${{ steps.info.outputs.is_tool }}" = "true" ] && \
+             [ -f "tools/${TOOL}/CHANGELOG.md" ]; then
+            # Extract the section for this version
+            NOTES=$(awk "/^## \[${VERSION#v}/ {found=1; next} /^## \[/ {if(found) exit} found {print}" \
+              "tools/${TOOL}/CHANGELOG.md")
+          elif [ -f "sdlc/CHANGELOG.md" ]; then
+            NOTES=$(awk "/^## \[${VERSION#v}/ {found=1; next} /^## \[/ {if(found) exit} found {print}" \
+              "sdlc/CHANGELOG.md")
+          fi
+
+          if [ -z "$NOTES" ]; then
+            NOTES="Release ${TAG}"
+          fi
+
+          # Write to file for multi-line support
+          echo "$NOTES" > /tmp/release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.info.outputs.title }}
+          body_path: /tmp/release_notes.md
+          draft: false
+          prerelease: ${{ contains(steps.info.outputs.version, '-rc') || contains(steps.info.outputs.version, '-beta') }}
+          generate_release_notes: true
