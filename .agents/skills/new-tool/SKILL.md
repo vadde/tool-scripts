@@ -126,6 +126,8 @@ make validate-specs
 ## Post-Scaffold Checklist
 
 - [ ] `tools/<tool-name>/` exists with all required files
+- [ ] `tools/<tool-name>/CONTEXT.md` populated with initial state
+- [ ] `tools/<tool-name>/DEVLOG.md` initialized (first entry when work begins)
 - [ ] `specs/catalog/<tool-name>.md` exists with at minimum Overview filled in
 - [ ] `tools/<tool-name>/STATUS.md` has `status: draft`
 - [ ] `tools/README.md` catalog updated
@@ -141,3 +143,6 @@ make validate-specs
 3. **Missing STATUS.md** — Required for SDLC tracking
 4. **Forgetting catalog** — Tool must appear in `tools/README.md`
 5. **Non-kebab-case name** — Use `my-tool` not `myTool` or `my_tool`
+6. **Skipping CONTEXT.md** — Required for agent orientation (Rule 07)
+7. **Skipping DEVLOG.md** — Required for session continuity (Rule 07)
+8. **Not updating at session end** — CONTEXT.md and DEVLOG.md MUST be updated

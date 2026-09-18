@@ -32,22 +32,24 @@ _How do we know this tool is successful?_
 
 ### 2.1 Functional Requirements
 
-| ID | Requirement | Priority | Status |
-|----|------------|----------|--------|
-| R-001 | _Description_ | Must | ⬜ |
-| R-002 | _Description_ | Must | ⬜ |
-| R-003 | _Description_ | Should | ⬜ |
-| R-004 | _Description_ | Could | ⬜ |
+| ID | Requirement | Priority | Impl | Tested | Notes |
+|----|------------|----------|------|--------|-------|
+| R-001 | _Description_ | Must | ⬜ | ⬜ | — |
+| R-002 | _Description_ | Must | ⬜ | ⬜ | — |
+| R-003 | _Description_ | Should | ⬜ | ⬜ | — |
+| R-004 | _Description_ | Could | ⬜ | ⬜ | — |
 
 **Priority levels**: Must (required for MVP), Should (important), Could (nice-to-have)
 
+**Status legend**: ⬜ Not started · 🔨 In progress · ✅ Implemented · 🧪 Tested & verified · ❌ Blocked
+
 ### 2.2 Non-Functional Requirements
 
-| ID | Requirement | Metric |
-|----|------------|--------|
-| NF-001 | Performance | _e.g., Process 10K records in < 5s_ |
-| NF-002 | Reliability | _e.g., Handle malformed input gracefully_ |
-| NF-003 | Portability | _e.g., Run on macOS, Linux_ |
+| ID | Requirement | Metric | Impl | Tested |
+|----|------------|--------|------|--------|
+| NF-001 | Performance | _e.g., Process 10K records in < 5s_ | ⬜ | ⬜ |
+| NF-002 | Reliability | _e.g., Handle malformed input gracefully_ | ⬜ | ⬜ |
+| NF-003 | Portability | _e.g., Run on macOS, Linux_ | ⬜ | ⬜ |
 
 ---
 

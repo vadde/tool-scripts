@@ -12,6 +12,7 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -34,19 +35,42 @@ jobs:
         id: changes
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE=${{ github.event.pull_request.base.sha }}
+            BASE="${{ github.event.pull_request.base.sha }}"
           else
-            BASE=${{ github.event.before }}
+            BASE="${{ github.event.before }}"
+            if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git rev-parse --verify "$BASE" >/dev/null 2>&1; then
+              BASE=$(git rev-parse HEAD~1 2>/dev/null || git hash-object -t tree /dev/null)
+            fi
           fi
 
-          # Find changed tools
-          CHANGED_TOOLS=$(git diff --name-only "$BASE" HEAD 2>/dev/null | \
+          # Find changed tools from tools/ and specs/catalog/
+          CHANGED_FROM_TOOLS=$(git diff --name-only "$BASE" HEAD 2>/dev/null | \
             grep '^tools/' | \
             grep -v '^tools/_template/' | \
             grep -v '^tools/README.md' | \
-            cut -d'/' -f2 | \
+            cut -d'/' -f2 || true)
+
+          CHANGED_FROM_SPECS=$(git diff --name-only "$BASE" HEAD 2>/dev/null | \
+            grep '^specs/catalog/' | \
+            sed 's|^specs/catalog/||' | \
+            sed 's|\.md$||' || true)
+
+          # Combine and filter only valid tool directories
+          CHANGED_TOOLS=$(printf "%s\n%s\n" "$CHANGED_FROM_TOOLS" "$CHANGED_FROM_SPECS" | \
             sort -u | \
+            while read -r tool; do
+              if [ -n "$tool" ] && [ -d "tools/$tool" ] && [ "$tool" != "_template" ]; then
+                echo "$tool"
+              fi
+            done | \
             jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+          # If manually triggered via workflow_dispatch and no changes detected, run all tools
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${CHANGED_TOOLS}" = "[]" ]; then
+            CHANGED_TOOLS=$(find tools -mindepth 1 -maxdepth 1 -type d -not -name '_template' -exec basename {} \; | \
+              sort | \
+              jq -R -s -c 'split("\n") | map(select(length > 0))')
+          fi
 
           echo "tools=${CHANGED_TOOLS}" >> "$GITHUB_OUTPUT"
 

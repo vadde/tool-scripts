@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Session Explorer — Antigravity IDE Sessions</title>
+  <meta name="description" content="Explore, search, and analyze your Antigravity IDE agent conversation sessions with a fast glassmorphic interface.">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Top Header Navigation -->
+  <header class="header-bar">
+    <div class="brand-section" id="brandBtn">
+      <div class="brand-logo">🔍</div>
+      <div>
+        <div class="brand-title">
+          Session Explorer
+          <span class="version-pill">v0.1.0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Global Search Bar Input Trigger -->
+    <div class="search-trigger-box">
+      <span>🔎</span>
+      <input type="text" id="globalSearchInput" placeholder="Search prompts & transcripts across all sessions..." readonly>
+      <span class="kbd-shortcut"><kbd>⌘</kbd> <kbd>K</kbd></span>
+    </div>
+
+    <!-- Header Actions -->
+    <div class="header-actions">
+      <button class="btn-pill" id="insightsBtn" title="Prompt Frequency & Tool Call Analytics">
+        <span>📊</span> Insights
+      </button>
+      <button class="btn-icon" id="refreshBtn" title="Refresh Sessions">
+        🔄
+      </button>
+      <button class="btn-icon" id="themeToggleBtn" title="Toggle Dark/Light Mode">
+        ☀️
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Application Container -->
+  <main class="app-container">
+
+    <!-- DASHBOARD VIEW -->
+    <div id="dashboardView">
+      
+      <!-- Key Statistics Strip -->
+      <section class="stats-strip" id="statsStrip" aria-label="Session Statistics">
+        <!-- Rendered dynamically by app.js -->
+      </section>
+
+      <!-- Horizontal Workspace Filter Strip -->
+      <div class="workspace-strip" id="workspaceStrip" aria-label="Workspace Quick Filters">
+        <!-- Rendered dynamically by app.js -->
+      </div>
+
+      <!-- Controls & Filter Toolbar -->
+      <section class="control-toolbar" aria-label="Filter Controls">
+        <div class="filter-group">
+          <span class="filter-label">Workspace:</span>
+          <select id="workspaceSelect" class="select-custom" aria-label="Filter by workspace">
+            <option value="">All Workspaces</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Sort:</span>
+          <select id="sortBySelect" class="select-custom" aria-label="Sort sessions">
+            <option value="date">Newest First</option>
+            <option value="date_asc">Oldest First</option>
+            <option value="steps">Most Steps</option>
+            <option value="messages">Most Prompts</option>
+            <option value="size">Largest File Size</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <span class="filter-label">Date:</span>
+          <input type="date" id="dateFromInput" class="date-input" aria-label="Start date">
+          <span style="color: var(--text-muted); font-size: 0.8rem;">to</span>
+          <input type="date" id="dateToInput" class="date-input" aria-label="End date">
+          <div style="display: flex; gap: 0.35rem; margin-left: 0.25rem;">
+            <button class="chip date-preset-chip active" data-preset="all">All Time</button>
+            <button class="chip date-preset-chip" data-preset="today">Today</button>
+            <button class="chip date-preset-chip" data-preset="7d">7 Days</button>
+            <button class="chip date-preset-chip" data-preset="30d">30 Days</button>
+          </div>
+        </div>
+
+        <div class="filter-group group-by-control">
+          <span class="filter-label">Group By:</span>
+          <div class="segmented-control" id="groupByControl" role="group" aria-label="Group sessions by">
+            <button class="segment-btn active" data-group="project" title="Group sessions by Repository/Project Hub">📁 Project Hub</button>
+            <button class="segment-btn" data-group="date" title="Group sessions chronologically by date">📅 Date</button>
+            <button class="segment-btn" data-group="flat" title="Show flat list of all sessions">📋 Flat List</button>
+          </div>
+        </div>
+
+        <div style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem;">
+          <span id="sessionCountBadge" class="version-pill" style="font-size: 0.78rem; padding: 0.25rem 0.65rem;">Loading...</span>
+        </div>
+      </section>
+
+      <!-- Project Hero Banner (active when drilled down into a specific repository) -->
+      <section id="projectHeroBanner" class="project-hero-banner" style="display: none;" aria-label="Repository Context">
+        <!-- Rendered dynamically by app.js -->
+      </section>
+
+      <!-- Dynamic Views Container (Project Hub, Date Grouped, or Flat Grid) -->
+      <section id="viewContainer" aria-label="Sessions and Projects View">
+        <div class="session-grid" id="sessionGrid">
+          <!-- Rendered dynamically by app.js -->
+        </div>
+      </section>
+    </div>
+
+    <!-- DETAIL VIEW / TIMELINE -->
+    <div id="detailView" class="detail-view">
+      
+      <!-- Sticky Detail Navigation Header -->
+      <div class="detail-header">
+        <div class="detail-title-group">
+          <button class="back-btn" id="detailBackBtn">
+            <span>←</span> Back
+          </button>
+          <span class="detail-session-id" id="detailSessionId"></span>
+          <span class="workspace-badge" id="detailWorkspaceBadge">📁 Workspace</span>
+          <span class="session-time" id="detailTime"></span>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <!-- Filter Message Types -->
+          <div style="display: flex; gap: 0.35rem;">
+            <button class="chip msg-filter-chip active" data-filter="ALL">All</button>
+            <button class="chip msg-filter-chip" data-filter="USER_INPUT">Prompts</button>
+            <button class="chip msg-filter-chip" data-filter="PLANNER_RESPONSE">Agent</button>
+            <button class="chip msg-filter-chip" data-filter="TOOL_CALLS">Tools</button>
+            <button class="chip msg-filter-chip" data-filter="ERROR">Errors</button>
+          </div>
+
+          <!-- Export Actions -->
+          <div style="display: flex; gap: 0.45rem; margin-left: 0.5rem;">
+            <button class="btn-pill" id="exportMdBtn" title="Export conversation to Markdown">
+              📄 Export MD
+            </button>
+            <button class="btn-pill" id="exportJsonBtn" title="Export conversation to JSON">
+              📦 Export JSON
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline Container -->
+      <div class="timeline-container" id="timelineContainer">
+        <!-- Rendered dynamically by app.js -->
+      </div>
+    </div>
+
+  </main>
+
+  <!-- SEARCH MODAL (Cmd+K) -->
+  <div class="modal-overlay" id="searchModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div class="modal-title">🔍 Search Transcripts</div>
+        <button class="btn-icon" id="closeSearchModalBtn">✕</button>
+      </div>
+      <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-glass);">
+        <input type="text" id="modalSearchInput" placeholder="Type words or phrases to search across all sessions..." style="width: 100%; background: var(--bg-glass-active); border: 1px solid var(--border-glass); border-radius: var(--radius-sm); padding: 0.65rem 1rem; color: var(--text-primary); font-size: 0.95rem; outline: none;">
+      </div>
+      <div class="modal-body" id="modalSearchResults">
+        <div class="empty-state">
+          <div class="empty-state-icon">🔍</div>
+          <p>Type keywords to search across all prompt transcripts</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INSIGHTS MODAL -->
+  <div class="modal-overlay" id="insightsModal">
+    <div class="modal-box" style="max-width: 720px;">
+      <div class="modal-header">
+        <div class="modal-title">📊 Session Analytics & Prompt Insights</div>
+        <button class="btn-icon" id="closeInsightsModalBtn">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Most Used Tools -->
+        <div style="margin-bottom: 2rem;">
+          <h4 style="margin-bottom: 1rem; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span>⚡</span> Most Frequently Used Tools
+          </h4>
+          <div id="topToolsList">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Most Frequent Prompts (R-025) -->
+        <div>
+          <h4 style="margin-bottom: 1rem; font-size: 0.95rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span>💬</span> Common Prompt Patterns
+          </h4>
+          <div id="topPromptsList">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Feedback -->
+  <div class="toast-notification" id="toastNotification">
+    Copied to clipboard!
+  </div>
+
+  <!-- JavaScript Bundle (Built with Bun) -->
+  <script src="app.bundle.js"></script>
+</body>
+</html>

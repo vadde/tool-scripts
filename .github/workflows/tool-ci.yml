@@ -26,37 +26,76 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Detect language
+      - name: Detect language & dependencies
         id: detect
         run: |
           TOOL_DIR="${GITHUB_WORKSPACE}/tools/${{ inputs.tool-name }}"
 
+          # Polyglot detection (tools may combine Go + Bun, Python + Rust, etc.)
           if [ -f "$TOOL_DIR/pyproject.toml" ] || [ -f "$TOOL_DIR/requirements.txt" ] || \
              ls "$TOOL_DIR/src/"*.py 2>/dev/null 1>&2; then
-            echo "language=python" >> "$GITHUB_OUTPUT"
-          elif [ -f "$TOOL_DIR/go.mod" ] || ls "$TOOL_DIR/src/"*.go 2>/dev/null 1>&2; then
-            echo "language=go" >> "$GITHUB_OUTPUT"
-          elif [ -f "$TOOL_DIR/package.json" ]; then
-            echo "language=node" >> "$GITHUB_OUTPUT"
-          elif [ -f "$TOOL_DIR/Cargo.toml" ]; then
-            echo "language=rust" >> "$GITHUB_OUTPUT"
-          elif ls "$TOOL_DIR/src/"*.sh 2>/dev/null 1>&2; then
-            echo "language=shell" >> "$GITHUB_OUTPUT"
-          else
-            echo "language=unknown" >> "$GITHUB_OUTPUT"
+            echo "has_python=true" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "Detected language: $(grep 'language=' "$GITHUB_OUTPUT" | tail -1)"
+          if [ -f "$TOOL_DIR/go.mod" ] || [ -f "$TOOL_DIR/src/go.mod" ] || \
+             ls "$TOOL_DIR/src/"*.go 2>/dev/null 1>&2; then
+            echo "has_go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f "$TOOL_DIR/src/web/package.json" ] || [ -f "$TOOL_DIR/package.json" ]; then
+            echo "has_bun=true" >> "$GITHUB_OUTPUT"
+            echo "has_node=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -f "$TOOL_DIR/Cargo.toml" ]; then
+            echo "has_rust=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if ls "$TOOL_DIR/src/"*.sh 2>/dev/null 1>&2; then
+            echo "has_shell=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ─── Bun Setup ───────────────────────────────────────────────────────
+      - name: Set up Bun
+        if: steps.detect.outputs.has_bun == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Bun dependencies
+        if: steps.detect.outputs.has_bun == 'true'
+        run: |
+          if [ -f src/web/package.json ]; then
+            cd src/web && bun install
+          elif [ -f package.json ]; then
+            bun install
+          fi
+
+      # ─── Go Setup ────────────────────────────────────────────────────────
+      - name: Set up Go
+        if: steps.detect.outputs.has_go == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Install Go dependencies
+        if: steps.detect.outputs.has_go == 'true'
+        run: |
+          if [ -f src/go.mod ]; then
+            cd src && go mod download
+          elif [ -f go.mod ]; then
+            go mod download
+          fi
 
       # ─── Python Setup ────────────────────────────────────────────────────
       - name: Set up Python
-        if: steps.detect.outputs.language == 'python'
+        if: steps.detect.outputs.has_python == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install Python dependencies
-        if: steps.detect.outputs.language == 'python'
+        if: steps.detect.outputs.has_python == 'true'
         run: |
           python -m pip install --upgrade pip
           if [ -f pyproject.toml ]; then
@@ -66,66 +105,51 @@ jobs:
           fi
           pip install ruff pytest pytest-cov
 
-      # ─── Go Setup ────────────────────────────────────────────────────────
-      - name: Set up Go
-        if: steps.detect.outputs.language == 'go'
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-
-      - name: Install Go dependencies
-        if: steps.detect.outputs.language == 'go'
-        run: go mod download
-
-      # ─── Node.js Setup ───────────────────────────────────────────────────
-      - name: Set up Node.js
-        if: steps.detect.outputs.language == 'node'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install Node.js dependencies
-        if: steps.detect.outputs.language == 'node'
-        run: |
-          if command -v pnpm &>/dev/null; then
-            pnpm install
-          else
-            npm install
-          fi
-
       # ─── Rust Setup ──────────────────────────────────────────────────────
       - name: Set up Rust
-        if: steps.detect.outputs.language == 'rust'
+        if: steps.detect.outputs.has_rust == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
       # ─── Shell Setup ─────────────────────────────────────────────────────
       - name: Install ShellCheck
-        if: steps.detect.outputs.language == 'shell'
+        if: steps.detect.outputs.has_shell == 'true'
         run: sudo apt-get install -y shellcheck
+
+      # ─── Build ────────────────────────────────────────────────────────────
+      - name: Build
+        run: |
+          if [ -f Makefile ] && grep -q '^build:' Makefile; then
+            echo "🔨 Building ${{ inputs.tool-name }}..."
+            make build
+          else
+            echo "ℹ️  No build target found, skipping build."
+          fi
 
       # ─── Lint ─────────────────────────────────────────────────────────────
       - name: Lint
         run: |
           if [ -f Makefile ] && grep -q '^lint:' Makefile; then
+            echo "🔍 Linting ${{ inputs.tool-name }}..."
             make lint
           else
-            echo "ℹ️  No lint target found, skipping."
+            echo "ℹ️  No lint target found, skipping lint."
           fi
 
       # ─── Test ─────────────────────────────────────────────────────────────
       - name: Test
         run: |
           if [ -f Makefile ] && grep -q '^test:' Makefile; then
+            echo "🧪 Testing ${{ inputs.tool-name }}..."
             make test
           else
-            echo "ℹ️  No test target found, skipping."
+            echo "ℹ️  No test target found, skipping test."
           fi
 
       # ─── Coverage (Python) ───────────────────────────────────────────────
       - name: Coverage Report (Python)
-        if: steps.detect.outputs.language == 'python'
+        if: steps.detect.outputs.has_python == 'true'
         run: |
           if [ -d tests ] && ls tests/test_*.py 2>/dev/null 1>&2; then
             python -m pytest tests/ --cov=src --cov-report=term-missing || true

@@ -33,7 +33,7 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
+/dist/
 downloads/
 eggs/
 .eggs/
@@ -101,6 +101,7 @@ Cargo.lock
 **/*.rs.bk
 
 # ─── Build Artifacts ────────────────────────────────────────────────────────
+bin/
 *.o
 *.a
 *.lib

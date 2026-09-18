@@ -42,10 +42,15 @@ Before ANY action, complete this checklist:
 
 - [ ] Read this file (`AGENTS.md`) completely
 - [ ] Identify the target tool in `tools/<name>/`
-- [ ] Read the tool's `STATUS.md` to understand its SDLC phase
-- [ ] Read the tool's `spec.md` to understand requirements
+- [ ] **Read the tool's `CONTEXT.md` FIRST** — this is the single orientation file
+- [ ] Read the tool's `DEVLOG.md` (latest entry) for recent session context
+- [ ] Verify the tool's `STATUS.md` to confirm SDLC phase
+- [ ] Read the tool's spec in `specs/catalog/<name>.md` (if implementing)
 - [ ] Read relevant rules in `.agents/rules/`
 - [ ] Check `sdlc/ROADMAP.md` for context on priorities
+
+> **⚠️ CRITICAL**: After EVERY session, you MUST update `CONTEXT.md` and append
+> to `DEVLOG.md`. See Rule 07 for the mandatory session end protocol.
 
 ### 2. Core Behavioral Rules
 
@@ -59,6 +64,7 @@ All rules are in `.agents/rules/`. Read them in order:
 | [`04-sdd-workflow.md`](rules/04-sdd-workflow.md) | Spec-Driven Development protocol | 🔴 Critical |
 | [`05-testing-strategy.md`](rules/05-testing-strategy.md) | Testing pyramid, coverage | 🟡 Important |
 | [`06-documentation.md`](rules/06-documentation.md) | Documentation standards | 🟡 Important |
+| [`07-iterative-development.md`](rules/07-iterative-development.md) | Session continuity, CONTEXT.md, DEVLOG.md | 🔴 Critical |
 
 ### 3. Available Skills
 
@@ -94,9 +100,11 @@ Each tool lives in `tools/<name>/` and contains:
 
 ```
 tools/<name>/
+├── CONTEXT.md      → 🧭 START HERE — Agent orientation & current state
+├── DEVLOG.md       → 📓 Development journal (append-only, session history)
 ├── README.md       → Documentation (usage, installation, examples)
-├── spec.md         → Specification (requirements, interface contract)
-├── STATUS.md       → SDLC status (current phase, version, owner)
+├── spec.md         → Specification (links to specs/catalog/<name>.md)
+├── STATUS.md       → SDLC status (phase, traceability matrix, progress)
 ├── CHANGELOG.md    → Version history (Keep-a-Changelog format)
 ├── Makefile        → Tool-local targets (test, lint, run, build)
 ├── src/            → Source code (any language)

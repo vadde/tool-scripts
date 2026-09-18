@@ -49,13 +49,17 @@ validate_tool() {
 
   ((TOOLS_CHECKED++)) || true
 
-  # Check required files
-  local required_files=("README.md" "STATUS.md" "CHANGELOG.md" "Makefile" "spec.md")
+  # Check required files (including new governance files)
+  local required_files=("README.md" "STATUS.md" "CHANGELOG.md" "Makefile" "spec.md" "CONTEXT.md" "DEVLOG.md")
   for file in "${required_files[@]}"; do
     if [[ -f "${tool_dir}/${file}" ]]; then
       pass "${file} exists"
     else
-      error "${file} missing in tools/${tool_name}/"
+      if [[ "${file}" == "CONTEXT.md" ]] || [[ "${file}" == "DEVLOG.md" ]]; then
+        error "${file} missing in tools/${tool_name}/ (required by Rule 07)"
+      else
+        error "${file} missing in tools/${tool_name}/"
+      fi
     fi
   done
 
@@ -89,6 +93,13 @@ validate_tool() {
         warn "Spec missing '${section}' section"
       fi
     done
+
+    # Check spec has Impl/Tested tracking columns
+    if grep -q "Impl" "${spec_file}" && grep -q "Tested" "${spec_file}"; then
+      pass "Spec has implementation tracking columns"
+    else
+      warn "Spec missing Impl/Tested tracking columns (per Rule 07)"
+    fi
   else
     error "Spec missing: specs/catalog/${tool_name}.md"
   fi
@@ -104,6 +115,69 @@ validate_tool() {
     else
       error "STATUS.md has invalid status: '${status}'"
     fi
+
+    # Phase-appropriate checks
+    if [[ "${status}" == "in-progress" ]] || [[ "${status}" == "testing" ]] || \
+       [[ "${status}" == "review" ]] || [[ "${status}" == "released" ]]; then
+      # Must have traceability matrix
+      if grep -q "Traceability Matrix" "${tool_dir}/STATUS.md"; then
+        pass "STATUS.md has traceability matrix"
+      else
+        warn "STATUS.md missing traceability matrix (expected for ${status} phase)"
+      fi
+    fi
+
+    if [[ "${status}" == "released" ]]; then
+      # CHANGELOG must have a version entry
+      if grep -qE '^\#\# \[' "${tool_dir}/CHANGELOG.md" 2>/dev/null; then
+        pass "CHANGELOG.md has version entries"
+      else
+        error "Released tool must have CHANGELOG version entries"
+      fi
+      # No TODOs or FIXMEs
+      if grep -rq "TODO\|FIXME\|TBD\|HACK" "${tool_dir}/src/" 2>/dev/null; then
+        error "Released tool has TODO/FIXME/TBD/HACK in source code"
+      else
+        pass "No TODO/FIXME markers in source"
+      fi
+    fi
+  fi
+
+  # Validate CONTEXT.md frontmatter consistency
+  if [[ -f "${tool_dir}/CONTEXT.md" ]] && [[ -f "${tool_dir}/STATUS.md" ]]; then
+    local context_status
+    context_status="$(grep '^status:' "${tool_dir}/CONTEXT.md" 2>/dev/null | head -1 | sed 's/^status: *//')"
+    local status_status
+    status_status="$(grep '^status:' "${tool_dir}/STATUS.md" 2>/dev/null | head -1 | sed 's/^status: *//')"
+
+    if [[ -n "${context_status}" ]] && [[ -n "${status_status}" ]]; then
+      if [[ "${context_status}" == "${status_status}" ]]; then
+        pass "CONTEXT.md and STATUS.md statuses are in sync"
+      else
+        error "Status mismatch: CONTEXT.md='${context_status}' vs STATUS.md='${status_status}'"
+      fi
+    fi
+  fi
+
+  # Check DEVLOG.md has content (not just template) for in-progress+ tools
+  if [[ -f "${tool_dir}/DEVLOG.md" ]]; then
+    local status
+    status="$(grep '^status:' "${tool_dir}/STATUS.md" 2>/dev/null | head -1 | sed 's/^status: *//')"
+    if [[ "${status}" == "in-progress" ]] || [[ "${status}" == "testing" ]] || \
+       [[ "${status}" == "review" ]] || [[ "${status}" == "released" ]]; then
+      if grep -q "^### " "${tool_dir}/DEVLOG.md" 2>/dev/null; then
+        pass "DEVLOG.md has session entries"
+      else
+        warn "DEVLOG.md has no session entries (expected for ${status} phase)"
+      fi
+    fi
+  fi
+
+  # Check catalog entry exists
+  if grep -q "${tool_name}" "${TOOLS_DIR}/README.md" 2>/dev/null; then
+    pass "Tool appears in catalog (tools/README.md)"
+  else
+    error "Tool missing from catalog (tools/README.md)"
   fi
 }
 

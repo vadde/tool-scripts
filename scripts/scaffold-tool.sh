@@ -93,6 +93,21 @@ main() {
     sed -i'' -e "s/YYYY-MM-DD/${TODAY}/" "${tool_dir}/STATUS.md"
   fi
 
+  # Step 2b: Configure CONTEXT.md
+  echo "  🧭 Configuring CONTEXT.md..."
+  if command -v sed &>/dev/null; then
+    sed -i'' -e "s/tool: template/tool: ${tool_name}/" "${tool_dir}/CONTEXT.md"
+    sed -i'' -e "s/Tool Context — template/Tool Context — ${tool_name}/" "${tool_dir}/CONTEXT.md"
+    sed -i'' -e "s|specs/catalog/template.md|specs/catalog/${tool_name}.md|" "${tool_dir}/CONTEXT.md"
+    sed -i'' -e "s/YYYY-MM-DD/${TODAY}/g" "${tool_dir}/CONTEXT.md"
+  fi
+
+  # Step 2c: Configure DEVLOG.md
+  echo "  📓 Configuring DEVLOG.md..."
+  if command -v sed &>/dev/null; then
+    sed -i'' -e "s/Development Log — template/Development Log — ${tool_name}/" "${tool_dir}/DEVLOG.md"
+  fi
+
   # Step 3: Create spec
   echo "  📝 Creating specs/catalog/${tool_name}.md..."
   cp "${SPECS_TEMPLATE}" "${spec_file}"

@@ -32,7 +32,47 @@ spec: ../../specs/catalog/template.md
 |------|------|----|-------|
 | YYYY-MM-DD | — | `draft` | Tool created |
 
-### Checklist for Current Phase
+---
+
+## Implementation Progress
+
+| Category | Done | Total | Percentage |
+|----------|------|-------|------------|
+| Requirements (R-XXX) | 0 | 0 | 0% |
+| Acceptance Criteria (AC-XXX) | 0 | 0 | 0% |
+| Non-Functional (NF-XXX) | 0 | 0 | 0% |
+
+---
+
+## Traceability Matrix
+
+> Map every requirement to its implementation and test.
+
+| Req ID | Description | Source File(s) | Test File(s) | Status |
+|--------|-------------|---------------|-------------|--------|
+| _None defined yet_ | — | — | — | ⬜ |
+
+**Status Legend**: ⬜ Not started · 🔨 In progress · ✅ Implemented · 🧪 Tested · ❌ Blocked
+
+---
+
+## Active Blockers
+
+| Blocker | Since | Impact | Resolution Plan |
+|---------|-------|--------|-----------------|
+| _None_ | — | — | — |
+
+---
+
+## Next Steps
+
+> _What to do when you pick this tool up. See CONTEXT.md for full orientation._
+
+1. _Fill in after scaffolding_
+
+---
+
+## Checklist for Current Phase
 
 #### Draft Phase Requirements
 
@@ -40,3 +80,5 @@ spec: ../../specs/catalog/template.md
 - [ ] Spec file created in `specs/catalog/`
 - [ ] Tool directory scaffolded
 - [ ] Entry added to tool catalog
+- [ ] CONTEXT.md populated
+- [ ] DEVLOG.md initialized

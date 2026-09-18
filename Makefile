@@ -1,79 +1,141 @@
 # ============================================================================
 #  ╔══════════════════════════════════════════════════════════════════════╗
-#  ║                     tool-scripts — Root Makefile                    ║
-#  ║                                                                    ║
-#  ║  The unified command interface for the entire repository.          ║
-#  ║  Run `make help` to see all available targets.                     ║
+#  ║                     tool-scripts — Root Command Center               ║
+#  ║                                                                      ║
+#  ║  The unified command interface for all tools, scripts, and plugins.  ║
+#  ║  Run `make help` to see all available targets.                       ║
 #  ╚══════════════════════════════════════════════════════════════════════╝
 # ============================================================================
 
-.PHONY: help setup new-tool test test-tool lint lint-tool validate-specs \
-        catalog status clean
+.PHONY: help setup new-tool test test-tool lint lint-tool build build-tool \
+        run-tool demo-tool validate-specs catalog status clean \
+        session-explorer
 
 .DEFAULT_GOAL := help
 
 # ─── Configuration ──────────────────────────────────────────────────────────
-SHELL := /bin/bash
-TOOLS_DIR := tools
+SHELL       := /bin/bash
+TOOLS_DIR   := tools
 SCRIPTS_DIR := scripts
-SPECS_DIR := specs
+SPECS_DIR   := specs
+T           ?=
+ARGS        ?=
 
-# ─── Colors ─────────────────────────────────────────────────────────────────
-CYAN := \033[0;36m
-GREEN := \033[0;32m
+# ─── Colors & Formatting ────────────────────────────────────────────────────
+CYAN   := \033[0;36m
+GREEN  := \033[0;32m
 YELLOW := \033[0;33m
-BOLD := \033[1m
-NC := \033[0m
+BLUE   := \033[0;34m
+PURPLE := \033[0;35m
+BOLD   := \033[1m
+DIM    := \033[2m
+NC     := \033[0m
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Help
 # ═══════════════════════════════════════════════════════════════════════════
 
-help: ## Show this help message
-	@echo ""
-	@echo "$(BOLD)╔══════════════════════════════════════════════════════════╗$(NC)"
-	@echo "$(BOLD)║          🔧 tool-scripts — Command Center              ║$(NC)"
-	@echo "$(BOLD)╚══════════════════════════════════════════════════════════╝$(NC)"
-	@echo ""
-	@echo "$(BOLD)Usage:$(NC)"
-	@echo "  make $(CYAN)<target>$(NC) [ARGS]"
-	@echo ""
-	@echo "$(BOLD)Targets:$(NC)"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  $(CYAN)%-20s$(NC) %s\n", $$1, $$2}'
-	@echo ""
-	@echo "$(BOLD)Examples:$(NC)"
-	@echo "  make new-tool NAME=json-validator"
-	@echo "  make test-tool T=json-validator"
-	@echo "  make lint-tool T=json-validator"
-	@echo ""
+help: ## Show this interactive command directory
+	@printf "\n"
+	@printf "$(BOLD)╔══════════════════════════════════════════════════════════════════╗$(NC)\n"
+	@printf "$(BOLD)║               🔧 tool-scripts — Command Center                   ║$(NC)\n"
+	@printf "$(BOLD)╚══════════════════════════════════════════════════════════════════╝$(NC)\n\n"
+	@printf "$(BOLD)🚀 Tool Execution:$(NC)\n"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "run-tool T=<name>"         "Launch a tool (e.g. make run-tool T=session-explorer)"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "demo-tool T=<name>"        "Run automated demo for a tool (e.g. make demo-tool T=session-explorer)"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "session-explorer"          "Quick launcher: build and run Session Explorer web UI"
+	@printf "\n"
+	@printf "$(BOLD)📦 Build & Compilation:$(NC)\n"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "build"                     "Build ALL tools across the monorepo"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "build-tool T=<name>"       "Build a specific tool (e.g. make build-tool T=session-explorer)"
+	@printf "\n"
+	@printf "$(BOLD)🧪 Testing & Quality:$(NC)\n"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "test"                      "Run test suites for ALL tools"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "test-tool T=<name>"        "Run tests for a specific tool (e.g. make test-tool T=session-explorer)"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "lint"                      "Run linters across all tools"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "lint-tool T=<name>"        "Run linters for a specific tool (e.g. make lint-tool T=session-explorer)"
+	@printf "\n"
+	@printf "$(BOLD)📋 SDD Specifications & Governance:$(NC)\n"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "validate-specs"            "Validate all SDD specs, checklists, and status tracking"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "status"                    "Display SDLC status dashboard for all tools"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "catalog"                   "Regenerate tool catalog in tools/README.md"
+	@printf "\n"
+	@printf "$(BOLD)🔨 Development & Scaffold:$(NC)\n"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "new-tool NAME=<name>"      "Scaffold a new tool from canonical template"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "setup"                     "Install global repo pre-commit hooks and tools"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "clean"                     "Clean build artifacts across all tools"
+	@printf "\n"
+	@printf "  $(DIM)Examples:$(NC)\n"
+	@printf "    make session-explorer\n"
+	@printf "    make run-tool T=session-explorer ARGS=\"--port 8080\"\n"
+	@printf "    make test-tool T=session-explorer\n"
+	@printf "    make new-tool NAME=git-analytics\n\n"
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Setup
+#  Tool Execution
 # ═══════════════════════════════════════════════════════════════════════════
 
-setup: ## Install pre-commit hooks and repo dependencies
-	@echo "⚙️  Setting up tool-scripts..."
-	@if command -v pre-commit &>/dev/null; then \
-		pre-commit install && \
-		pre-commit install --hook-type commit-msg && \
-		echo "$(GREEN)✅ Pre-commit hooks installed$(NC)"; \
-	else \
-		echo "$(YELLOW)⚠️  pre-commit not found. Install with: pip install pre-commit$(NC)"; \
-	fi
-	@echo "$(GREEN)✅ Setup complete!$(NC)"
-
-# ═══════════════════════════════════════════════════════════════════════════
-#  Tool Management
-# ═══════════════════════════════════════════════════════════════════════════
-
-new-tool: ## Scaffold a new tool (NAME=tool-name)
-	@if [ -z "$(NAME)" ]; then \
-		echo "❌ Usage: make new-tool NAME=<tool-name>"; \
-		echo "   Example: make new-tool NAME=json-validator"; \
+run-tool: ## Run a specific tool (T=tool-name [ARGS="..."])
+	@if [ -z "$(T)" ]; then \
+		echo "❌ Usage: make run-tool T=<tool-name> [ARGS=\"...\"]"; \
+		echo "   Example: make run-tool T=session-explorer"; \
 		exit 1; \
 	fi
-	@$(SCRIPTS_DIR)/scaffold-tool.sh "$(NAME)"
+	@if [ -f "$(TOOLS_DIR)/$(T)/Makefile" ]; then \
+		printf "$(GREEN)🚀 Running tool: $(T)...$(NC)\n"; \
+		$(MAKE) -C "$(TOOLS_DIR)/$(T)" run ARGS="$(ARGS)"; \
+	else \
+		echo "❌ No Makefile found in tools/$(T)/"; \
+		exit 1; \
+	fi
+
+demo-tool: ## Run automated demo for a tool (T=tool-name)
+	@if [ -z "$(T)" ]; then \
+		echo "❌ Usage: make demo-tool T=<tool-name>"; \
+		echo "   Example: make demo-tool T=session-explorer"; \
+		exit 1; \
+	fi
+	@if [ -f "$(TOOLS_DIR)/$(T)/Makefile" ]; then \
+		printf "$(GREEN)📝 Running demo for: $(T)...$(NC)\n"; \
+		$(MAKE) -C "$(TOOLS_DIR)/$(T)" demo; \
+	else \
+		echo "❌ No Makefile found in tools/$(T)/"; \
+		exit 1; \
+	fi
+
+# Quick tool alias
+session-explorer: ## Quick launcher for Session Explorer
+	@$(MAKE) run-tool T=session-explorer ARGS="$(ARGS)"
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Build & Packaging
+# ═══════════════════════════════════════════════════════════════════════════
+
+build: ## Build ALL tools across the monorepo
+	@printf "$(BLUE)📦 Building all tools...$(NC)\n"
+	@for tool_dir in $(TOOLS_DIR)/*/; do \
+		tool_name=$$(basename "$$tool_dir"); \
+		if [ "$$tool_name" = "_template" ]; then continue; fi; \
+		if [ -f "$$tool_dir/Makefile" ] && grep -q '^build:' "$$tool_dir/Makefile"; then \
+			echo "  Building: $$tool_name"; \
+			$(MAKE) -C "$$tool_dir" build || exit 1; \
+		fi; \
+	done
+	@printf "$(GREEN)✅ All tools built successfully!$(NC)\n"
+
+build-tool: ## Build a specific tool (T=tool-name)
+	@if [ -z "$(T)" ]; then \
+		echo "❌ Usage: make build-tool T=<tool-name>"; \
+		echo "   Example: make build-tool T=session-explorer"; \
+		exit 1; \
+	fi
+	@printf "$(BLUE)📦 Building: $(T)...$(NC)\n"
+	@if [ -f "$(TOOLS_DIR)/$(T)/Makefile" ]; then \
+		$(MAKE) -C "$(TOOLS_DIR)/$(T)" build; \
+	else \
+		echo "❌ No Makefile found in tools/$(T)/"; \
+		exit 1; \
+	fi
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Testing
@@ -85,10 +147,10 @@ test: ## Run tests for ALL tools
 test-tool: ## Run tests for a specific tool (T=tool-name)
 	@if [ -z "$(T)" ]; then \
 		echo "❌ Usage: make test-tool T=<tool-name>"; \
-		echo "   Example: make test-tool T=json-validator"; \
+		echo "   Example: make test-tool T=session-explorer"; \
 		exit 1; \
 	fi
-	@echo "🧪 Testing: $(T)"
+	@printf "$(YELLOW)🧪 Testing: $(T)...$(NC)\n"
 	@if [ -f "$(TOOLS_DIR)/$(T)/Makefile" ]; then \
 		$(MAKE) -C "$(TOOLS_DIR)/$(T)" test; \
 	else \
@@ -101,7 +163,7 @@ test-tool: ## Run tests for a specific tool (T=tool-name)
 # ═══════════════════════════════════════════════════════════════════════════
 
 lint: ## Lint ALL tools
-	@echo "🔍 Linting all tools..."
+	@printf "$(BLUE)🔍 Linting all tools...$(NC)\n"
 	@for tool_dir in $(TOOLS_DIR)/*/; do \
 		tool_name=$$(basename "$$tool_dir"); \
 		if [ "$$tool_name" = "_template" ]; then continue; fi; \
@@ -110,14 +172,14 @@ lint: ## Lint ALL tools
 			$(MAKE) -C "$$tool_dir" lint || exit 1; \
 		fi; \
 	done
-	@echo "$(GREEN)✅ All linting passed!$(NC)"
+	@printf "$(GREEN)✅ All linting passed!$(NC)\n"
 
 lint-tool: ## Lint a specific tool (T=tool-name)
 	@if [ -z "$(T)" ]; then \
 		echo "❌ Usage: make lint-tool T=<tool-name>"; \
 		exit 1; \
 	fi
-	@echo "🔍 Linting: $(T)"
+	@printf "$(BLUE)🔍 Linting: $(T)...$(NC)\n"
 	@if [ -f "$(TOOLS_DIR)/$(T)/Makefile" ]; then \
 		$(MAKE) -C "$(TOOLS_DIR)/$(T)" lint; \
 	else \
@@ -126,25 +188,20 @@ lint-tool: ## Lint a specific tool (T=tool-name)
 	fi
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Spec Validation
+#  SDD Specifications & Governance
 # ═══════════════════════════════════════════════════════════════════════════
 
 validate-specs: ## Validate all SDD specs are complete
 	@$(SCRIPTS_DIR)/validate-specs.sh
 
-# ═══════════════════════════════════════════════════════════════════════════
-#  Catalog & Status
-# ═══════════════════════════════════════════════════════════════════════════
-
 catalog: ## Regenerate the tool catalog in tools/README.md
 	@$(SCRIPTS_DIR)/update-catalog.sh
 
 status: ## Show SDLC status dashboard for all tools
-	@echo ""
-	@echo "$(BOLD)╔══════════════════════════════════════════════════════════╗$(NC)"
-	@echo "$(BOLD)║          📊 SDLC Status Dashboard                      ║$(NC)"
-	@echo "$(BOLD)╚══════════════════════════════════════════════════════════╝$(NC)"
-	@echo ""
+	@printf "\n"
+	@printf "$(BOLD)╔══════════════════════════════════════════════════════════╗$(NC)\n"
+	@printf "$(BOLD)║          📊 SDLC Status Dashboard                      ║$(NC)\n"
+	@printf "$(BOLD)╚══════════════════════════════════════════════════════════╝$(NC)\n\n"
 	@printf "  $(BOLD)%-25s %-15s %-10s %-12s$(NC)\n" "Tool" "Status" "Version" "Language"
 	@printf "  %-25s %-15s %-10s %-12s\n" "─────────────────────────" "───────────────" "──────────" "────────────"
 	@found=0; \
@@ -163,14 +220,33 @@ status: ## Show SDLC status dashboard for all tools
 	if [ "$$found" -eq 0 ]; then \
 		echo "  No tools found. Create one with: make new-tool NAME=<name>"; \
 	fi
-	@echo ""
+	@printf "\n"
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Cleanup
+#  Scaffold & Setup
 # ═══════════════════════════════════════════════════════════════════════════
+
+new-tool: ## Scaffold a new tool (NAME=tool-name)
+	@if [ -z "$(NAME)" ]; then \
+		echo "❌ Usage: make new-tool NAME=<tool-name>"; \
+		echo "   Example: make new-tool NAME=json-validator"; \
+		exit 1; \
+	fi
+	@$(SCRIPTS_DIR)/scaffold-tool.sh "$(NAME)"
+
+setup: ## Install pre-commit hooks and repo dependencies
+	@printf "$(BLUE)⚙️  Setting up tool-scripts...$(NC)\n"
+	@if command -v pre-commit &>/dev/null; then \
+		pre-commit install && \
+		pre-commit install --hook-type commit-msg && \
+		printf "$(GREEN)✅ Pre-commit hooks installed$(NC)\n"; \
+	else \
+		printf "$(YELLOW)⚠️  pre-commit not found. Install with: pip install pre-commit$(NC)\n"; \
+	fi
+	@printf "$(GREEN)✅ Setup complete!$(NC)\n"
 
 clean: ## Clean all build artifacts across all tools
-	@echo "🧹 Cleaning all tools..."
+	@printf "$(YELLOW)🧹 Cleaning all tools...$(NC)\n"
 	@for tool_dir in $(TOOLS_DIR)/*/; do \
 		tool_name=$$(basename "$$tool_dir"); \
 		if [ "$$tool_name" = "_template" ]; then continue; fi; \
@@ -178,4 +254,4 @@ clean: ## Clean all build artifacts across all tools
 			$(MAKE) -C "$$tool_dir" clean; \
 		fi; \
 	done
-	@echo "$(GREEN)✅ Clean complete!$(NC)"
+	@printf "$(GREEN)✅ Clean complete!$(NC)\n"

@@ -29,6 +29,15 @@ spec-driven development and navigable by both humans and AI agents.
 
 **Goal**: Deliver the first batch of useful tools to validate the architecture.
 
+#### Active Tools
+
+| Tool | Spec | Status | Description |
+|------|------|--------|-------------|
+| [`session-explorer`](../tools/session-explorer/) | [spec](../specs/catalog/session-explorer.md) | `spec-review` | Agent session library & explorer with glassmorphic web UI |
+
+#### Milestones
+
+- [/] First tool scaffolded and spec complete (session-explorer)
 - [ ] 3-5 utility tools (different languages)
 - [ ] End-to-end workflow tested (scaffold → spec → build → test → release)
 - [ ] CI/CD pipelines validated in production
