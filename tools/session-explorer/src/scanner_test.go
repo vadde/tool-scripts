@@ -272,3 +272,35 @@ func TestR028_ProjectClustering(t *testing.T) {
 		t.Error("tutor-intelligence project not found in stats.Projects")
 	}
 }
+
+// TestR028_ProjectClustering_PortableFallback verifies project clustering in headless CI environments
+// where knownProjects is empty and paths are arbitrary.
+func TestR028_ProjectClustering_PortableFallback(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sLinuxCI := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-18T10:00:00Z","content":"<USER_REQUEST>Run tests</USER_REQUEST>"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-18T10:01:00Z","content":"Running","tool_calls":[{"name":"run_command","args":{"Cwd":"/home/runner/work/awesome-service/src"}}]}`
+
+	createMockSession(t, tmpDir, "sess-ci", sLinuxCI)
+
+	idx := NewSessionIndex(tmpDir, false)
+	// Clear any discovered knownProjects to simulate headless container
+	idx.knownProjects = make(map[string]string)
+
+	if err := idx.ScanAll(); err != nil {
+		t.Fatalf("ScanAll failed: %v", err)
+	}
+
+	if len(idx.sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(idx.sessions))
+	}
+
+	if idx.sessions[0].ProjectName != "awesome-service" {
+		t.Errorf("expected ProjectName awesome-service, got %q", idx.sessions[0].ProjectName)
+	}
+
+	stats := idx.GetStats()
+	if len(stats.Projects) != 1 || stats.Projects[0].Name != "awesome-service" {
+		t.Errorf("expected stats.Projects to contain awesome-service, got %+v", stats.Projects)
+	}
+}

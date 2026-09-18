@@ -12,7 +12,7 @@ import (
 func setupTestIndex(t *testing.T) *SessionIndex {
 	tmpDir := t.TempDir()
 
-	content := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-18T10:00:00Z","content":"<USER_REQUEST>Test prompt for API</USER_REQUEST>","tool_calls":[]}
+	content := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-18T10:00:00Z","content":"<USER_REQUEST>Test prompt for API</USER_REQUEST>\n<ADDITIONAL_METADATA>\nActive Document: /Users/test/projects/demo/main.go\n</ADDITIONAL_METADATA>","tool_calls":[]}
 {"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-18T10:01:00Z","content":"Response content from model","tool_calls":[{"name":"view_file","args":{"AbsolutePath":"/Users/test/projects/demo/main.go"}}]}`
 
 	createMockSession(t, tmpDir, "session-api-1", content)
@@ -122,6 +122,8 @@ func TestAPI_HandleStats(t *testing.T) {
 	}
 	if len(stats.Projects) == 0 {
 		t.Errorf("expected stats.Projects to be populated, got empty")
+	} else if stats.Projects[0].Name != "demo" {
+		t.Errorf("expected project demo, got %s", stats.Projects[0].Name)
 	}
 }
 

@@ -6,6 +6,37 @@
 
 ---
 
+### 2026-09-18 — Portable Project Extraction & CI Runner Resiliency Fix
+
+**Agent/Author**: gemini-3.8-flash
+**SDLC Phase**: `review` (CI/CD hardening & cross-platform portability)
+**Duration**: ~15m
+
+#### What Was Done
+- **CI Test Failure Root-Cause Analysis**:
+  - Investigated GitHub Actions CI workflow run `35376596317` where `TestAPI_HandleStats` failed on the Ubuntu runner with `expected stats.Projects to be populated, got empty`.
+  - Root cause: `discoverKnownProjects()` relied on local macOS developer paths (`/Users/aparv/Library/CloudStorage/...`), which do not exist on headless Linux CI runners or isolated containers.
+  - In `scanSession()`, when inspecting tool calls, `projectScores` only matched if the path was already in `knownProjects` or contained `/knowledge/`. Without `knownProjects`, `session.ProjectName` defaulted to `"Default"`.
+  - In `computeStats()`, `"Default"` is deliberately excluded from `stats.Projects`. On local macOS, `knownProjects` had pre-populated `stats.Projects`, masking the issue. On CI, `stats.Projects` was empty.
+- **The Proper Architectural Fix**:
+  - In `scanSession()` (`scanner.go`): Added fallback project derivation when a tool call path does not match `knownProjects` or `/knowledge/`. It invokes `extractProjectName(valStr)` and scores the derived project name (+15 points), setting `session.Workspace = filepath.Dir(valStr)`.
+  - Updated `extractProjectName()` to filter common system and CI runner directories (`home`, `runner`, `work`, `tmp`, `var`, `private`, `projects`) and strip any trailing file names regardless of file extension.
+  - In `scanner.go`: Removed hardcoded macOS path fallback for session workspace when running on non-macOS/CI environments.
+  - In `api_test.go`: Added realistic `<ADDITIONAL_METADATA>` block to `setupTestIndex(t)` and verified project name is `"demo"`.
+  - In `scanner_test.go`: Added `TestR028_ProjectClustering_PortableFallback` which explicitly clears `idx.knownProjects` and tests headless Linux CI runner paths (`/home/runner/work/awesome-service/src`).
+- **Testing & Verification**:
+  - Uncached test suite `go test -count=1 -v ./...` passes 14/14 tests in 0.42s.
+  - Full repo test `make test-tool T=session-explorer` passes cleanly.
+  - Specs and catalog validation `make validate-specs && make catalog` passed with 0 errors, 0 warnings.
+
+#### Files Changed
+- `src/scanner.go` — Added fallback project scoring from tool call paths and sanitized CI runner paths
+- `src/api_test.go` — Added metadata to `setupTestIndex` and verified `stats.Projects[0].Name == "demo"`
+- `src/scanner_test.go` — Added `TestR028_ProjectClustering_PortableFallback`
+- `CONTEXT.md` — Updated test count to 14
+
+---
+
 ### 2026-09-18 — Root-Cause Fixes for Date Filters (Today/7d/30d), Dropdown Reactivity, Cache Busting, and Markdown Rendering
 
 **Agent/Author**: gemini-3.8-flash

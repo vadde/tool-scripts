@@ -279,12 +279,15 @@ func (idx *SessionIndex) scanSession(sessionID, transcriptPath string) (Session,
 									!strings.Contains(valStr, ".gemini/antigravity-ide/brain") &&
 									!strings.HasPrefix(valStr, "/Untitled") {
 
+									matched := false
 									// Check against known projects
 									for name, path := range idx.knownProjects {
 										if strings.Contains(valStr, "/"+name+"/") || strings.HasSuffix(valStr, "/"+name) || strings.Contains(valStr, "/knowledge/"+name) {
 											projectScores[name] += 20
+											matched = true
 										} else if path != "" && strings.Contains(valStr, path) {
 											projectScores[name] += 20
+											matched = true
 										}
 									}
 
@@ -295,6 +298,18 @@ func (idx *SessionIndex) scanSession(sessionID, transcriptPath string) (Session,
 										if len(parts) > 0 && parts[0] != "" {
 											repoName := parts[0]
 											projectScores[repoName] += 25
+											matched = true
+										}
+									}
+
+									// Fallback: derive project name directly from path if no known project matched
+									if !matched {
+										derived := extractProjectName(valStr)
+										if derived != "" && derived != "Default" {
+											projectScores[derived] += 15
+											if session.Workspace == "" || strings.HasPrefix(session.Workspace, "/Untitled") {
+												session.Workspace = filepath.Dir(valStr)
+											}
 										}
 									}
 								}
@@ -350,8 +365,13 @@ func (idx *SessionIndex) scanSession(sessionID, transcriptPath string) (Session,
 		session.ProjectName = bestProject
 		if p, ok := idx.knownProjects[bestProject]; ok {
 			session.Workspace = p
-		} else {
-			session.Workspace = "/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/" + bestProject
+		} else if session.Workspace == "" || strings.HasPrefix(session.Workspace, "/Untitled") {
+			knowledgePath := filepath.Join("/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge", bestProject)
+			if _, err := os.Stat(knowledgePath); err == nil {
+				session.Workspace = knowledgePath
+			} else {
+				session.Workspace = "/" + bestProject
+			}
 		}
 	} else if session.Workspace != "" {
 		session.ProjectName = extractProjectName(session.Workspace)
@@ -882,15 +902,14 @@ func extractProjectName(workspace string) string {
 		part := parts[i]
 		if part == "" || part == "src" || part == "G-Drive" || part == "Library" ||
 			part == "CloudStorage" || part == "OneDrive-Personal" || part == "Users" ||
-			part == "knowledge" || part == "Interviews" {
+			part == "knowledge" || part == "Interviews" || part == "home" ||
+			part == "runner" || part == "work" || part == "tmp" || part == "var" ||
+			part == "private" || part == "projects" {
 			continue
 		}
 		ext := filepath.Ext(part)
-		isCodeFile := ext == ".go" || ext == ".py" || ext == ".js" || ext == ".ts" ||
-			ext == ".json" || ext == ".md" || ext == ".html" || ext == ".css" ||
-			ext == ".yaml" || ext == ".yml" || ext == ".txt" || ext == ".sh"
-		if isCodeFile && i == len(parts)-1 {
-			continue // Skip file at end
+		if ext != "" && !strings.HasPrefix(part, ".") && i == len(parts)-1 {
+			continue // Skip trailing file at end of path
 		}
 		return part
 	}
