@@ -75,6 +75,9 @@ blockers: []
 | 2026-09-18 | Bun for frontend bundling | User requested modern blazing-fast tooling; 20ms bundle time |
 | 2026-09-18 | Port 9876 default | Uncommon port, unlikely to conflict, configurable via --port |
 | 2026-09-18 | 100% offline self-contained | Highlight.js and marked embedded; no external CDNs required |
+| 2026-09-20 | In-project toolbar & search | Isolated from global search, reactive sort/search/date range within project hub |
+| 2026-09-20 | Dynamic timeline node width | Auto-expanding capsule pill centered on rail for indices in the millions |
+| 2026-09-20 | Interrelated in-session sort & search | Unified pipeline for message filtering, searching, and sorting with instant reactivity |
 
 ---
 

@@ -1122,6 +1122,32 @@ body {
   color: var(--text-muted);
 }
 
+.session-sort-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.select-custom-sm {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+  height: 31px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-glass-active);
+  border: 1px solid var(--border-glass);
+}
+
+.step-count-badge {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  background: var(--bg-glass);
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-glass);
+  white-space: nowrap;
+}
+
 .message-body {
   font-size: 0.92rem;
   color: var(--text-primary);

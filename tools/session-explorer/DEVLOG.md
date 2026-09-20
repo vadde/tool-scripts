@@ -6,6 +6,51 @@
 
 ---
 
+### 2026-09-20 — Interrelated Search & Sort for Session Stack and Step Timestamps
+
+**Agent/Author**: gemini-3.8-flash
+**SDLC Phase**: `review` (Interrelated search, sort, and timeline refinement)
+**Duration**: ~15m
+
+#### What Was Done
+- **Interrelated In-Session Step Sort & Search**:
+  - Integrated `#sessionStepSortSelect` in the sticky detail view header directly adjacent to `#sessionStepSearchInput`.
+  - Added 6 sorting criteria for session steps:
+    - `Step (0 → Latest)`: Default forward chronological order
+    - `Step (Latest → 0)`: Reverse chronological order (jump to the latest step/conclusion first)
+    - `Newest First`: Sorted by message creation timestamp descending
+    - `Oldest First`: Sorted by message creation timestamp ascending
+    - `Most Tool Calls`: Highlights steps that executed the highest number of tools
+    - `Longest Content`: Ranks steps by content and reasoning/thinking length
+  - Designed single unified pipeline (`getFilteredAndSortedMessages()`):
+    - Filter by message type (`All`, `Prompts`, `Agent`, `Tools`, `Errors`)
+    - Substring search across content, inner monologue thinking, step index, and tool call names/args
+    - Sort matching steps according to chosen sort order
+  - Zero isolation / full reactivity:
+    - Modifying search query immediately respects the selected sort order.
+    - Switching sort order immediately re-sorts searched steps without losing input focus, clearing search, or reloading.
+    - Filter chips (`Prompts`, `Agent`, `Tools`, `Errors`) seamlessly filter in unison with search and sort.
+  - Added step count summary badge (`#detailStepCountBadge`) showing `Showing X of Y steps`.
+  - Added `#resetSessionStepFiltersBtn` that appears when any filter, search, or non-default sort is active, allowing 1-click restore to defaults.
+  - Added clear empty state when no steps match query with a prominent "Reset Step Filters" button.
+- **Enhanced Semantic Step Timestamps**:
+  - Refined `formatRelativeTime(iso)` to seamlessly cover all time ranges with semantic suffixes (`4h ago`, `2d ago`, `12d ago`, `3mo ago`, `1y ago`), preventing fallback to static dates.
+  - Steps display exact date/time down to the second plus semantic relative time: `📅 Sep 18, 2026, 10:01:23 AM (4h ago)`.
+- **Validation**:
+  - Rebundled web UI assets with Bun (`app.bundle.js`, `styles.css`, `index.html`).
+  - Recompiled standalone Go binary embedding the new assets.
+  - All 14 unit tests pass (`make test`).
+  - Verified daemon running on port 9876.
+
+#### Files Changed
+- `tools/session-explorer/src/web/index.html` — Added `#sessionStepSortSelect`, `#detailStepCountBadge`, and `#resetSessionStepFiltersBtn`.
+- `tools/session-explorer/src/web/src/styles.css` — Added `.session-sort-group`, `.select-custom-sm`, and `.step-count-badge`.
+- `tools/session-explorer/src/web/src/app.js` — Implemented `sessionStepSort` state, `getFilteredAndSortedMessages()`, `resetSessionStepFilters()`, and enhanced `formatRelativeTime()`.
+- `tools/session-explorer/src/web/dist/` — Rebundled production assets.
+- `tools/session-explorer/DEVLOG.md` — Appended session entry.
+
+---
+
 ### 2026-09-20 — In-Project Session Stack Toolbar (Search, Sort, Date Filter) & Timeline Step Numbers UX Facelifting
 
 **Agent/Author**: gemini-3.8-flash

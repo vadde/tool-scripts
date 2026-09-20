@@ -146,6 +146,19 @@
             <button class="clear-search-btn" id="clearSessionStepSearchBtn" style="display: none;" title="Clear step search">✕</button>
           </div>
 
+          <!-- In-session Step Sort -->
+          <div class="filter-group session-sort-group">
+            <span class="filter-label">Sort:</span>
+            <select id="sessionStepSortSelect" class="select-custom select-custom-sm" aria-label="Sort steps in session">
+              <option value="step_asc">Step (0 → Latest)</option>
+              <option value="step_desc">Step (Latest → 0)</option>
+              <option value="time_desc">Newest First</option>
+              <option value="time_asc">Oldest First</option>
+              <option value="tools_desc">Most Tool Calls</option>
+              <option value="length_desc">Longest Content</option>
+            </select>
+          </div>
+
           <!-- Filter Message Types -->
           <div style="display: flex; gap: 0.35rem;">
             <button class="chip msg-filter-chip active" data-filter="ALL">All</button>
@@ -155,8 +168,14 @@
             <button class="chip msg-filter-chip" data-filter="ERROR">Errors</button>
           </div>
 
+          <!-- In-session Step Summary & Reset -->
+          <div class="session-step-summary" style="display: flex; align-items: center; gap: 0.45rem;">
+            <span id="detailStepCountBadge" class="step-count-badge">0 steps</span>
+            <button class="btn-ghost-sm" id="resetSessionStepFiltersBtn" style="display: none;" title="Reset step search, sort, and type filters">Reset</button>
+          </div>
+
           <!-- Export Actions -->
-          <div style="display: flex; gap: 0.45rem; margin-left: 0.5rem;">
+          <div style="display: flex; gap: 0.45rem; margin-left: 0.25rem;">
             <button class="btn-pill" id="exportMdBtn" title="Export conversation to Markdown">
               📄 Export MD
             </button>

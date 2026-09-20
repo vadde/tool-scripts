@@ -37,6 +37,7 @@ const state = {
   theme: localStorage.getItem('se_theme') || 'dark',
   drilledProject: null, // active project when drilled into a repository
   sessionStepSearch: '', // search query for steps within active session detail
+  sessionStepSort: 'step_asc', // sort mode for steps within active session detail ('step_asc', 'step_desc', 'time_desc', 'time_asc', 'tools_desc', 'length_desc')
   projectFilters: {
     search: '',
     sort: 'date_desc',
@@ -74,6 +75,11 @@ const el = {
   exportJsonBtn: document.getElementById('exportJsonBtn'),
   timelineContainer: document.getElementById('timelineContainer'),
   msgFilterChips: document.querySelectorAll('.msg-filter-chip'),
+  sessionStepSearchInput: document.getElementById('sessionStepSearchInput'),
+  clearSessionStepSearchBtn: document.getElementById('clearSessionStepSearchBtn'),
+  sessionStepSortSelect: document.getElementById('sessionStepSortSelect'),
+  detailStepCountBadge: document.getElementById('detailStepCountBadge'),
+  resetSessionStepFiltersBtn: document.getElementById('resetSessionStepFiltersBtn'),
   datePresets: document.querySelectorAll('.date-preset-chip'),
   searchModal: document.getElementById('searchModal'),
   modalSearchInput: document.getElementById('modalSearchInput'),
@@ -234,6 +240,42 @@ function initEventListeners() {
       renderTimelineMessages();
     });
   });
+
+  // In-session Step Search & Sort (Interrelated)
+  if (el.sessionStepSearchInput) {
+    el.sessionStepSearchInput.addEventListener('input', (e) => {
+      state.sessionStepSearch = e.target.value;
+      if (el.clearSessionStepSearchBtn) {
+        el.clearSessionStepSearchBtn.style.display = state.sessionStepSearch ? 'inline-flex' : 'none';
+      }
+      renderTimelineMessages();
+    });
+  }
+
+  if (el.clearSessionStepSearchBtn) {
+    el.clearSessionStepSearchBtn.addEventListener('click', () => {
+      state.sessionStepSearch = '';
+      if (el.sessionStepSearchInput) {
+        el.sessionStepSearchInput.value = '';
+        el.sessionStepSearchInput.focus();
+      }
+      el.clearSessionStepSearchBtn.style.display = 'none';
+      renderTimelineMessages();
+    });
+  }
+
+  if (el.sessionStepSortSelect) {
+    el.sessionStepSortSelect.addEventListener('change', (e) => {
+      state.sessionStepSort = e.target.value;
+      renderTimelineMessages();
+    });
+  }
+
+  if (el.resetSessionStepFiltersBtn) {
+    el.resetSessionStepFiltersBtn.addEventListener('click', () => {
+      resetSessionStepFilters();
+    });
+  }
 
   // Detail View Back Button
   if (el.detailBackBtn) {
@@ -1098,11 +1140,20 @@ function showDetailView(detail) {
   if (el.detailView) el.detailView.classList.add('active');
 
   const s = detail.session;
+  state.selectedSessionDetail = detail;
   state.sessionStepSearch = '';
-  const stepInput = document.getElementById('sessionStepSearchInput');
-  if (stepInput) stepInput.value = '';
-  const clearStepBtn = document.getElementById('clearSessionStepSearchBtn');
-  if (clearStepBtn) clearStepBtn.style.display = 'none';
+  state.sessionStepSort = 'step_asc';
+  state.messageFilter = 'ALL';
+
+  if (el.sessionStepSearchInput) el.sessionStepSearchInput.value = '';
+  if (el.clearSessionStepSearchBtn) el.clearSessionStepSearchBtn.style.display = 'none';
+  if (el.sessionStepSortSelect) el.sessionStepSortSelect.value = 'step_asc';
+  if (el.resetSessionStepFiltersBtn) el.resetSessionStepFiltersBtn.style.display = 'none';
+
+  document.querySelectorAll('.msg-filter-chip').forEach(c => {
+    if (c.dataset.filter === 'ALL') c.classList.add('active');
+    else c.classList.remove('active');
+  });
 
   if (el.detailSessionId) el.detailSessionId.textContent = s.id;
   if (el.detailWorkspaceBadge) el.detailWorkspaceBadge.textContent = `📁 ${s.project_name || 'Default'}`;
@@ -1118,73 +1169,143 @@ function showDashboard() {
   if (el.dashboardView) el.dashboardView.style.display = 'block';
 }
 
-function renderTimelineMessages() {
-  if (!el.timelineContainer || !state.selectedSessionDetail) return;
+function resetSessionStepFilters() {
+  state.sessionStepSearch = '';
+  state.sessionStepSort = 'step_asc';
+  state.messageFilter = 'ALL';
+
+  if (el.sessionStepSearchInput) el.sessionStepSearchInput.value = '';
+  if (el.clearSessionStepSearchBtn) el.clearSessionStepSearchBtn.style.display = 'none';
+  if (el.sessionStepSortSelect) el.sessionStepSortSelect.value = 'step_asc';
+  if (el.resetSessionStepFiltersBtn) el.resetSessionStepFiltersBtn.style.display = 'none';
+
+  document.querySelectorAll('.msg-filter-chip').forEach(c => {
+    if (c.dataset.filter === 'ALL') c.classList.add('active');
+    else c.classList.remove('active');
+  });
+
+  renderTimelineMessages();
+}
+
+function getFilteredAndSortedMessages() {
+  if (!state.selectedSessionDetail) return [];
   const messages = state.selectedSessionDetail.messages || [];
 
-  // Filter messages by type (R-013) and in-session step search
-  const stepQuery = (state.sessionStepSearch || '').trim().toLowerCase();
-  const filtered = messages.filter(m => {
+  // 1. Filter by Message Type (R-013)
+  let list = messages.filter(m => {
     if (state.messageFilter === 'USER_INPUT' && m.type !== 'USER_INPUT') return false;
     if (state.messageFilter === 'PLANNER_RESPONSE' && m.type !== 'PLANNER_RESPONSE') return false;
     if (state.messageFilter === 'TOOL_CALLS' && (!m.tool_calls || m.tool_calls.length === 0)) return false;
     if (state.messageFilter === 'ERROR' && (m.status !== 'ERROR' && m.type !== 'ERROR_MESSAGE')) return false;
+    return true;
+  });
 
-    if (stepQuery) {
+  // 2. In-Session Step Search (Interrelated with message filter and sort)
+  const stepQuery = (state.sessionStepSearch || '').trim().toLowerCase();
+  if (stepQuery) {
+    list = list.filter(m => {
       const contentMatch = (m.content || '').toLowerCase().includes(stepQuery);
       const thinkingMatch = (m.thinking || '').toLowerCase().includes(stepQuery);
       const stepMatch = String(m.step_index).includes(stepQuery);
       let toolMatch = false;
-      if (m.tool_calls) {
+      if (m.tool_calls && Array.isArray(m.tool_calls)) {
         toolMatch = m.tool_calls.some(tc =>
           (tc.name || '').toLowerCase().includes(stepQuery) ||
-          (tc.args_preview || '').toLowerCase().includes(stepQuery)
+          (tc.args_preview || '').toLowerCase().includes(stepQuery) ||
+          (typeof tc.args === 'object' && JSON.stringify(tc.args).toLowerCase().includes(stepQuery))
         );
       }
       return contentMatch || thinkingMatch || stepMatch || toolMatch;
+    });
+  }
+
+  // 3. In-Session Step Sort (Interrelated with search results and type filters)
+  const sortMode = state.sessionStepSort || 'step_asc';
+  list.sort((a, b) => {
+    const stepA = typeof a.step_index === 'number' ? a.step_index : 0;
+    const stepB = typeof b.step_index === 'number' ? b.step_index : 0;
+
+    switch (sortMode) {
+      case 'step_desc':
+        return stepB - stepA;
+      case 'time_desc': {
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return (timeB - timeA) || (stepB - stepA);
+      }
+      case 'time_asc': {
+        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return (timeA - timeB) || (stepA - stepB);
+      }
+      case 'tools_desc': {
+        const toolsA = (a.tool_calls || []).length;
+        const toolsB = (b.tool_calls || []).length;
+        return (toolsB - toolsA) || (stepA - stepB);
+      }
+      case 'length_desc': {
+        const lenA = (a.content || '').length + (a.thinking || '').length;
+        const lenB = (b.content || '').length + (b.thinking || '').length;
+        return (lenB - lenA) || (stepA - stepB);
+      }
+      case 'step_asc':
+      default:
+        return stepA - stepB;
     }
-    return true;
   });
 
-  // Attach search listeners for in-session step filter
-  const stepInput = document.getElementById('sessionStepSearchInput');
-  const clearStepBtn = document.getElementById('clearSessionStepSearchBtn');
-  if (stepInput && !stepInput._listenerAttached) {
-    stepInput._listenerAttached = true;
-    stepInput.addEventListener('input', (e) => {
-      state.sessionStepSearch = e.target.value;
-      if (clearStepBtn) {
-        clearStepBtn.style.display = state.sessionStepSearch ? 'inline-flex' : 'none';
-      }
-      renderTimelineMessages();
-    });
-  }
-  if (clearStepBtn && !clearStepBtn._listenerAttached) {
-    clearStepBtn._listenerAttached = true;
-    clearStepBtn.addEventListener('click', () => {
-      state.sessionStepSearch = '';
-      if (stepInput) {
-        stepInput.value = '';
-        stepInput.focus();
-      }
-      clearStepBtn.style.display = 'none';
-      renderTimelineMessages();
-    });
+  return list;
+}
+
+function renderTimelineMessages() {
+  if (!el.timelineContainer || !state.selectedSessionDetail) return;
+  const allMessages = state.selectedSessionDetail.messages || [];
+  const filteredAndSorted = getFilteredAndSortedMessages();
+
+  const stepQuery = (state.sessionStepSearch || '').trim();
+  const sortMode = state.sessionStepSort || 'step_asc';
+  const hasActiveStepFilters = Boolean(
+    stepQuery ||
+    sortMode !== 'step_asc' ||
+    state.messageFilter !== 'ALL'
+  );
+
+  // Update summary count and reset button visibility
+  const countBadge = el.detailStepCountBadge || document.getElementById('detailStepCountBadge');
+  if (countBadge) {
+    if (filteredAndSorted.length === allMessages.length) {
+      countBadge.textContent = `${allMessages.length} step${allMessages.length === 1 ? '' : 's'}`;
+    } else {
+      countBadge.textContent = `Showing ${filteredAndSorted.length} of ${allMessages.length} steps`;
+    }
   }
 
-  if (filtered.length === 0) {
+  const resetBtn = el.resetSessionStepFiltersBtn || document.getElementById('resetSessionStepFiltersBtn');
+  if (resetBtn) {
+    resetBtn.style.display = hasActiveStepFilters ? 'inline-flex' : 'none';
+  }
+
+  const clearStepBtn = el.clearSessionStepSearchBtn || document.getElementById('clearSessionStepSearchBtn');
+  if (clearStepBtn) {
+    clearStepBtn.style.display = stepQuery ? 'inline-flex' : 'none';
+  }
+
+  const stepSortSelect = el.sessionStepSortSelect || document.getElementById('sessionStepSortSelect');
+  if (stepSortSelect && stepSortSelect.value !== sortMode) {
+    stepSortSelect.value = sortMode;
+  }
+
+  if (filteredAndSorted.length === 0) {
     el.timelineContainer.innerHTML = `
       <div class="empty-state">
         <div class="empty-state-icon">🔍</div>
-        <p>${stepQuery ? `No steps match "${escapeHtml(stepQuery)}" in this session.` : 'No messages match the current filter.'}</p>
-        ${stepQuery ? `<button class="btn-ghost-sm" id="clearStepSearchEmptyBtn" style="margin-top: 0.5rem;">Clear Step Search</button>` : ''}
+        <h3>No matching steps found</h3>
+        <p>${stepQuery ? `No steps match "${escapeHtml(stepQuery)}"` : 'No steps match the current filter selection.'}</p>
+        <button class="btn-pill" id="clearStepSearchEmptyBtn" style="margin-top: 1rem;">Reset Step Filters</button>
       </div>
     `;
     document.getElementById('clearStepSearchEmptyBtn')?.addEventListener('click', () => {
-      state.sessionStepSearch = '';
-      if (stepInput) stepInput.value = '';
-      if (clearStepBtn) clearStepBtn.style.display = 'none';
-      renderTimelineMessages();
+      resetSessionStepFilters();
     });
     return;
   }
@@ -1526,11 +1647,14 @@ function formatRelativeTime(iso) {
   try {
     const d = new Date(iso);
     const diffSec = Math.floor((Date.now() - d.getTime()) / 1000);
-    if (diffSec < 60) return 'just now';
+    if (diffSec <= 0 || diffSec < 60) return 'just now';
     if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
     if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-    if (diffSec < 604800) return `${Math.floor(diffSec / 86400)}d ago`;
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const days = Math.floor(diffSec / 86400);
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `${months}mo ago`;
+    return `${Math.floor(months / 12)}y ago`;
   } catch (_) {
     return '';
   }
