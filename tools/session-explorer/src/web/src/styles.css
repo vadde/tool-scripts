@@ -1068,6 +1068,60 @@ body {
   color: var(--text-muted);
 }
 
+.step-timestamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.step-timestamp .exact-time {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.step-timestamp .relative-time {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.session-step-search-box {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--bg-glass-active);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.65rem;
+  min-width: 200px;
+  max-width: 280px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.session-step-search-box:focus-within {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.session-step-search-box .search-icon {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.session-step-search-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  width: 100%;
+}
+
+.session-step-search-input::placeholder {
+  color: var(--text-muted);
+}
+
 .message-body {
   font-size: 0.92rem;
   color: var(--text-primary);

@@ -36,6 +36,7 @@ const state = {
   searchResults: [],
   theme: localStorage.getItem('se_theme') || 'dark',
   drilledProject: null, // active project when drilled into a repository
+  sessionStepSearch: '', // search query for steps within active session detail
   projectFilters: {
     search: '',
     sort: 'date_desc',
@@ -1097,9 +1098,15 @@ function showDetailView(detail) {
   if (el.detailView) el.detailView.classList.add('active');
 
   const s = detail.session;
+  state.sessionStepSearch = '';
+  const stepInput = document.getElementById('sessionStepSearchInput');
+  if (stepInput) stepInput.value = '';
+  const clearStepBtn = document.getElementById('clearSessionStepSearchBtn');
+  if (clearStepBtn) clearStepBtn.style.display = 'none';
+
   if (el.detailSessionId) el.detailSessionId.textContent = s.id;
   if (el.detailWorkspaceBadge) el.detailWorkspaceBadge.textContent = `📁 ${s.project_name || 'Default'}`;
-  if (el.detailTime) el.detailTime.textContent = formatDateTime(s.created_at);
+  if (el.detailTime) el.detailTime.textContent = formatDateTime(s.created_at, true);
 
   renderTimelineMessages();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1115,18 +1122,70 @@ function renderTimelineMessages() {
   if (!el.timelineContainer || !state.selectedSessionDetail) return;
   const messages = state.selectedSessionDetail.messages || [];
 
-  // Filter messages (R-013)
+  // Filter messages by type (R-013) and in-session step search
+  const stepQuery = (state.sessionStepSearch || '').trim().toLowerCase();
   const filtered = messages.filter(m => {
-    if (state.messageFilter === 'ALL') return true;
-    if (state.messageFilter === 'USER_INPUT') return m.type === 'USER_INPUT';
-    if (state.messageFilter === 'PLANNER_RESPONSE') return m.type === 'PLANNER_RESPONSE';
-    if (state.messageFilter === 'TOOL_CALLS') return m.tool_calls && m.tool_calls.length > 0;
-    if (state.messageFilter === 'ERROR') return m.status === 'ERROR' || m.type === 'ERROR_MESSAGE';
+    if (state.messageFilter === 'USER_INPUT' && m.type !== 'USER_INPUT') return false;
+    if (state.messageFilter === 'PLANNER_RESPONSE' && m.type !== 'PLANNER_RESPONSE') return false;
+    if (state.messageFilter === 'TOOL_CALLS' && (!m.tool_calls || m.tool_calls.length === 0)) return false;
+    if (state.messageFilter === 'ERROR' && (m.status !== 'ERROR' && m.type !== 'ERROR_MESSAGE')) return false;
+
+    if (stepQuery) {
+      const contentMatch = (m.content || '').toLowerCase().includes(stepQuery);
+      const thinkingMatch = (m.thinking || '').toLowerCase().includes(stepQuery);
+      const stepMatch = String(m.step_index).includes(stepQuery);
+      let toolMatch = false;
+      if (m.tool_calls) {
+        toolMatch = m.tool_calls.some(tc =>
+          (tc.name || '').toLowerCase().includes(stepQuery) ||
+          (tc.args_preview || '').toLowerCase().includes(stepQuery)
+        );
+      }
+      return contentMatch || thinkingMatch || stepMatch || toolMatch;
+    }
     return true;
   });
 
+  // Attach search listeners for in-session step filter
+  const stepInput = document.getElementById('sessionStepSearchInput');
+  const clearStepBtn = document.getElementById('clearSessionStepSearchBtn');
+  if (stepInput && !stepInput._listenerAttached) {
+    stepInput._listenerAttached = true;
+    stepInput.addEventListener('input', (e) => {
+      state.sessionStepSearch = e.target.value;
+      if (clearStepBtn) {
+        clearStepBtn.style.display = state.sessionStepSearch ? 'inline-flex' : 'none';
+      }
+      renderTimelineMessages();
+    });
+  }
+  if (clearStepBtn && !clearStepBtn._listenerAttached) {
+    clearStepBtn._listenerAttached = true;
+    clearStepBtn.addEventListener('click', () => {
+      state.sessionStepSearch = '';
+      if (stepInput) {
+        stepInput.value = '';
+        stepInput.focus();
+      }
+      clearStepBtn.style.display = 'none';
+      renderTimelineMessages();
+    });
+  }
+
   if (filtered.length === 0) {
-    el.timelineContainer.innerHTML = '<div class="empty-state"><p>No messages match the current filter.</p></div>';
+    el.timelineContainer.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">🔍</div>
+        <p>${stepQuery ? `No steps match "${escapeHtml(stepQuery)}" in this session.` : 'No messages match the current filter.'}</p>
+        ${stepQuery ? `<button class="btn-ghost-sm" id="clearStepSearchEmptyBtn" style="margin-top: 0.5rem;">Clear Step Search</button>` : ''}
+      </div>
+    `;
+    document.getElementById('clearStepSearchEmptyBtn')?.addEventListener('click', () => {
+      state.sessionStepSearch = '';
+      if (stepInput) stepInput.value = '';
+      if (clearStepBtn) clearStepBtn.style.display = 'none';
+      renderTimelineMessages();
+    });
     return;
   }
 
@@ -1138,7 +1197,8 @@ function renderTimelineMessages() {
 
     const authorName = isUser ? 'User' : isAgent ? 'Agent' : isError ? 'Error' : msg.type;
     const authorIcon = isUser ? '👤' : isAgent ? '🤖' : isError ? '⚠️' : '⚙️';
-    const timeStr = formatDateTime(msg.created_at);
+    const timeStr = formatDateTime(msg.created_at, true);
+    const relTimeStr = formatRelativeTime(msg.created_at);
 
     // Markdown rendered content for both User and Agent
     let bodyHtml = '';
@@ -1221,7 +1281,10 @@ function renderTimelineMessages() {
             <div class="message-meta">
               <span>Step ${formattedStep}</span>
               <span>•</span>
-              <span title="${timeStr}">${formatRelativeTime(msg.created_at)}</span>
+              <span class="step-timestamp" title="${timeStr}">
+                <span class="exact-time">📅 ${timeStr}</span>
+                ${relTimeStr ? `<span class="relative-time">(${relTimeStr})</span>` : ''}
+              </span>
               ${msg.content ? `<button class="copy-msg-btn btn-icon" style="width: 26px; height: 26px; font-size: 0.75rem;" title="Copy Content" data-content="${escapeHtml(msg.content)}">📋</button>` : ''}
             </div>
           </div>
@@ -1438,17 +1501,21 @@ window.copyToClipboard = function(text, successMsg = 'Copied to clipboard!') {
   });
 };
 
-function formatDateTime(iso) {
+function formatDateTime(iso, includeSeconds = false) {
   if (!iso) return '—';
   try {
     const d = new Date(iso);
-    return d.toLocaleString(undefined, {
+    const opts = {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
-    });
+    };
+    if (includeSeconds) {
+      opts.second = '2-digit';
+    }
+    return d.toLocaleString(undefined, opts);
   } catch (_) {
     return iso;
   }

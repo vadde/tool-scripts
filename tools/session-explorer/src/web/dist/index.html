@@ -138,7 +138,14 @@
           <span class="session-time" id="detailTime"></span>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 0.65rem;">
+        <div style="display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;">
+          <!-- In-session Step Search -->
+          <div class="session-step-search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="sessionStepSearchInput" class="session-step-search-input" placeholder="Search steps in session..." aria-label="Search steps in session">
+            <button class="clear-search-btn" id="clearSessionStepSearchBtn" style="display: none;" title="Clear step search">✕</button>
+          </div>
+
           <!-- Filter Message Types -->
           <div style="display: flex; gap: 0.35rem;">
             <button class="chip msg-filter-chip active" data-filter="ALL">All</button>

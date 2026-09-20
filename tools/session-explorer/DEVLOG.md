@@ -33,15 +33,20 @@
     - Perfect rail centering: `left: -2.75rem; transform: translate(-50%, 0);` on the vertical timeline rail.
     - Expanded `.timeline-container` left padding to `5.5rem` (88px) to comfortably accommodate step numbers up to 100M+.
     - Formatted numbers with locale thousands separators (`msg.step_index.toLocaleString()`), monospace font, and distinct glows for user, agent, and tool results.
+- **Exact Step Timestamps & Relative Semantic Time**:
+  - Rendered both the exact date/time down to the second (`📅 Sep 18, 2026, 10:01:23 AM`) and the relative semantic time (`4h ago`, `2d ago`) side-by-side on every STEP.
+- **In-Session Step Search (Detail View Header)**:
+  - Added `#sessionStepSearchInput` to the sticky detail view header so users can also filter and search steps within an individual session transcript.
 - **Testing & Verification**:
   - Rebuilt assets with Bun and compiled Go binary.
   - All 14 unit tests pass (`make test-tool T=session-explorer`).
   - Verified static assets served with cache-busting headers.
 
 #### Files Changed
-- `src/web/src/styles.css` — Added `.project-session-toolbar`, `.project-search-box`, `.project-date-presets`, and dynamic `.timeline-node` styling.
-- `src/web/src/app.js` — Added `projectFilters`, in-project search/sort/date filter logic, and step index formatting.
-- `src/web/dist/` — Rebundled `app.bundle.js` and `styles.css`.
+- `src/web/src/styles.css` — Added `.project-session-toolbar`, `.session-step-search-box`, `.step-timestamp`, and dynamic `.timeline-node` styling.
+- `src/web/src/app.js` — Added `projectFilters`, in-project search/sort/date filter logic, in-session step search, and exact timestamp formatting.
+- `src/web/index.html` — Added in-session step search box to detail header.
+- `src/web/dist/` — Rebundled `app.bundle.js`, `styles.css`, and `index.html`.
 
 ---
 
