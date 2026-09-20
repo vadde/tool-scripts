@@ -35,8 +35,14 @@ const state = {
   searchQuery: '',
   searchResults: [],
   theme: localStorage.getItem('se_theme') || 'dark',
-  groupBy: localStorage.getItem('se_group_by') || 'project', // 'project' | 'date' | 'flat'
-  drilledProject: null // active project when drilled into a repository
+  drilledProject: null, // active project when drilled into a repository
+  projectFilters: {
+    search: '',
+    sort: 'date_desc',
+    dateFrom: '',
+    dateTo: '',
+    datePreset: 'all'
+  }
 };
 
 // DOM Elements
@@ -507,53 +513,288 @@ function renderProjectHub() {
     const totalPrompts = projSessions.reduce((acc, s) => acc + s.user_message_count, 0);
     const totalTools = projSessions.reduce((acc, s) => acc + s.tool_call_count, 0);
 
-    // Show Hero Banner
+    // Filter and sort projSessions based on state.projectFilters
+    function getFilteredAndSortedProjSessions() {
+      let list = [...projSessions];
+
+      // 1. In-Project Search (independent from global search)
+      const q = (state.projectFilters.search || '').trim().toLowerCase();
+      if (q) {
+        list = list.filter(s => {
+          const idMatch = (s.id || '').toLowerCase().includes(q);
+          const promptMatch = (s.first_user_prompt_preview || '').toLowerCase().includes(q);
+          const wsMatch = (s.workspace || '').toLowerCase().includes(q);
+          const touchedMatch = (s.projects_touched || []).some(pt => pt.toLowerCase().includes(q));
+          let toolMatch = false;
+          if (s.tool_calls_map) {
+            toolMatch = Object.keys(s.tool_calls_map).some(k => k.toLowerCase().includes(q));
+          }
+          return idMatch || promptMatch || wsMatch || touchedMatch || toolMatch;
+        });
+      }
+
+      // 2. In-Project Date Filter (inclusive lifetime overlap)
+      if (state.projectFilters.dateFrom || state.projectFilters.dateTo) {
+        const fromTime = state.projectFilters.dateFrom ? new Date(state.projectFilters.dateFrom + 'T00:00:00Z').getTime() : 0;
+        const toTime = state.projectFilters.dateTo ? new Date(state.projectFilters.dateTo + 'T23:59:59.999Z').getTime() : Infinity;
+
+        list = list.filter(s => {
+          const cTime = new Date(s.created_at).getTime();
+          const lTime = s.last_message_at ? new Date(s.last_message_at).getTime() : cTime;
+          return (lTime >= fromTime) && (cTime <= toTime);
+        });
+      }
+
+      // 3. In-Project Sort
+      const pSort = state.projectFilters.sort || 'date_desc';
+      list.sort((a, b) => {
+        switch (pSort) {
+          case 'date_asc':
+            return new Date(a.created_at) - new Date(b.created_at);
+          case 'steps_desc':
+            return (b.step_count || 0) - (a.step_count || 0);
+          case 'messages_desc':
+            return (b.user_message_count || 0) - (a.user_message_count || 0);
+          case 'tools_desc':
+            return (b.tool_call_count || 0) - (a.tool_call_count || 0);
+          case 'size_desc':
+            return (b.transcript_size_bytes || 0) - (a.transcript_size_bytes || 0);
+          case 'date_desc':
+          default:
+            return new Date(b.created_at) - new Date(a.created_at);
+        }
+      });
+
+      return list;
+    }
+
+    const filtered = getFilteredAndSortedProjSessions();
+    const hasActiveFilters = Boolean(
+      state.projectFilters.search ||
+      state.projectFilters.dateFrom ||
+      state.projectFilters.dateTo ||
+      state.projectFilters.datePreset !== 'all' ||
+      state.projectFilters.sort !== 'date_desc'
+    );
+
+    // Show Hero Banner & In-Project Session Stack Toolbar
     if (el.projectHeroBanner) {
       el.projectHeroBanner.style.display = 'flex';
       el.projectHeroBanner.innerHTML = `
-        <div class="project-hero-left">
-          <button class="back-btn" id="projectHeroBackBtn"><span>←</span> All Repositories</button>
-          <div class="project-hero-info">
-            <div class="project-hero-title">
-              📁 ${escapeHtml(projName)}
-              <span class="git-badge">git repo</span>
+        <div class="project-hero-top">
+          <div class="project-hero-left">
+            <button class="back-btn" id="projectHeroBackBtn"><span>←</span> All Repositories</button>
+            <div class="project-hero-info">
+              <div class="project-hero-title">
+                📁 ${escapeHtml(projName)}
+                <span class="git-badge">git repo</span>
+              </div>
+              <div class="project-hero-path">${escapeHtml(projPath)}</div>
             </div>
-            <div class="project-hero-path">${escapeHtml(projPath)}</div>
+          </div>
+          <div class="project-hero-stats">
+            <span class="chip active">📂 ${projSessions.length} Total Sessions</span>
+            <span class="chip">👤 ${totalPrompts} Prompts</span>
+            <span class="chip">⚡ ${totalTools} Tool Calls</span>
+            <span class="chip">🪜 ${totalSteps.toLocaleString()} Steps</span>
           </div>
         </div>
-        <div class="project-hero-stats">
-          <span class="chip active">📂 ${projSessions.length} Session${projSessions.length === 1 ? '' : 's'}</span>
-          <span class="chip">👤 ${totalPrompts} Prompts</span>
-          <span class="chip">⚡ ${totalTools} Tool Calls</span>
-          <span class="chip">🪜 ${totalSteps} Steps</span>
+
+        <!-- Dedicated In-Project Session Stack Toolbar (R-029) -->
+        <div class="project-session-toolbar">
+          <div class="project-search-box">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="projectSearchInput" class="project-search-input" placeholder="Search sessions in ${escapeHtml(projName)}..." value="${escapeHtml(state.projectFilters.search || '')}">
+            <button class="clear-search-btn" id="clearProjectSearchBtn" title="Clear in-project search" style="display: ${state.projectFilters.search ? 'inline-flex' : 'none'};">✕</button>
+          </div>
+
+          <div class="filter-group">
+            <span class="filter-label">Sort:</span>
+            <select id="projectSortSelect" class="select-custom" aria-label="Sort sessions in this project">
+              <option value="date_desc" ${state.projectFilters.sort === 'date_desc' ? 'selected' : ''}>Most Recent</option>
+              <option value="date_asc" ${state.projectFilters.sort === 'date_asc' ? 'selected' : ''}>Oldest First</option>
+              <option value="steps_desc" ${state.projectFilters.sort === 'steps_desc' ? 'selected' : ''}>Most Steps</option>
+              <option value="messages_desc" ${state.projectFilters.sort === 'messages_desc' ? 'selected' : ''}>Most Prompts</option>
+              <option value="tools_desc" ${state.projectFilters.sort === 'tools_desc' ? 'selected' : ''}>Most Tool Calls</option>
+              <option value="size_desc" ${state.projectFilters.sort === 'size_desc' ? 'selected' : ''}>Largest Size</option>
+            </select>
+          </div>
+
+          <div class="filter-group project-date-group">
+            <span class="filter-label">Date:</span>
+            <input type="date" id="projectDateFrom" class="date-input" value="${state.projectFilters.dateFrom || ''}" aria-label="Start date">
+            <span style="color: var(--text-muted); font-size: 0.8rem;">to</span>
+            <input type="date" id="projectDateTo" class="date-input" value="${state.projectFilters.dateTo || ''}" aria-label="End date">
+            <div class="project-date-presets">
+              <button class="chip date-preset-chip ${state.projectFilters.datePreset === 'all' ? 'active' : ''}" data-preset="all">All Time</button>
+              <button class="chip date-preset-chip ${state.projectFilters.datePreset === 'today' ? 'active' : ''}" data-preset="today">Today</button>
+              <button class="chip date-preset-chip ${state.projectFilters.datePreset === '7d' ? 'active' : ''}" data-preset="7d">7 Days</button>
+              <button class="chip date-preset-chip ${state.projectFilters.datePreset === '30d' ? 'active' : ''}" data-preset="30d">30 Days</button>
+            </div>
+          </div>
+
+          <div class="project-toolbar-summary">
+            <span class="project-count-badge" id="projectSessionCountBadge">
+              Showing ${filtered.length} of ${projSessions.length} session${projSessions.length === 1 ? '' : 's'}
+            </span>
+            <button class="btn-ghost-sm" id="resetProjectFiltersBtn" style="display: ${hasActiveFilters ? 'inline-block' : 'none'};">Reset Filters</button>
+          </div>
         </div>
       `;
 
+      // Back Button Listener
       document.getElementById('projectHeroBackBtn')?.addEventListener('click', () => {
         state.drilledProject = null;
         state.filterWorkspace = '';
+        state.projectFilters = { search: '', sort: 'date_desc', dateFrom: '', dateTo: '', datePreset: 'all' };
         if (el.workspaceSelect) el.workspaceSelect.value = '';
         loadSessions();
       });
+
+      // In-Project Search Input Listener (Reactive, maintains input focus)
+      const pSearchInput = document.getElementById('projectSearchInput');
+      const clearSearchBtn = document.getElementById('clearProjectSearchBtn');
+
+      if (pSearchInput) {
+        pSearchInput.addEventListener('input', (e) => {
+          state.projectFilters.search = e.target.value;
+          if (clearSearchBtn) {
+            clearSearchBtn.style.display = state.projectFilters.search ? 'inline-flex' : 'none';
+          }
+          const updated = getFilteredAndSortedProjSessions();
+          renderProjectSessionGrid(updated);
+          updateProjectToolbarSummary(updated.length, projSessions.length);
+        });
+      }
+
+      if (clearSearchBtn) {
+        clearSearchBtn.addEventListener('click', () => {
+          state.projectFilters.search = '';
+          if (pSearchInput) {
+            pSearchInput.value = '';
+            pSearchInput.focus();
+          }
+          clearSearchBtn.style.display = 'none';
+          const updated = getFilteredAndSortedProjSessions();
+          renderProjectSessionGrid(updated);
+          updateProjectToolbarSummary(updated.length, projSessions.length);
+        });
+      }
+
+      // In-Project Sort Select Listener
+      document.getElementById('projectSortSelect')?.addEventListener('change', (e) => {
+        state.projectFilters.sort = e.target.value;
+        const updated = getFilteredAndSortedProjSessions();
+        renderProjectSessionGrid(updated);
+        updateProjectToolbarSummary(updated.length, projSessions.length);
+      });
+
+      // In-Project Date Pickers
+      const pDateFrom = document.getElementById('projectDateFrom');
+      const pDateTo = document.getElementById('projectDateTo');
+
+      const onDateChange = () => {
+        state.projectFilters.dateFrom = pDateFrom?.value || '';
+        state.projectFilters.dateTo = pDateTo?.value || '';
+        state.projectFilters.datePreset = '';
+        document.querySelectorAll('.project-date-presets .date-preset-chip').forEach(c => c.classList.remove('active'));
+        const updated = getFilteredAndSortedProjSessions();
+        renderProjectSessionGrid(updated);
+        updateProjectToolbarSummary(updated.length, projSessions.length);
+      };
+
+      pDateFrom?.addEventListener('change', onDateChange);
+      pDateTo?.addEventListener('change', onDateChange);
+      pDateFrom?.addEventListener('input', onDateChange);
+      pDateTo?.addEventListener('input', onDateChange);
+
+      // In-Project Date Preset Chips
+      document.querySelectorAll('.project-date-presets .date-preset-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.project-date-presets .date-preset-chip').forEach(c => c.classList.remove('active'));
+          btn.classList.add('active');
+          const preset = btn.dataset.preset;
+          state.projectFilters.datePreset = preset;
+          const today = new Date();
+          if (preset === 'all') {
+            state.projectFilters.dateFrom = '';
+            state.projectFilters.dateTo = '';
+          } else if (preset === 'today') {
+            const todayStr = formatLocalDate(today);
+            state.projectFilters.dateFrom = todayStr;
+            state.projectFilters.dateTo = todayStr;
+          } else if (preset === '7d') {
+            const past = new Date(today);
+            past.setDate(past.getDate() - 7);
+            state.projectFilters.dateFrom = formatLocalDate(past);
+            state.projectFilters.dateTo = formatLocalDate(today);
+          } else if (preset === '30d') {
+            const past = new Date(today);
+            past.setDate(past.getDate() - 30);
+            state.projectFilters.dateFrom = formatLocalDate(past);
+            state.projectFilters.dateTo = formatLocalDate(today);
+          }
+          if (pDateFrom) pDateFrom.value = state.projectFilters.dateFrom;
+          if (pDateTo) pDateTo.value = state.projectFilters.dateTo;
+          const updated = getFilteredAndSortedProjSessions();
+          renderProjectSessionGrid(updated);
+          updateProjectToolbarSummary(updated.length, projSessions.length);
+        });
+      });
+
+      // Reset Project Filters Button
+      document.getElementById('resetProjectFiltersBtn')?.addEventListener('click', () => {
+        state.projectFilters = { search: '', sort: 'date_desc', dateFrom: '', dateTo: '', datePreset: 'all' };
+        renderProjectHub();
+      });
+    }
+
+    function renderProjectSessionGrid(list) {
+      if (list.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-state-icon">📂</div>
+            <h3>No sessions match project filters in ${escapeHtml(projName)}</h3>
+            <p>Try adjusting your search query, sort option, or date filter.</p>
+            <button class="btn-pill" id="emptyResetBtn" style="margin-top: 1rem;">Reset Project Filters</button>
+          </div>
+        `;
+        document.getElementById('emptyResetBtn')?.addEventListener('click', () => {
+          state.projectFilters = { search: '', sort: 'date_desc', dateFrom: '', dateTo: '', datePreset: 'all' };
+          renderProjectHub();
+        });
+      } else {
+        container.innerHTML = `<div class="session-grid">${renderSessionCardsHtml(list)}</div>`;
+        attachSessionCardClicks(container);
+      }
+    }
+
+    function updateProjectToolbarSummary(filteredCount, totalCount) {
+      const badge = document.getElementById('projectSessionCountBadge');
+      if (badge) {
+        badge.textContent = `Showing ${filteredCount} of ${totalCount} session${totalCount === 1 ? '' : 's'}`;
+      }
+      if (el.sessionCountBadge) {
+        el.sessionCountBadge.textContent = `${filteredCount} session${filteredCount === 1 ? '' : 's'} in ${projName}`;
+      }
+      const resetBtn = document.getElementById('resetProjectFiltersBtn');
+      const hasFilters = Boolean(
+        state.projectFilters.search ||
+        state.projectFilters.dateFrom ||
+        state.projectFilters.dateTo ||
+        state.projectFilters.datePreset !== 'all' ||
+        state.projectFilters.sort !== 'date_desc'
+      );
+      if (resetBtn) {
+        resetBtn.style.display = hasFilters ? 'inline-block' : 'none';
+      }
     }
 
     if (el.sessionCountBadge) {
-      el.sessionCountBadge.textContent = `${projSessions.length} session${projSessions.length === 1 ? '' : 's'} in ${projName}`;
+      el.sessionCountBadge.textContent = `${filtered.length} session${filtered.length === 1 ? '' : 's'} in ${projName}`;
     }
 
-    if (projSessions.length === 0) {
-      container.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">📂</div>
-          <h3>No sessions found for ${escapeHtml(projName)}</h3>
-          <p>No agent conversation sessions match your active filters.</p>
-        </div>
-      `;
-      return;
-    }
-
-    container.innerHTML = `<div class="session-grid">${renderSessionCardsHtml(projSessions)}</div>`;
-    attachSessionCardClicks(container);
+    renderProjectSessionGrid(filtered);
     return;
   }
 
@@ -969,14 +1210,16 @@ function renderTimelineMessages() {
       `;
     }
 
+    const formattedStep = typeof msg.step_index === 'number' ? msg.step_index.toLocaleString() : (msg.step_index ?? '0');
+
     return `
       <div class="message-item ${isUser ? 'user' : isAgent ? 'agent' : 'tool-result'}" data-step="${msg.step_index}">
-        <div class="timeline-node">${msg.step_index}</div>
+        <div class="timeline-node" title="Step ${formattedStep}">${formattedStep}</div>
         <div class="message-card">
           <div class="message-header">
             <span class="message-author">${authorIcon} ${authorName}</span>
             <div class="message-meta">
-              <span>Step ${msg.step_index}</span>
+              <span>Step ${formattedStep}</span>
               <span>•</span>
               <span title="${timeStr}">${formatRelativeTime(msg.created_at)}</span>
               ${msg.content ? `<button class="copy-msg-btn btn-icon" style="width: 26px; height: 26px; font-size: 0.75rem;" title="Copy Content" data-content="${escapeHtml(msg.content)}">📋</button>` : ''}

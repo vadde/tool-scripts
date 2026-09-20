@@ -6,6 +6,45 @@
 
 ---
 
+### 2026-09-20 — In-Project Session Stack Toolbar (Search, Sort, Date Filter) & Timeline Step Numbers UX Facelifting
+
+**Agent/Author**: gemini-3.8-flash
+**SDLC Phase**: `review` (UI/UX facelifting & in-project interaction rigor)
+**Duration**: ~20m
+
+#### What Was Done
+- **In-Project Session Stack Search (Isolated from Global Search)**:
+  - Added dedicated in-project search box (`#projectSearchInput`) directly within the project session stack toolbar.
+  - Implemented live substring matching across prompt previews, session IDs, tool calls, touched projects, and error tags.
+  - Completely isolated from global search (`#globalSearchInput` and `#searchModal` / Cmd+K), leaving global search untouched as requested.
+  - Added clear search button (`#clearProjectSearchBtn`) and focus-preserving reactive re-rendering.
+- **In-Project Session Stack Sorting**:
+  - Added dedicated sort selector (`#projectSortSelect`) inside the project toolbar: `Most Recent`, `Oldest First`, `Most Steps`, `Most Prompts`, `Most Tool Calls`, and `Largest Size`.
+  - Instantly re-sorts and updates the project's session cards without reloading.
+- **In-Project Calendar Date Filtering**:
+  - Embedded native HTML5 calendar date inputs (`#projectDateFrom`, `#projectDateTo`) with calendar popups.
+  - Added quick preset chips (`All Time`, `Today`, `7 Days`, `30 Days`).
+  - Integrated inclusive lifetime overlap filtering: `(lastActive >= from) && (createdAt <= to)`.
+  - Added dynamic summary counter (`Showing X of Y sessions in [project]`) and a one-click `Reset Filters` button.
+- **Timeline Step Numbers UX Facelifting**:
+  - Resolved text floating/overflow issue where static 20px circle clipped multi-digit or million-step indices.
+  - Redesigned `.timeline-node`:
+    - Auto-adapting dynamic width: `min-width: 28px; height: 28px; width: auto; padding: 0 8px; border-radius: 9999px;` (smooth capsule pill).
+    - Perfect rail centering: `left: -2.75rem; transform: translate(-50%, 0);` on the vertical timeline rail.
+    - Expanded `.timeline-container` left padding to `5.5rem` (88px) to comfortably accommodate step numbers up to 100M+.
+    - Formatted numbers with locale thousands separators (`msg.step_index.toLocaleString()`), monospace font, and distinct glows for user, agent, and tool results.
+- **Testing & Verification**:
+  - Rebuilt assets with Bun and compiled Go binary.
+  - All 14 unit tests pass (`make test-tool T=session-explorer`).
+  - Verified static assets served with cache-busting headers.
+
+#### Files Changed
+- `src/web/src/styles.css` — Added `.project-session-toolbar`, `.project-search-box`, `.project-date-presets`, and dynamic `.timeline-node` styling.
+- `src/web/src/app.js` — Added `projectFilters`, in-project search/sort/date filter logic, and step index formatting.
+- `src/web/dist/` — Rebundled `app.bundle.js` and `styles.css`.
+
+---
+
 ### 2026-09-18 — Portable Project Extraction & CI Runner Resiliency Fix
 
 **Agent/Author**: gemini-3.8-flash
