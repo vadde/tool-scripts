@@ -6,6 +6,33 @@
 
 ---
 
+### 2026-09-20 — Bugfix: Resolve ReferenceError on Session Details Loading
+
+**Agent/Author**: gemini-3.8-flash
+**SDLC Phase**: `review` (Bugfix / Runtime stability)
+**Duration**: ~5m
+
+#### What Was Done
+- **Root Cause Analysis**:
+  - In `renderTimelineMessages()`, `getFilteredAndSortedMessages()` stored results in `filteredAndSorted`.
+  - At line 1313, the template mapping mistakenly referred to undefined variable `filtered` (`filtered.map(msg => ...)` instead of `filteredAndSorted.map(...)`).
+  - When opening a session, this threw a `ReferenceError: filtered is not defined` inside `showDetailView()`, causing `loadSessionDetail()` catch block to display `showToast('❌ Error loading session detail')`.
+- **Fix Implemented**:
+  - Corrected line 1313 to `filteredAndSorted.map(msg => ...)`.
+  - Added NaN-safe timestamp arithmetic in `time_desc` and `time_asc` sorting criteria (`new Date(iso).getTime() || 0`).
+  - Enhanced error handling in `loadSessionDetail` to report specific error messages in the toast.
+- **Verification**:
+  - Rebundled frontend bundle with Bun into `src/web/dist/app.bundle.js`.
+  - Recompiled standalone Go binary and restarted daemon on port 9876.
+  - All 14 unit tests pass (`make test`).
+
+#### Files Changed
+- `src/web/src/app.js` — Fixed variable reference and enhanced error toast.
+- `src/web/dist/app.bundle.js` — Production bundle rebuilt.
+- `DEVLOG.md` — Logged bugfix.
+
+---
+
 ### 2026-09-20 — Interrelated Search & Sort for Session Stack and Step Timestamps
 
 **Agent/Author**: gemini-3.8-flash

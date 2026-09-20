@@ -402,7 +402,7 @@ async function loadSessionDetail(sessionId) {
     showDetailView(data);
   } catch (err) {
     console.error('Failed to load session detail:', err);
-    showToast('❌ Error loading session detail');
+    showToast(`❌ Error loading session detail: ${err.message}`);
   }
 }
 
@@ -1229,13 +1229,13 @@ function getFilteredAndSortedMessages() {
       case 'step_desc':
         return stepB - stepA;
       case 'time_desc': {
-        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        const timeA = a.created_at ? (new Date(a.created_at).getTime() || 0) : 0;
+        const timeB = b.created_at ? (new Date(b.created_at).getTime() || 0) : 0;
         return (timeB - timeA) || (stepB - stepA);
       }
       case 'time_asc': {
-        const timeA = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const timeB = b.created_at ? new Date(b.created_at).getTime() : 0;
+        const timeA = a.created_at ? (new Date(a.created_at).getTime() || 0) : 0;
+        const timeB = b.created_at ? (new Date(b.created_at).getTime() || 0) : 0;
         return (timeA - timeB) || (stepA - stepB);
       }
       case 'tools_desc': {
@@ -1310,7 +1310,7 @@ function renderTimelineMessages() {
     return;
   }
 
-  el.timelineContainer.innerHTML = filtered.map(msg => {
+  el.timelineContainer.innerHTML = filteredAndSorted.map(msg => {
     const isUser = msg.type === 'USER_INPUT';
     const isAgent = msg.type === 'PLANNER_RESPONSE';
     const isToolOutput = !isUser && !isAgent && msg.type !== 'ERROR_MESSAGE';
