@@ -4,6 +4,37 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-24 — Fix SurrealDB Record ID Delimiters & Community Node Persistence
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~15m
+
+#### What Was Done
+- **Root Cause Analysis of "Galaxies 0 & Clustered Nodes 0 / 2547"**:
+  - SurrealDB v2 record IDs when returned from `SELECT` enclose IDs containing spaces, dashes, or colons with backticks (e.g. `node:\`DSA:00 - Fundamentals/001 - Queue and Stack/queue_and_stack.py:Node:38\``).
+  - In `src/db/mod.rs`, `update_communities` only stripped `"node:"`, leaving literal backticks in `clean_id`.
+  - Passing `'`clean_id`'` into `type::thing('node', '{}')` caused SurrealQL to search for record IDs literally starting and ending with backticks, matching 0 records and updating nothing (while returning HTTP 200 OK without errors).
+  - Consequently, after running `POST /api/cluster`, all nodes in SurrealDB remained with `community: null`, causing the React UI's galaxy grouping to calculate 0 clusters and `0 / 2547` clustered nodes.
+- **Implemented Fix in `src/db/mod.rs`**:
+  - Enhanced `update_communities` to strip `node:` prefix and trim all delimiter wrappers (`` ` ``, `⟨`, `⟩`, `"`, `'`).
+  - Added string character escaping for backslashes and single quotes.
+  - Implemented batch chunking (150 statements per `/sql` HTTP request) to ensure reliable query execution across thousands of nodes without SurrealDB request size issues or JSON memory spikes.
+- **Added UI Cache-Busting**:
+  - In `tools/omni-graph/ui/src/App.tsx`, added dynamic cache-busting timestamp `_t=${Date.now()}` to `loadGraph` so browser HTTP caching never returns stale node objects without updated community integers.
+- **Rebuilt & Verified**:
+  - Rebuilt `omni-rust-app` and `omni-graph-ui` containers.
+  - Tested `POST /api/cluster` for `tutor-intelligence` workspace: all 231/231 nodes partitioned into 98 communities and verified populated in SurrealDB.
+  - Tested `POST /api/cluster` for full Omniverse: all 2,547/2,547 nodes partitioned into 1,632 galaxy clusters.
+  - Verified `GET /api/graph` returns 2,547/2,547 clustered nodes with populated `community` values.
+
+#### Files Changed
+- `tools/omni-graph/src/db/mod.rs` — Trim delimiters and batch update statements in `update_communities`
+- `tools/omni-graph/ui/src/App.tsx` — Added cache-busting query parameter to `loadGraph`
+- `tools/omni-graph/DEVLOG.md` — This entry
+
+---
+
 ### 2026-09-24 — Path Normalization for Workspace Clustering & Queries
 
 **Agent/Author**: Antigravity

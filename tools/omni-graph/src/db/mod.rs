@@ -444,16 +444,31 @@ impl DbClient {
             return Ok(());
         }
 
-        let mut query = String::new();
-        for (node_id, comm_id) in assignments {
-            let clean_id = node_id.strip_prefix("node:").unwrap_or(node_id);
-            query.push_str(&format!(
-                "UPDATE type::thing('node', '{}') SET community = {};\n",
-                clean_id.replace('\'', "\\'"), comm_id
-            ));
+        let entries: Vec<(&String, &i32)> = assignments.iter().collect();
+        info!("Updating communities for {} nodes in batches...", entries.len());
+
+        for chunk in entries.chunks(150) {
+            let mut query = String::new();
+            for (node_id, comm_id) in chunk {
+                let clean_id = node_id
+                    .strip_prefix("node:")
+                    .unwrap_or(node_id)
+                    .trim_matches('`')
+                    .trim_matches('⟨')
+                    .trim_matches('⟩')
+                    .trim_matches('"')
+                    .trim_matches('\'');
+                let escaped_id = clean_id.replace('\\', "\\\\").replace('\'', "\\'");
+                query.push_str(&format!(
+                    "UPDATE type::thing('node', '{}') SET community = {};\n",
+                    escaped_id, comm_id
+                ));
+            }
+
+            self.query_sql(&query).await?;
         }
 
-        self.query_sql(&query).await?;
+        info!("Successfully updated communities for {} nodes.", entries.len());
         Ok(())
     }
 }

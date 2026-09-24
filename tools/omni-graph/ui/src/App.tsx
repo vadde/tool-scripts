@@ -150,7 +150,10 @@ export default function App() {
 
   const loadGraph = async (wsFilter?: string | null) => {
     try {
-      const url = wsFilter ? `/api/graph?workspace=${encodeURIComponent(wsFilter)}` : '/api/graph';
+      const qs = wsFilter
+        ? `workspace=${encodeURIComponent(wsFilter)}&_t=${Date.now()}`
+        : `_t=${Date.now()}`;
+      const url = `/api/graph?${qs}`;
       const res = await fetch(url);
       if (res.ok) {
         const gJson = await res.json();
