@@ -1,0 +1,290 @@
+# 📓 Development Log — omni-graph
+
+> Chronological record of all development sessions on this tool.
+> **Append-only** — never delete entries, only add new ones at the top.
+> Each entry captures what happened, what changed, and what to do next.
+
+### 2026-09-24 — UI/UX Evolution: Workspace Filter, Galaxy Navigator & Directory Traversal Modal
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~20m
+
+#### What Was Done
+- **Implemented Interactive Filesystem Directory Traversal API (`GET /api/browse`)**:
+  - Added [`browse_handler`](file:///Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/tool-scripts/tools/omni-graph/src/api/mod.rs) to Axum backend.
+  - Dynamically lists child directories, parent paths, and automatically flags detected codebases (detecting `Cargo.toml`, `package.json`, `go.mod`, `pyproject.toml`, `.git`, `Makefile`) with language tags.
+- **Redesigned Cosmograph WebGL Frontend (`http://localhost:3000`)**:
+  - **Workspace & Codebase Selector Dropdown**:
+    - Replaced the chaotic "all-nodes-at-once" view with an interactive Workspace Dropdown in the top HUD.
+    - Users can select `🌐 All Workspaces (Omniverse)` or focus on a specific project (e.g. `📁 session-explorer`, `📁 DSA`, `📁 DesignPatterns`). Selecting a workspace dynamically refetches `/api/graph?workspace=...` and isolates that codebase.
+  - **Collapsible Galaxy Subsystems Navigator (Left Drawer)**:
+    - Added floating `[ 🌌 Galaxies ]` toggle button with community count badge.
+    - Displays all detected Louvain/Leiden modular clusters with neon color dots, cluster IDs, and node counts.
+    - Clicking a cluster card highlights and zooms into those nodes in the WebGL Cosmograph canvas and expands an accordion listing all constituent functions/structs with real-time fuzzy filtering.
+    - Clicking any function card instantly focuses that node and opens the Node Inspector.
+  - **Futuristic Directory Traversal & Ingestion Modal**:
+    - Replaced the static path text input with a Cyber-Glass Modal (`[ ⚡ Ingest Codebase ]`).
+    - Features clickable breadcrumbs (`root / Users / aparv / ...`), quick-jump bookmarks (`[ 💻 Monorepo ]`, `[ 👤 Host Users ]`, `[ 📦 Tools ]`), and "Up one level" navigation.
+    - Lists directories with folder icons, codebase badges, and direct `[ Ingest ]` buttons without forcing the user to type manual file paths.
+  - **Node Inspector & Context Condenser Drawer (Right Drawer)**:
+    - Slides out when clicking any node in the graph or galaxy list.
+    - Displays symbol name, kind, file path, line range, community galaxy, code snippet preview, and one-click **"Copy Prompt Slice (<1500 tokens)"** for AI coding agents.
+  - **Clean Clutter-Free Aesthetics**:
+    - All drawers and modals are collapsible, floating over the full-viewport 3D WebGL canvas with deep glassmorphism and cyber-neon accents.
+- **Build & Container Verification**:
+  - `npm run build` compiled cleanly with 0 TypeScript errors.
+  - Rebuilt `omni-rust-app` and `omni-graph-ui` containers.
+  - Verified `GET /api/browse?path=/workspace` and `/workspace/tools`.
+  - Shut down all containers (`docker compose down`) per user directive to release host ports.
+
+#### Files Changed
+- `tools/omni-graph/src/api/mod.rs` — Added `BrowseParams`, `DirEntry`, `BrowseResponse`, and `browse_handler`
+- `tools/omni-graph/ui/src/App.tsx` — Full UI redesign with workspace filter, galaxy drawer, and folder browser modal
+- `tools/omni-graph/ui/src/index.css` — Modern glassmorphism, drawer transitions, and cyber button styling
+- `tools/omni-graph/DEVLOG.md` — This entry
+
+---
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~15m
+
+#### What Was Done
+- **Fixed Ingestion Connection Failure & Silent SurrealDB Rejections**:
+  - Root-caused `Remote end closed connection without response` and silent database insert failures:
+    - SurrealDB v2 strictly requires lowercase headers `surreal-ns: omni` and `surreal-db: graph`. Sending v1 headers `NS` and `DB` caused SurrealDB to return `status: "ERR", result: "Specify a namespace to use"`, which returned HTTP 200 and was silently dropped.
+    - Updated `src/db/mod.rs` to send `surreal-ns` and `surreal-db` headers, and added explicit error-checking inspecting response JSON for `status: "ERR"` and returning actionable Rust errors.
+- **Fixed HuggingFace TEI Batch Size Limit (422 Unprocessable Entity)**:
+  - TEI enforces a maximum batch size of 32 on CPU/ARM64. Extracted files with > 32 AST nodes (such as `session-explorer/src/web/src/app.js` with 40 nodes) were rejected with `batch size 40 > maximum allowed batch size 32`.
+  - Updated `src/embedder/mod.rs` to chunk texts into slices of `<= 32` before sending to `/embed`, validating dimensions (384-dim) per chunk and aggregating results.
+- **Fixed Ingestion Cache Invalidation on Error**:
+  - Updated `FileCache` in `src/ingestion/mod.rs` so file hashes are only committed to cache once AST nodes and graph edges are successfully persisted to SurrealDB.
+- **Eliminated GNU Make Target Collisions (`make: '...' is up to date`)**:
+  - Configured trailing argument absorption in root `Makefile` and `tools/omni-graph/Makefile` using `.PHONY: $(MAKECMDGOALS)` and `$(filter-out $(firstword $(MAKECMDGOALS)),$(MAKECMDGOALS)): @true`.
+  - Now running `make ingest /path/to/folder` cleanly executes ingestion without emitting Make file status noise.
+- **End-to-End Verification Completed**:
+  - Ingested `session-explorer` (`make ingest /Users/aparv/.../tools/session-explorer`): 8 files scanned, 7 indexed, 68 AST nodes, 750 directional graph edges created in 3.3s.
+  - Ran `make workspaces`: Confirmed `session-explorer` partition with 68 nodes across Go and JavaScript.
+  - Ran `make cluster`: Detected 14 modular communities via label propagation and assigned galaxy IDs.
+  - Ran `make search-graph Q="Scanner"`: Verified 24ms vector similarity ANN search across HNSW index.
+  - Ran `make query-graph Q="How does session-explorer search work?"`: Verified macroscopic architecture synthesis and expanded AST call chain condensation.
+
+#### Files Changed
+- `tools/omni-graph/src/db/mod.rs` — Added `surreal-ns`/`surreal-db` headers and `status: "ERR"` validation
+- `tools/omni-graph/src/embedder/mod.rs` — Chunked embedding requests into batches of `<= 32`
+- `tools/omni-graph/src/ingestion/mod.rs` — Fixed `FileCache` to record hashes only upon successful persistence
+- `tools/omni-graph/scripts/omni.sh` — Added urllib timeout=300 and clear error reporting
+- `tools/omni-graph/Makefile` — Clean trailing argument absorption and modern Docker test fallback
+- `Makefile` — Clean trailing argument absorption for root `make ingest` and `make cluster`
+- `tools/omni-graph/DEVLOG.md` — This entry
+
+---
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~20m
+
+#### What Was Done
+- **Resolved Docker Compose Rust Build Failure (`exit code 101`)**:
+  - Upgraded Rust builder to `FROM rust:latest` (Rust 1.85+ supports `edition2024` required by dependencies like `idna_adapter v1.2.2`).
+  - Fixed Tree-sitter borrowing issue (`set_language(&Language)`).
+  - Wired missing `workspace` arguments across all endpoints and modules (`db/mod.rs`, `ingestion/mod.rs`, `analysis/mod.rs`, `api/mod.rs`).
+  - Cleaned all unused imports and warnings across all Rust source files; `docker compose build rust-app` now compiles cleanly in release mode with 0 errors and 0 warnings.
+- **Resolved SurrealDB Startup & Health Check Failure (`graph-db failed to start`)**:
+  - Fixed volume permission issue on `/data`: Added `user: "0:0"` so SurrealDB runs with root permissions and can create RocksDB/SurrealKV directories in named volumes.
+  - Upgraded embedded storage engine from deprecated `file:/data/omni.db` to production `surrealkv:/data/omni.db`.
+  - Fixed distroless health check: `surrealdb/surrealdb` image is a scratch image without `/bin/sh`. Replaced `CMD-SHELL` with exec form `["CMD", "/surreal", "isready", "--endpoint", "http://127.0.0.1:8000"]`. Verified container reports `"healthy"`.
+- **Implemented Multi-Workspace Database Schema & Partitioning**:
+  - Updated `src/db/schema.surql`: Added `workspace` field and index `idx_node_workspace`, `idx_edge_workspace`.
+  - Partitioned node IDs: `node:{workspace}:{file_path}:{name}:{line}` with safe SurrealDB `type::thing('node', ...)`.
+  - Added multi-workspace filtering to vector search (`search_vector`), graph retrieval (`get_graph`), symbol lookup (`find_symbols`), and reference callers (`find_references`).
+  - Added new `/api/workspaces` endpoint to list all ingested codebases and their node/file partition statistics.
+- **Enhanced Host Filesystem Access in Docker**:
+  - Mounted `/Users:/Users:ro` in `docker-compose.yml` so any directory or codebase across the host Mac can be ingested directly without path translations.
+- **Implemented User-Requested Unified Make Interface**:
+  - Updated `tools/omni-graph/Makefile` and root `Makefile` with clean trailing argument capture:
+    - `make ingest <path> [PROJECT=name]` (e.g. `make ingest /workspace` or `make ingest /Users/.../my-project`)
+    - `make cluster [PROJECT=name]` (executes Louvain/Leiden community detection to assign galaxy IDs)
+    - `make workspaces` (inspects partitioned codebases)
+    - `make search Q="..." [PROJECT=name]` (vector similarity search)
+    - `make query Q="..." [PROJECT=name]` (hybrid Graph-RAG synthesis)
+  - Preserved the user's requested startup banner in `make up` and `make help`.
+- **Created Comprehensive Documentation**:
+  - Fully documented the multi-workspace database schema and Louvain/Leiden community clustering computation in `tools/omni-graph/README.md`.
+  - Updated `omni.sh` CLI with `workspaces` and `cluster` subcommands.
+  - Verified monorepo governance with `make validate-specs` (0 errors, 0 warnings).
+
+#### Requirements Addressed
+- R-001, R-002, R-003, R-004, R-005, R-006, R-007, R-008, R-009, R-010, R-012, R-022, R-023, R-026, R-028
+
+#### Files Changed
+- `tools/omni-graph/Dockerfile` — Upgraded to `rust:latest`
+- `tools/omni-graph/docker-compose.yml` — Added `/Users:/Users:ro` volume mount
+- `tools/omni-graph/src/db/schema.surql` — Added `workspace` field & secondary indexes
+- `tools/omni-graph/src/parser/mod.rs` — Fixed Tree-sitter borrowing & added workspace to AST nodes/edges
+- `tools/omni-graph/src/db/mod.rs` — Added workspace isolation, safe record ID handling, and `get_workspaces`
+- `tools/omni-graph/src/ingestion/mod.rs` — Added workspace derivation and relative path extraction
+- `tools/omni-graph/src/analysis/mod.rs` — Wired workspace filtering into `GraphRagEngine::query`
+- `tools/omni-graph/src/api/mod.rs` — Wired workspace query/payload parameters & added `/api/workspaces`
+- `tools/omni-graph/src/main.rs` — Cleaned unused imports
+- `tools/omni-graph/scripts/omni.sh` — Added multi-workspace ingestion, clustering, and workspaces commands
+- `tools/omni-graph/skills/omni-graph/scripts/omni.sh` — Synced updated CLI
+- `tools/omni-graph/Makefile` — Added easy `ingest`, `cluster`, `workspaces`, `search`, `query` targets & banner
+- `Makefile` — Added root-level `omni-graph`, `ingest`, `cluster`, `workspaces`, `search-graph`, `query-graph` targets
+- `tools/omni-graph/README.md` — Documented multi-workspace pattern and community clustering in depth
+- `tools/omni-graph/CONTEXT.md` — Updated next steps and state
+- `tools/omni-graph/DEVLOG.md` — This entry
+
+#### Next Steps
+- User runs `make up` from terminal to launch the multi-container stack.
+- Ingest monorepo: `make ingest /workspace`.
+- Compute galaxy clustering: `make cluster`.
+
+---
+
+### 2026-09-24 — LSP Symbolic Tools, Community Detection & Graph RAG Engine
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~25m
+
+#### What Was Done
+- Implemented Serena-equivalent symbolic LSP endpoints in Axum & SurrealDB:
+  - `GET /api/symbol?name=...` (`textDocument/definition` equivalent)
+  - `GET /api/references?symbol=...` (`textDocument/references` equivalent)
+- Implemented Microsoft GraphRAG-inspired Community Detection and Hybrid Retrieval:
+  - `src/analysis/mod.rs`: Label propagation modular clustering (Louvain/Leiden equivalent) partitioning AST graph into architectural community clusters
+  - `POST /api/cluster`: Computes & stores `community_id` across SurrealDB nodes
+  - `POST /api/query`: Unified Graph-RAG retrieval pipeline combining microscopic vector similarity, macroscopic community summaries, and expanded AST call subgraphs
+- Extended agent CLI `omni.sh` with `symbol`, `references`, `query`, and `cluster` subcommands
+- Synced `setup-agent` command to root `Makefile` and `tools/omni-graph/Makefile`
+- Integrated Rule 08 (`08-omni-graph-enforcement.md`) and `omni-graph` skill into `.agents/AGENTS.md`
+- Rewrote `tools/omni-graph/README.md` with complete architectural documentation, 4-tier enforcement shield, and full API reference
+- Verified spec compliance with `make validate-specs` (0 errors, 0 warnings)
+
+#### Requirements Addressed
+- R-003, R-005, R-006, R-007, R-008, R-009, R-010, R-012, R-025, R-026, R-027, R-028
+
+#### Files Changed
+- `tools/omni-graph/src/db/mod.rs` — Added `find_symbols`, `find_references`, `update_communities`
+- `tools/omni-graph/src/analysis/mod.rs` — New: Community detection & Graph-RAG engine
+- `tools/omni-graph/src/api/mod.rs` — Added routes & handlers for `/api/symbol`, `/api/references`, `/api/query`, `/api/cluster`
+- `tools/omni-graph/src/main.rs` — Registered `mod analysis`
+- `tools/omni-graph/skills/omni-graph/scripts/omni.sh` — Added symbolic and Graph-RAG commands
+- `tools/omni-graph/skills/omni-graph/SKILL.md` — Documented symbolic LSP and Graph-RAG recipes
+- `tools/omni-graph/README.md` — Rewritten with comprehensive guides and API reference
+- `tools/omni-graph/Makefile` — Added `setup-agent`
+- `Makefile` — Added root `setup-agent` target and help docs
+- `.agents/AGENTS.md` — Added Rule 08 and `omni-graph` skill to tables
+- `tools/omni-graph/DEVLOG.md` — Updated: this entry
+
+#### Decisions Made
+- **Hybrid Graph-RAG Pipeline**: Combined vector similarity seeds with directed AST 1-hop expansion and macro community cluster summaries to deliver dense, hallucination-resistant prompt contexts.
+- **Direct Symbolic Endpoints**: Added dedicated `/api/symbol` and `/api/references` endpoints mirroring LSP semantics so coding agents avoid regex text search.
+
+#### Next Steps
+- User test run: `make up` to launch the Docker Compose cluster (SurrealDB + HuggingFace TEI + Rust App + WebGL UI)
+- Ingest a local codebase folder (`make setup-agent` + `./scripts/omni.sh ingest <path>`)
+- Verification and testing phase transition (`in-progress` → `testing`)
+
+---
+
+### 2026-09-24 — Agent Enforcement Shield & Antigravity Hook Architecture
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `draft`
+**Duration**: ~20m
+
+#### What Was Done
+- Deeply analyzed the agent enforcement gap raised by user (preventing LLM cognitive drift / blind `grep`/`cat` context burning)
+- Researched Serena's LSP symbolic tool model and ECC's deterministic pre-tool execution guardrails
+- Researched Microsoft GraphRAG hierarchical community detection and RAGFlow deep document chunking
+- Studied Antigravity customization specification (`skills/`, `rules/`, `hooks.json`, MCP configs)
+- Extended `specs/catalog/omni-graph.md` with:
+  - 4 new functional requirements: R-025 (Lifecycle hooks), R-026 (Native Agent Interface/MCP/Skill), R-027 (Automated Setup CLI), R-028 (Context Condenser)
+  - 4 new acceptance criteria (AC-015 through AC-018)
+  - Section 7.7: Multi-Layered Agent Enforcement Architecture (4-tier shield)
+  - Section 7.8: Antigravity Hooks (`hooks.json`), Skills (`skills/omni-graph/`), Rules, and Setup bootstrapper specification
+- Synchronized `STATUS.md` and `CONTEXT.md` traceability matrices (28 R-XXX, 18 AC-XXX, 11 NF-XXX)
+
+#### Requirements Addressed
+- Specification phase expansion (R-025 → R-028, AC-015 → AC-018)
+
+#### Files Changed
+- `specs/catalog/omni-graph.md` — Updated: added R-025..R-028, AC-015..AC-018, Sections 7.7 and 7.8
+- `tools/omni-graph/STATUS.md` — Updated: metrics (28 reqs, 18 ACs) and traceability matrix
+- `tools/omni-graph/CONTEXT.md` — Updated: progress metrics, reference projects, and traceability summary
+- `tools/omni-graph/DEVLOG.md` — Updated: this entry
+
+#### Decisions Made
+- **Deterministic PreToolUse Hook**: Hard-block or rewrite whole-codebase `grep`/`cat` tool calls to force agents through the Omni-Graph AST and vector search endpoints.
+- **Symbolic Native Tooling**: Provide an Antigravity skill and MCP server so agents have first-class semantic actions (`trace_call_chain`, `semantic_search`, `get_subgraph`).
+- **Interactive Multi-Target Setup**: Support both workspace-level (`.agents/`) and global (`~/.gemini/config`) target configuration via `make setup-agent`.
+
+#### Blockers Encountered
+- **None**
+
+#### Next Steps (for the next session)
+- Human decision on setup configuration target preference
+- Transition SDLC status from `draft` to `spec-review`
+- Begin Task 1: `docker-compose.yml` infrastructure
+
+---
+
+### 2026-09-24 — Project Genesis & Specification
+
+**Agent/Author**: @antigravity-opus
+**SDLC Phase**: `—` → `draft`
+**Duration**: ~30m
+
+#### What Was Done
+- Scaffolded tool directory from `_template`
+- Conducted deep research on 4 reference architectures (Graphify, CodeGraph, Serena, ECC)
+- Researched SurrealDB v2 vector indexing (HNSW, not MTREE — critical correction)
+- Researched HuggingFace TEI ARM64 compatibility (CPU-only in Docker, Metal via native only)
+- Researched Cosmograph React/TypeScript WebGL graph visualization
+- Authored comprehensive specification (`specs/catalog/omni-graph.md`):
+  - 24 functional requirements (R-001 → R-024)
+  - 14 acceptance criteria (AC-001 → AC-014)
+  - 11 non-functional requirements (NF-001 → NF-011)
+  - Full REST API contract (health, ingest, graph, search, stats)
+  - SurrealQL schema definition with HNSW index
+  - Architecture diagrams and edge taxonomy
+- Initialized STATUS.md with full traceability matrix
+- Initialized CONTEXT.md with architecture summary and key decisions
+- Updated tool catalog entry
+
+#### Requirements Addressed
+- Specification phase only — no implementation requirements started
+
+#### Files Changed
+- `tools/omni-graph/` — New: entire tool directory (scaffolded from template)
+- `specs/catalog/omni-graph.md` — New: full specification
+- `tools/omni-graph/STATUS.md` — Updated: 24 requirements, 14 ACs, 11 NFRs
+- `tools/omni-graph/CONTEXT.md` — Updated: architecture, decisions, references
+- `tools/omni-graph/DEVLOG.md` — Updated: this entry
+- `tools/omni-graph/README.md` — Updated: project overview
+- `tools/omni-graph/CHANGELOG.md` — Updated: initial scaffolding
+- `tools/omni-graph/spec.md` — Updated: pointer to catalog spec
+- `tools/omni-graph/Makefile` — Updated: Rust + Docker targets
+- `tools/README.md` — Updated: catalog entry
+
+#### Decisions Made
+- **HNSW over MTREE**: SurrealDB v2 uses HNSW for production ANN — MTREE is deprecated/experimental
+- **TEI CPU-only in Docker**: macOS Docker lacks GPU passthrough; Metal only via native Homebrew install
+- **384-dim bge-small-en-v1.5**: Lightweight, high-quality BERT embeddings optimized for ARM64 SIMD
+- **Cosmograph WebGL**: GPU-accelerated force layout, supports 100K+ nodes at 60fps
+- **EXTRACTED vs INFERRED edges**: Following Graphify's taxonomy for relationship categorization
+
+#### Blockers Encountered
+- **None**
+
+#### Next Steps (for the next session)
+1. Human review of specification → transition to `spec-review`
+2. After approval, begin Task 1: `docker-compose.yml`
+3. Task 2: Rust orchestrator (`Cargo.toml` + `src/main.rs` skeleton)
+4. Task 3: SurrealQL schema initialization script
+5. Task 4: React + Cosmograph UI scaffold (Vite + TypeScript)
+
+---

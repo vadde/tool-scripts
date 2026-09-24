@@ -87,16 +87,39 @@ main() {
   # Replace the catalog section in README.md
   local temp_file
   temp_file="$(mktemp)"
+  local catalog_temp
+  catalog_temp="$(mktemp)"
+  printf '%s\n' "${new_catalog}" > "${catalog_temp}"
 
-  awk -v catalog="${new_catalog}" '
-    /<!-- CATALOG-START/ { print; in_catalog=1; next }
-    /<!-- CATALOG-END/ { print catalog; in_catalog=0 }
+  awk -v cfile="${catalog_temp}" '
+    /<!-- CATALOG-START/ { print; while ((getline line < cfile) > 0) print line; in_catalog=1; next }
+    /<!-- CATALOG-END/ { in_catalog=0 }
     !in_catalog { print }
   ' "${CATALOG_FILE}" > "${temp_file}"
+  rm -f "${catalog_temp}"
 
   mv "${temp_file}" "${CATALOG_FILE}"
 
   # Update quick stats
+  local draft_count in_progress_count released_count review_count deprecated_count
+  draft_count=$(grep -c '`draft`' "${CATALOG_FILE}" || true)
+  in_progress_count=$(grep -c '`in-progress`' "${CATALOG_FILE}" || true)
+  released_count=$(grep -c '`released`' "${CATALOG_FILE}" || true)
+  review_count=$(grep -c '`review`' "${CATALOG_FILE}" || true)
+  deprecated_count=$(grep -c '`deprecated`' "${CATALOG_FILE}" || true)
+
+  local stats_temp
+  stats_temp="$(mktemp)"
+  awk -v total="${tool_count}" -v rel="${released_count}" -v inp="${in_progress_count}" -v drf="${draft_count}" -v rev="${review_count}" '
+    /\| \*\*Total Tools\*\* \|/ { print "| **Total Tools** | " total " |"; next }
+    /\| \*\*Released\*\* \|/ { print "| **Released** | " rel " |"; next }
+    /\| \*\*In Progress\*\* \|/ { print "| **In Progress** | " inp " |"; next }
+    /\| \*\*Draft\*\* \|/ { print "| **Draft** | " drf " |"; next }
+    /\| \*\*Review\*\* \|/ { print "| **Review** | " rev " |"; next }
+    { print }
+  ' "${CATALOG_FILE}" > "${stats_temp}"
+  mv "${stats_temp}" "${CATALOG_FILE}"
+
   echo ""
   echo "📊 Catalog updated: ${tool_count} tool(s)"
   echo "✅ Done!"

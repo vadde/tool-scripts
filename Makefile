@@ -9,7 +9,7 @@
 
 .PHONY: help setup new-tool test test-tool lint lint-tool build build-tool \
         run-tool demo-tool validate-specs catalog status clean \
-        session-explorer
+        session-explorer omni-graph ingest cluster workspaces search-graph query-graph
 
 .DEFAULT_GOAL := help
 
@@ -20,6 +20,24 @@ SCRIPTS_DIR := scripts
 SPECS_DIR   := specs
 T           ?=
 ARGS        ?=
+PROJECT     ?=
+PATH        ?=
+Q           ?=
+K           ?= 10
+
+# Absorb trailing arguments so make never treats paths or flags as targets
+.PHONY: $(MAKECMDGOALS)
+
+ifeq (ingest,$(firstword $(MAKECMDGOALS)))
+  INGEST_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+endif
+
+ifeq (cluster,$(firstword $(MAKECMDGOALS)))
+  CLUSTER_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+endif
+
+$(filter-out $(firstword $(MAKECMDGOALS)),$(MAKECMDGOALS)):
+	@true
 
 # ─── Colors & Formatting ────────────────────────────────────────────────────
 CYAN   := \033[0;36m
@@ -44,6 +62,14 @@ help: ## Show this interactive command directory
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "run-tool T=<name>"         "Launch a tool (e.g. make run-tool T=session-explorer)"
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "demo-tool T=<name>"        "Run automated demo for a tool (e.g. make demo-tool T=session-explorer)"
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "session-explorer"          "Quick launcher: build and run Session Explorer web UI"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "omni-graph"                "Quick launcher: start Omni-Graph semantic knowledge stack"
+	@printf "\n"
+	@printf "$(BOLD)🧠 Omni-Graph Semantic Hub & Graph RAG:$(NC)\n"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "ingest <path>"             "Index a codebase or monorepo into SurrealDB (e.g. make ingest /workspace)"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "cluster [project]"         "Compute Louvain/Leiden galaxy community clusters for 3D force graph"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "workspaces"                "List all partitioned codebases and stats in Omni-Graph"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "search-graph Q=\"...\""     "Fast vector semantic code search in knowledge hub"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "query-graph Q=\"...\""      "Hybrid Graph-RAG synthesis (<1500 tokens for agents)"
 	@printf "\n"
 	@printf "$(BOLD)📦 Build & Compilation:$(NC)\n"
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "build"                     "Build ALL tools across the monorepo"
@@ -63,49 +89,40 @@ help: ## Show this interactive command directory
 	@printf "$(BOLD)🔨 Development & Scaffold:$(NC)\n"
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "new-tool NAME=<name>"      "Scaffold a new tool from canonical template"
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "setup"                     "Install global repo pre-commit hooks and tools"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "setup-agent"               "Deploy Omni-Graph agent shield (TARGET=workspace|global)"
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "clean"                     "Clean build artifacts across all tools"
 	@printf "\n"
 	@printf "  $(DIM)Examples:$(NC)\n"
-	@printf "    make session-explorer\n"
-	@printf "    make run-tool T=session-explorer ARGS=\"--port 8080\"\n"
-	@printf "    make test-tool T=session-explorer\n"
-	@printf "    make new-tool NAME=git-analytics\n\n"
+	@printf "    make omni-graph\n"
+	@printf "    make ingest /workspace\n"
+	@printf "    make cluster\n"
+	@printf "    make search-graph Q=\"CommunityDetector\"\n"
+	@printf "    make query-graph Q=\"How does AST parsing work?\"\n\n"
 
 # ═══════════════════════════════════════════════════════════════════════════
-#  Tool Execution
+#  Tool Execution & Quick Launchers
 # ═══════════════════════════════════════════════════════════════════════════
 
-run-tool: ## Run a specific tool (T=tool-name [ARGS="..."])
-	@if [ -z "$(T)" ]; then \
-		echo "❌ Usage: make run-tool T=<tool-name> [ARGS=\"...\"]"; \
-		echo "   Example: make run-tool T=session-explorer"; \
-		exit 1; \
-	fi
-	@if [ -f "$(TOOLS_DIR)/$(T)/Makefile" ]; then \
-		printf "$(GREEN)🚀 Running tool: $(T)...$(NC)\n"; \
-		$(MAKE) -C "$(TOOLS_DIR)/$(T)" run ARGS="$(ARGS)"; \
-	else \
-		echo "❌ No Makefile found in tools/$(T)/"; \
-		exit 1; \
-	fi
-
-demo-tool: ## Run automated demo for a tool (T=tool-name)
-	@if [ -z "$(T)" ]; then \
-		echo "❌ Usage: make demo-tool T=<tool-name>"; \
-		echo "   Example: make demo-tool T=session-explorer"; \
-		exit 1; \
-	fi
-	@if [ -f "$(TOOLS_DIR)/$(T)/Makefile" ]; then \
-		printf "$(GREEN)📝 Running demo for: $(T)...$(NC)\n"; \
-		$(MAKE) -C "$(TOOLS_DIR)/$(T)" demo; \
-	else \
-		echo "❌ No Makefile found in tools/$(T)/"; \
-		exit 1; \
-	fi
-
-# Quick tool alias
 session-explorer: ## Quick launcher for Session Explorer
 	@$(MAKE) run-tool T=session-explorer ARGS="$(ARGS)"
+
+omni-graph: ## Quick launcher: start Omni-Graph semantic knowledge stack
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph up
+
+ingest: ## Index a codebase into Omni-Graph: make ingest [PATH=<dir>] [PROJECT=name]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph ingest $(if $(INGEST_ARGS),$(INGEST_ARGS),$(if $(PATH),PATH="$(PATH)",)) PROJECT="$(PROJECT)"
+
+cluster: ## Compute galaxy IDs: make cluster [PROJECT=name]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph cluster $(if $(CLUSTER_ARGS),$(CLUSTER_ARGS),) PROJECT="$(PROJECT)"
+
+workspaces: ## List all partitioned codebases in Omni-Graph
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph workspaces
+
+search-graph: ## Search Omni-Graph knowledge hub: make search-graph Q="<terms>" [PROJECT=name]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph search Q="$(Q)" PROJECT="$(PROJECT)" K="$(K)"
+
+query-graph: ## Hybrid Graph-RAG retrieval: make query-graph Q="<question>" [PROJECT=name]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph query Q="$(Q)" PROJECT="$(PROJECT)" K="$(K)"
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Build & Packaging
@@ -244,6 +261,9 @@ setup: ## Install pre-commit hooks and repo dependencies
 		printf "$(YELLOW)⚠️  pre-commit not found. Install with: pip install pre-commit$(NC)\n"; \
 	fi
 	@printf "$(GREEN)✅ Setup complete!$(NC)\n"
+
+setup-agent: ## Configure Omni-Graph agent enforcement shield (TARGET=workspace|global)
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph setup-agent TARGET=$(if $(TARGET),$(TARGET),workspace)
 
 clean: ## Clean all build artifacts across all tools
 	@printf "$(YELLOW)🧹 Cleaning all tools...$(NC)\n"

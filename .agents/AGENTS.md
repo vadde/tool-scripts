@@ -65,6 +65,7 @@ All rules are in `.agents/rules/`. Read them in order:
 | [`05-testing-strategy.md`](rules/05-testing-strategy.md) | Testing pyramid, coverage | 🟡 Important |
 | [`06-documentation.md`](rules/06-documentation.md) | Documentation standards | 🟡 Important |
 | [`07-iterative-development.md`](rules/07-iterative-development.md) | Session continuity, CONTEXT.md, DEVLOG.md | 🔴 Critical |
+| [`08-omni-graph-enforcement.md`](rules/08-omni-graph-enforcement.md) | Structure-first navigation & AST search | 🔴 Critical |
 
 ### 3. Available Skills
 
@@ -75,6 +76,7 @@ Skills are composable capabilities for common workflows:
 | [`new-tool`](skills/new-tool/SKILL.md) | Scaffold a new tool | Creating any new tool |
 | [`debug-tool`](skills/debug-tool/SKILL.md) | Systematic debugging | Investigating failures |
 | [`release-tool`](skills/release-tool/SKILL.md) | Prepare for release | Finalizing a tool version |
+| [`omni-graph`](skills/omni-graph/SKILL.md) | AST search & call graph trace | Exploring code architecture & symbols |
 
 ### 4. SDLC Status Guide
 
