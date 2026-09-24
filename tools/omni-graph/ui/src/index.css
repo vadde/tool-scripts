@@ -129,3 +129,59 @@ body, html, #root {
   border-color: var(--accent-cyan);
   color: var(--accent-cyan);
 }
+
+.cyber-button-purple {
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.8), rgba(217, 70, 239, 0.8));
+  color: #fff;
+  border: 1px solid rgba(192, 132, 252, 0.4);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 0 15px rgba(147, 51, 234, 0.25);
+}
+
+.cyber-button-purple:hover {
+  background: linear-gradient(135deg, rgba(147, 51, 234, 1), rgba(236, 72, 153, 1));
+  border-color: rgba(217, 70, 239, 0.8);
+  box-shadow: 0 0 20px rgba(192, 132, 252, 0.45);
+  transform: translateY(-1px);
+}
+
+.kind-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: var(--code-font);
+}
+
+.kind-badge-function {
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+}
+
+.kind-badge-struct, .kind-badge-class {
+  background: rgba(192, 132, 252, 0.15);
+  color: var(--accent-purple);
+  border: 1px solid rgba(192, 132, 252, 0.3);
+}
+
+.kind-badge-import {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-secondary);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.kind-badge-default {
+  background: rgba(96, 165, 250, 0.15);
+  color: var(--accent-blue);
+  border: 1px solid rgba(96, 165, 250, 0.3);
+}

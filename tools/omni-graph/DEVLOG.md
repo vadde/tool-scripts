@@ -4,6 +4,43 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-24 — UI Galaxy Clustering Suite & Subsystem Isolation Mode
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~15m
+
+#### What Was Done
+- **UI Auto-Clustering upon Ingestion**:
+  - Added `Auto-compute Galaxy Clusters immediately after ingestion` checkbox (enabled by default) directly in the Directory Traversal & Ingest modal.
+  - Multi-stage progress tracking in the UI:
+    1. Parsing AST structures and computing 384-d vector embeddings (`POST /api/ingest`)
+    2. Automatically computing Louvain/Leiden modular community clusters (`POST /api/cluster`) for the ingested workspace
+    3. Auto-refreshing the Cosmograph canvas and automatically sliding open the Galaxy Subsystems Navigator.
+- **On-Demand Galaxy Clustering Command Center**:
+  - Added primary cyber button `[ ⚡ Compute / Re-cluster Galaxies ]` inside the Galaxy Drawer with live clustering animation and toast feedback.
+  - Added workspace-aware clustering: one-click to re-cluster the active workspace or partition the entire Omniverse.
+  - Added quick `[ ⚡ Cluster Universe ]` trigger button in top navigation bar when unclustered nodes are detected.
+  - Added Subsystem Metrics summary card in the drawer showing total detected galaxies and clustered node ratio.
+- **Galaxy Subsystem Isolation Mode (`[ 🔭 Isolate Galaxy ]`)**:
+  - Users can click "Isolate Galaxy" on any cluster card to isolate that specific subsystem in 3D WebGL space. All non-cluster nodes and external links are filtered out, providing zero-distraction architectural inspection.
+  - Floating top banner indicating active isolation with single-click `[ ✕ Exit Isolation (Show Omniverse) ]`.
+- **Subsystem Architecture Export**:
+  - Added `[ 📋 Copy Architecture ]` action to every galaxy card, generating dense markdown summaries of all constituent functions and types ready for AI agent prompting.
+  - Added symbol kind filter chips (`All`, `function`, `struct`, `class`, `import`) inside each galaxy cluster accordion.
+- **Styles & Verification**:
+  - Added purple cyber glow buttons, symbol kind badges, and isolation banner styles in `index.css`.
+  - Verified `npm run build` passes cleanly with 0 TypeScript errors (3.08s).
+  - Rebuilt Docker image `omni-graph-ui` via `docker compose build graph-ui`.
+  - Shut down all containers via `docker compose down` releasing host ports.
+
+#### Files Changed
+- `tools/omni-graph/ui/src/App.tsx` — Full galaxy clustering suite, auto-cluster after ingest, isolation mode
+- `tools/omni-graph/ui/src/index.css` — Purple cyber buttons, kind badges, isolation styling
+- `tools/omni-graph/DEVLOG.md` — This entry
+
+---
+
 ### 2026-09-24 — UI/UX Evolution: Workspace Filter, Galaxy Navigator & Directory Traversal Modal
 
 **Agent/Author**: Antigravity

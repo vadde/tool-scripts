@@ -19,6 +19,8 @@ import {
   Code,
   ArrowUp,
   FolderPlus,
+  Maximize2,
+  Zap,
 } from 'lucide-react';
 
 interface GraphNode {
@@ -106,10 +108,15 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
 
-  // Galaxy Drawer state (Left Panel)
+  // Galaxy & Clustering state (Left Panel)
   const [isGalaxyDrawerOpen, setIsGalaxyDrawerOpen] = useState(false);
   const [selectedClusterId, setSelectedClusterId] = useState<number | null>(null);
+  const [isolatedClusterId, setIsolatedClusterId] = useState<number | null>(null);
   const [clusterSearchTerm, setClusterSearchTerm] = useState('');
+  const [selectedKindFilter, setSelectedKindFilter] = useState<string>('all');
+  const [isClustering, setIsClustering] = useState(false);
+  const [clusterToast, setClusterToast] = useState<string | null>(null);
+  const [autoClusterAfterIngest, setAutoClusterAfterIngest] = useState(true);
 
   // Directory Browser Modal state
   const [isBrowserModalOpen, setIsBrowserModalOpen] = useState(false);
@@ -180,6 +187,7 @@ export default function App() {
     setIsWorkspaceDropdownOpen(false);
     setSelectedNode(null);
     setSelectedClusterId(null);
+    setIsolatedClusterId(null);
     loadGraph(ws);
   };
 
@@ -215,6 +223,18 @@ export default function App() {
     return list.sort((a, b) => b.node_count - a.node_count);
   }, [nodes]);
 
+  // Active display nodes and links (Respecting Galaxy Isolation Mode)
+  const displayNodes = useMemo(() => {
+    if (isolatedClusterId === null) return nodes;
+    return nodes.filter((n) => n.community === isolatedClusterId);
+  }, [nodes, isolatedClusterId]);
+
+  const displayLinks = useMemo(() => {
+    if (isolatedClusterId === null) return links;
+    const isolatedIds = new Set(displayNodes.map((n) => n.id));
+    return links.filter((l) => isolatedIds.has(l.source) && isolatedIds.has(l.target));
+  }, [links, displayNodes, isolatedClusterId]);
+
   // ─── 3. Semantic Vector Search ─────────────────────────────────────────────
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -244,7 +264,42 @@ export default function App() {
     }
   };
 
-  // ─── 4. Dynamic Directory Traversal & Ingestion ───────────────────────────
+  // ─── 4. Galaxy Partitioning & Clustering Engine Trigger ─────────────────────
+  const handleRunClustering = async (targetWs?: string | null) => {
+    setIsClustering(true);
+    const scopeLabel = targetWs ? `workspace '${targetWs}'` : 'Omniverse';
+    setClusterToast(`🌌 Partitioning ${scopeLabel} with Louvain/Leiden modularity...`);
+    try {
+      const payload: { workspace?: string } = {};
+      if (targetWs) payload.workspace = targetWs;
+
+      const res = await fetch('/api/cluster', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setClusterToast(`✨ Partitioned into ${data.total_communities} galaxy clusters!`);
+        await loadGraph(selectedWorkspace);
+        setIsGalaxyDrawerOpen(true);
+        setTimeout(() => setClusterToast(null), 5000);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setClusterToast(`❌ Clustering error: ${err.error || 'Server error'}`);
+        setTimeout(() => setClusterToast(null), 5000);
+      }
+    } catch (err) {
+      console.error('Clustering error', err);
+      setClusterToast('❌ Connection error to clustering engine');
+      setTimeout(() => setClusterToast(null), 5000);
+    } finally {
+      setIsClustering(false);
+    }
+  };
+
+  // ─── 5. Dynamic Directory Traversal & Ingestion ───────────────────────────
   const fetchDirectory = async (pathTarget?: string) => {
     setIsLoadingDir(true);
     try {
@@ -274,7 +329,7 @@ export default function App() {
 
   const handleIngestExecution = async (targetPath: string, projectOverride?: string) => {
     setIsIngesting(true);
-    setIngestNotice('Indexing AST nodes & vector embeddings...');
+    setIngestNotice('1/2: Indexing AST nodes & generating 384-d vector embeddings...');
     try {
       const payload: { path: string; project?: string } = { path: targetPath };
       if (projectOverride?.trim()) {
@@ -290,18 +345,45 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         const r = data.result || {};
-        setIngestNotice(
-          `✅ Ingested ${r.nodes_created || 0} nodes & ${r.edges_created || 0} edges into workspace '${r.workspace}' in ${r.duration_ms}ms!`
-        );
+        const targetWs = r.workspace || customProjectName;
+
+        if (autoClusterAfterIngest) {
+          setIngestNotice(`2/2: Ingested ${r.nodes_created || 0} nodes. Computing galaxy modular clusters...`);
+          try {
+            const clusterRes = await fetch('/api/cluster', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ workspace: targetWs }),
+            });
+            if (clusterRes.ok) {
+              const cData = await clusterRes.json();
+              setIngestNotice(
+                `✨ Complete! Ingested ${r.nodes_created || 0} nodes and partitioned into ${cData.total_communities} galaxy clusters!`
+              );
+            } else {
+              setIngestNotice(`✅ Ingested ${r.nodes_created || 0} nodes into workspace '${targetWs}'!`);
+            }
+          } catch (e) {
+            console.warn('Auto-clustering failed', e);
+            setIngestNotice(`✅ Ingested ${r.nodes_created || 0} nodes into workspace '${targetWs}'!`);
+          }
+        } else {
+          setIngestNotice(
+            `✅ Ingested ${r.nodes_created || 0} nodes & ${r.edges_created || 0} edges into workspace '${targetWs}'!`
+          );
+        }
+
         await loadWorkspaces();
-        await loadGraph(r.workspace || selectedWorkspace);
-        setSelectedWorkspace(r.workspace);
+        setSelectedWorkspace(targetWs);
+        await loadGraph(targetWs);
+        setIsGalaxyDrawerOpen(true);
+
         setTimeout(() => {
           setIsBrowserModalOpen(false);
           setIngestNotice(null);
-        }, 1800);
+        }, 2200);
       } else {
-        const errJson = await res.json();
+        const errJson = await res.json().catch(() => ({}));
         setIngestNotice(`❌ Ingestion failed: ${errJson.message || 'Unknown error'}`);
       }
     } catch (err) {
@@ -311,7 +393,7 @@ export default function App() {
     }
   };
 
-  // ─── 5. Context Condenser for Coding Agents ────────────────────────────────
+  // ─── 6. Context Condenser for Coding Agents ────────────────────────────────
   const handleFetchCondensed = async (symbol: string) => {
     try {
       const params = new URLSearchParams({ symbol, hops: '2' });
@@ -335,6 +417,35 @@ export default function App() {
     if (cosmographRef.current && clusterNodes.length > 0) {
       cosmographRef.current.selectNodes(clusterNodes);
     }
+  };
+
+  const handleToggleIsolateGalaxy = (cid: number, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (isolatedClusterId === cid) {
+      setIsolatedClusterId(null);
+    } else {
+      setIsolatedClusterId(cid);
+      setSelectedClusterId(cid);
+    }
+  };
+
+  const handleCopyClusterArchitecture = (
+    c: { id: number; name: string; nodes: GraphNode[] },
+    e?: React.MouseEvent
+  ) => {
+    if (e) e.stopPropagation();
+    const lines = [
+      `# ${c.name} (Galaxy #${c.id})`,
+      `Total Symbols: ${c.nodes.length}`,
+      `Workspace: ${selectedWorkspace || 'All'}`,
+      `\n## Symbols:`,
+      ...c.nodes.map(
+        (n) => `- **${n.label}** (${n.kind}) — \`${n.file_path}${n.line_start ? `:${n.line_start}` : ''}\``
+      ),
+    ];
+    navigator.clipboard.writeText(lines.join('\n'));
+    setClusterToast(`📋 Copied Galaxy #${c.id} architecture to clipboard!`);
+    setTimeout(() => setClusterToast(null), 3000);
   };
 
   const handleFocusNode = (node: GraphNode) => {
@@ -554,19 +665,19 @@ export default function App() {
         </form>
 
         {/* Action Controls & Health Badges */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {/* Galaxies & Subsystems Toggle */}
           <button
             onClick={() => setIsGalaxyDrawerOpen(!isGalaxyDrawerOpen)}
             className={`cyber-button-secondary ${isGalaxyDrawerOpen ? 'active' : ''}`}
             title="Toggle Galaxy Subsystems Navigator"
           >
-            <Sparkles size={14} color={isGalaxyDrawerOpen ? 'var(--accent-cyan)' : 'var(--text-secondary)'} />
+            <Sparkles size={14} color={isGalaxyDrawerOpen ? 'var(--accent-cyan)' : 'var(--accent-purple)'} />
             <span>Galaxies</span>
             <span
               style={{
-                background: 'rgba(56, 189, 248, 0.2)',
-                color: 'var(--accent-cyan)',
+                background: 'rgba(168, 85, 247, 0.2)',
+                color: 'var(--accent-purple)',
                 borderRadius: 10,
                 padding: '1px 6px',
                 fontSize: '0.7rem',
@@ -576,6 +687,20 @@ export default function App() {
               {clusters.length}
             </span>
           </button>
+
+          {/* Quick Cluster Button if no clusters exist */}
+          {clusters.length === 0 && nodes.length > 0 && (
+            <button
+              onClick={() => handleRunClustering(selectedWorkspace)}
+              disabled={isClustering}
+              className="cyber-button-purple"
+              style={{ padding: '5px 12px', fontSize: '0.78rem' }}
+              title="Compute galaxy clusters for this graph"
+            >
+              {isClustering ? <RefreshCw size={13} className="pulsing-dot" /> : <Zap size={13} />}
+              <span>{isClustering ? 'Clustering...' : 'Cluster Universe'}</span>
+            </button>
+          )}
 
           {/* Ingest Codebase Button */}
           <button
@@ -607,19 +732,54 @@ export default function App() {
             </div>
             <div title="Visible Nodes" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
               <Layers size={13} color="#38bdf8" />
-              <span style={{ color: '#38bdf8', fontWeight: 600 }}>{nodes.length}</span>
+              <span style={{ color: '#38bdf8', fontWeight: 600 }}>{displayNodes.length}</span>
             </div>
           </div>
         </div>
       </header>
 
+      {/* ─── FLOATING ISOLATION MODE BANNER ─────────────────────────────────── */}
+      {isolatedClusterId !== null && (
+        <div
+          className="glass-panel"
+          style={{
+            position: 'absolute',
+            top: 84,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 95,
+            padding: '7px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            border: '1px solid rgba(168, 85, 247, 0.6)',
+            boxShadow: '0 0 25px rgba(168, 85, 247, 0.3)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Sparkles size={16} color="var(--accent-purple)" />
+            <span style={{ fontSize: '0.82rem', fontWeight: 600, color: '#fff' }}>
+              Isolated Galaxy #{isolatedClusterId} ({displayNodes.length} symbols active)
+            </span>
+          </div>
+          <button
+            onClick={() => setIsolatedClusterId(null)}
+            className="cyber-button-secondary"
+            style={{ padding: '3px 10px', fontSize: '0.72rem' }}
+          >
+            <X size={13} />
+            <span>Exit Isolation (Show Omniverse)</span>
+          </button>
+        </div>
+      )}
+
       {/* ─── 2. WEBGL COSMOGRAPH 3D CANVAS ──────────────────────────────────── */}
       <div style={{ width: '100%', height: '100%' }}>
-        {nodes.length > 0 ? (
+        {displayNodes.length > 0 ? (
           <Cosmograph
             ref={cosmographRef}
-            nodes={nodes}
-            links={links}
+            nodes={displayNodes}
+            links={displayLinks}
             nodeColor={getNodeColor}
             nodeSize={4}
             linkWidth={1}
@@ -702,21 +862,22 @@ export default function App() {
           top: 86,
           left: 14,
           bottom: 14,
-          width: 340,
+          width: 360,
           zIndex: 90,
           display: 'flex',
           flexDirection: 'column',
           padding: 16,
           gap: 12,
-          transform: isGalaxyDrawerOpen ? 'translateX(0)' : 'translateX(-370px)',
+          transform: isGalaxyDrawerOpen ? 'translateX(0)' : 'translateX(-390px)',
           opacity: isGalaxyDrawerOpen ? 1 : 0,
           pointerEvents: isGalaxyDrawerOpen ? 'all' : 'none',
         }}
       >
+        {/* Drawer Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Sparkles size={16} color="var(--accent-cyan)" />
+              <Sparkles size={16} color="var(--accent-purple)" />
               <span>Galaxy Subsystems</span>
             </div>
             <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
@@ -729,6 +890,79 @@ export default function App() {
           >
             <X size={16} />
           </button>
+        </div>
+
+        {/* Command Center: Run / Recompute Clustering */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            onClick={() => handleRunClustering(selectedWorkspace)}
+            disabled={isClustering}
+            className="cyber-button-purple"
+            style={{ width: '100%', justifyContent: 'center' }}
+            title="Compute or re-partition Louvain modular clusters"
+          >
+            {isClustering ? <RefreshCw size={14} className="pulsing-dot" /> : <Sparkles size={14} />}
+            <span>
+              {isClustering
+                ? 'Partitioning Subsystems...'
+                : selectedWorkspace
+                ? `⚡ Re-cluster ${selectedWorkspace}`
+                : '⚡ Compute Galaxy Clusters'}
+            </span>
+          </button>
+
+          {selectedWorkspace && (
+            <button
+              onClick={() => handleRunClustering(null)}
+              disabled={isClustering}
+              className="cyber-button-secondary"
+              style={{ width: '100%', justifyContent: 'center', fontSize: '0.72rem', padding: '4px 8px' }}
+            >
+              <Globe size={12} />
+              <span>Cluster Whole Omniverse</span>
+            </button>
+          )}
+        </div>
+
+        {/* Cluster Status Toast */}
+        {clusterToast && (
+          <div
+            style={{
+              padding: '6px 10px',
+              borderRadius: 6,
+              background: clusterToast.startsWith('❌') ? 'rgba(244, 63, 94, 0.15)' : 'rgba(168, 85, 247, 0.15)',
+              border: `1px solid ${clusterToast.startsWith('❌') ? 'rgba(244, 63, 94, 0.4)' : 'rgba(168, 85, 247, 0.4)'}`,
+              fontSize: '0.72rem',
+              color: clusterToast.startsWith('❌') ? '#f43f5e' : '#c084fc',
+            }}
+          >
+            {clusterToast}
+          </div>
+        )}
+
+        {/* Subsystem Metrics Summary Card */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 6,
+            background: 'rgba(0, 0, 0, 0.3)',
+            borderRadius: 8,
+            padding: '8px 10px',
+            border: '1px solid rgba(255, 255, 255, 0.06)',
+          }}
+        >
+          <div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>GALAXIES</div>
+            <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent-purple)' }}>{clusters.length}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>CLUSTERED NODES</div>
+            <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--accent-cyan)' }}>
+              {nodes.filter((n) => n.community !== null && n.community !== undefined).length}
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>/{nodes.length}</span>
+            </div>
+          </div>
         </div>
 
         {/* Filter input for galaxies & symbols */}
@@ -759,6 +993,28 @@ export default function App() {
           />
         </div>
 
+        {/* Symbol Kind Filter Chips */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+          {['all', 'function', 'struct', 'class', 'import'].map((k) => (
+            <button
+              key={k}
+              onClick={() => setSelectedKindFilter(k)}
+              style={{
+                background: selectedKindFilter === k ? 'rgba(56, 189, 248, 0.2)' : 'rgba(255, 255, 255, 0.04)',
+                border: `1px solid ${selectedKindFilter === k ? 'var(--accent-cyan)' : 'rgba(255, 255, 255, 0.08)'}`,
+                color: selectedKindFilter === k ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                borderRadius: 4,
+                padding: '2px 7px',
+                fontSize: '0.68rem',
+                cursor: 'pointer',
+                textTransform: 'capitalize',
+              }}
+            >
+              {k}
+            </button>
+          ))}
+        </div>
+
         {/* Clusters Accordion List */}
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}>
           {clusters
@@ -770,15 +1026,33 @@ export default function App() {
             .map((c) => {
               const color = GALAXY_COLORS[Math.abs(c.id) % GALAXY_COLORS.length];
               const isExpanded = selectedClusterId === c.id;
+              const isIsolated = isolatedClusterId === c.id;
+
+              const filteredNodes = c.nodes.filter((node) => {
+                const matchesTerm = !clusterSearchTerm || node.label.toLowerCase().includes(clusterSearchTerm.toLowerCase());
+                const matchesKind = selectedKindFilter === 'all' || node.kind.toLowerCase() === selectedKindFilter.toLowerCase();
+                return matchesTerm && matchesKind;
+              });
 
               return (
                 <div
                   key={c.id}
                   style={{
                     borderRadius: 8,
-                    background: isExpanded ? 'rgba(56, 189, 248, 0.08)' : 'rgba(255, 255, 255, 0.03)',
-                    border: `1px solid ${isExpanded ? 'rgba(56, 189, 248, 0.4)' : 'rgba(255, 255, 255, 0.06)'}`,
+                    background: isIsolated
+                      ? 'rgba(168, 85, 247, 0.15)'
+                      : isExpanded
+                      ? 'rgba(56, 189, 248, 0.08)'
+                      : 'rgba(255, 255, 255, 0.03)',
+                    border: `1px solid ${
+                      isIsolated
+                        ? 'rgba(168, 85, 247, 0.6)'
+                        : isExpanded
+                        ? 'rgba(56, 189, 248, 0.4)'
+                        : 'rgba(255, 255, 255, 0.06)'
+                    }`,
                     overflow: 'hidden',
+                    transition: 'all 0.18s ease',
                   }}
                 >
                   <div
@@ -794,8 +1068,8 @@ export default function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
                       <div
                         style={{
-                          width: 8,
-                          height: 8,
+                          width: 9,
+                          height: 9,
                           borderRadius: '50%',
                           backgroundColor: color,
                           boxShadow: `0 0 8px ${color}`,
@@ -809,7 +1083,7 @@ export default function App() {
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
-                          color: isExpanded ? 'var(--accent-cyan)' : '#e2e8f0',
+                          color: isIsolated ? 'var(--accent-purple)' : isExpanded ? 'var(--accent-cyan)' : '#e2e8f0',
                         }}
                       >
                         {c.name}
@@ -832,43 +1106,91 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Expanded Symbols inside this cluster */}
+                  {/* Expanded Cluster Actions & Symbols */}
                   {isExpanded && (
                     <div
                       style={{
-                        padding: '4px 8px 8px 24px',
+                        padding: '6px 10px 10px 10px',
                         borderTop: '1px solid rgba(255, 255, 255, 0.05)',
                         display: 'flex',
                         flexDirection: 'column',
-                        gap: 3,
-                        maxHeight: 220,
-                        overflowY: 'auto',
+                        gap: 6,
                       }}
                     >
-                      {c.nodes
-                        .filter((n) => !clusterSearchTerm || n.label.toLowerCase().includes(clusterSearchTerm.toLowerCase()))
-                        .map((node) => (
-                          <div
-                            key={node.id}
-                            onClick={() => handleFocusNode(node)}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              padding: '4px 6px',
-                              borderRadius: 4,
-                              cursor: 'pointer',
-                              background: selectedNode?.id === node.id ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
-                              fontSize: '0.75rem',
-                              color: selectedNode?.id === node.id ? 'var(--accent-cyan)' : 'var(--text-secondary)',
-                            }}
-                          >
-                            <span style={{ fontFamily: 'var(--code-font)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {node.label}
-                            </span>
-                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{node.kind}</span>
+                      {/* Cluster Action Pills */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <button
+                          onClick={(e) => handleToggleIsolateGalaxy(c.id, e)}
+                          className={isIsolated ? 'cyber-button-purple' : 'cyber-button-secondary'}
+                          style={{ padding: '3px 8px', fontSize: '0.7rem' }}
+                          title="Isolate galaxy in 3D WebGL view"
+                        >
+                          <Maximize2 size={11} />
+                          <span>{isIsolated ? 'Exit Isolate' : 'Isolate Galaxy'}</span>
+                        </button>
+
+                        <button
+                          onClick={(e) => handleCopyClusterArchitecture(c, e)}
+                          className="cyber-button-secondary"
+                          style={{ padding: '3px 8px', fontSize: '0.7rem' }}
+                          title="Copy subsystem symbols for AI agent"
+                        >
+                          <Copy size={11} />
+                          <span>Copy Architecture</span>
+                        </button>
+                      </div>
+
+                      {/* Filtered symbols list */}
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 3,
+                          maxHeight: 200,
+                          overflowY: 'auto',
+                          marginTop: 4,
+                        }}
+                      >
+                        {filteredNodes.map((node) => {
+                          const kindClass =
+                            node.kind === 'function'
+                              ? 'kind-badge-function'
+                              : node.kind === 'struct' || node.kind === 'class'
+                              ? 'kind-badge-struct'
+                              : node.kind === 'import'
+                              ? 'kind-badge-import'
+                              : 'kind-badge-default';
+
+                          return (
+                            <div
+                              key={node.id}
+                              onClick={() => handleFocusNode(node)}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '4px 6px',
+                                borderRadius: 4,
+                                cursor: 'pointer',
+                                background: selectedNode?.id === node.id ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+                                fontSize: '0.75rem',
+                                color: selectedNode?.id === node.id ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                              }}
+                            >
+                              <span style={{ fontFamily: 'var(--code-font)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {node.label}
+                              </span>
+                              <span className={`kind-badge ${kindClass}`}>{node.kind}</span>
+                            </div>
+                          );
+                        })}
+
+                        {filteredNodes.length === 0 && (
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', padding: 8 }}>
+                            No symbols match current filter.
                           </div>
-                        ))}
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -877,7 +1199,7 @@ export default function App() {
 
           {clusters.length === 0 && (
             <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: 20 }}>
-              No galaxy clusters computed yet. Run community detection via <code>make cluster</code> or ingest a codebase.
+              No galaxy clusters computed yet. Click <strong>"Compute Galaxy Clusters"</strong> above to partition the AST graph!
             </div>
           )}
         </div>
@@ -1194,8 +1516,8 @@ export default function App() {
             <div
               style={{
                 flex: 1,
-                minHeight: 260,
-                maxHeight: 340,
+                minHeight: 250,
+                maxHeight: 330,
                 overflowY: 'auto',
                 background: 'rgba(0, 0, 0, 0.25)',
                 border: '1px solid rgba(255, 255, 255, 0.06)',
@@ -1322,15 +1644,31 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Auto-Cluster Checkbox */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.76rem', color: '#e2e8f0' }}>
+                  <input
+                    type="checkbox"
+                    checked={autoClusterAfterIngest}
+                    onChange={(e) => setAutoClusterAfterIngest(e.target.checked)}
+                    style={{ accentColor: 'var(--accent-purple)', cursor: 'pointer', width: 15, height: 15 }}
+                  />
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Sparkles size={13} color="var(--accent-purple)" />
+                    <span>Auto-compute Galaxy Clusters immediately after ingestion (Recommended)</span>
+                  </span>
+                </label>
+              </div>
+
               {ingestNotice && (
                 <div
                   style={{
                     padding: '8px 12px',
                     borderRadius: 6,
-                    background: ingestNotice.startsWith('✅') ? 'rgba(52, 211, 153, 0.1)' : 'rgba(56, 189, 248, 0.1)',
-                    border: `1px solid ${ingestNotice.startsWith('✅') ? 'rgba(52, 211, 153, 0.3)' : 'rgba(56, 189, 248, 0.3)'}`,
+                    background: ingestNotice.startsWith('✅') || ingestNotice.startsWith('✨') ? 'rgba(52, 211, 153, 0.1)' : 'rgba(56, 189, 248, 0.1)',
+                    border: `1px solid ${ingestNotice.startsWith('✅') || ingestNotice.startsWith('✨') ? 'rgba(52, 211, 153, 0.3)' : 'rgba(56, 189, 248, 0.3)'}`,
                     fontSize: '0.75rem',
-                    color: ingestNotice.startsWith('✅') ? '#34d399' : '#38bdf8',
+                    color: ingestNotice.startsWith('✅') || ingestNotice.startsWith('✨') ? '#34d399' : '#38bdf8',
                   }}
                 >
                   {ingestNotice}
