@@ -115,6 +115,20 @@ pub struct ServiceComponent {
     pub details: Option<String>,
 }
 
+/// Normalizes workspace argument so that both paths (/Users/.../repo) and workspace names (repo) match correctly
+pub fn normalize_workspace(ws: Option<&str>) -> Option<String> {
+    ws.and_then(|raw| {
+        let trimmed = raw.trim().trim_end_matches('/');
+        if trimmed.is_empty() {
+            None
+        } else if trimmed.contains('/') {
+            Some(trimmed.rsplit('/').next().unwrap_or(trimmed).to_string())
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
 pub fn create_router(state: AppState) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -196,7 +210,8 @@ async fn graph_handler(
     State(state): State<AppState>,
     Query(params): Query<GraphParams>,
 ) -> impl IntoResponse {
-    match state.db.get_graph(params.workspace.as_deref()).await {
+    let ws = normalize_workspace(params.workspace.as_deref());
+    match state.db.get_graph(ws.as_deref()).await {
         Ok((nodes, links)) => {
             let total_nodes = nodes.len();
             let total_links = links.len();
@@ -239,12 +254,13 @@ async fn search_handler(
     };
 
     // 2. Perform HNSW cosine similarity search
-    match state.db.search_vector(&query_vec, k, params.workspace.as_deref()).await {
+    let ws = normalize_workspace(params.workspace.as_deref());
+    match state.db.search_vector(&query_vec, k, ws.as_deref()).await {
         Ok(results) => {
             let latency_ms = start.elapsed().as_millis() as u64;
             Json(serde_json::json!({
                 "query": params.q,
-                "workspace": params.workspace,
+                "workspace": ws,
                 "results": results,
                 "total_results": results.len(),
                 "search_latency_ms": latency_ms
@@ -265,7 +281,8 @@ async fn condense_handler(
     Query(params): Query<CondenseParams>,
 ) -> impl IntoResponse {
     let hops = params.hops.unwrap_or(2);
-    match state.db.get_graph(params.workspace.as_deref()).await {
+    let ws = normalize_workspace(params.workspace.as_deref());
+    match state.db.get_graph(ws.as_deref()).await {
         Ok((nodes, links)) => {
             let condensed = ContextCondenser::condense(&params.symbol, &nodes, &links, hops);
             Json(condensed).into_response()
@@ -312,12 +329,13 @@ async fn symbol_handler(
     State(state): State<AppState>,
     Query(params): Query<SymbolParams>,
 ) -> impl IntoResponse {
-    match state.db.find_symbols(&params.name, params.workspace.as_deref()).await {
+    let ws = normalize_workspace(params.workspace.as_deref());
+    match state.db.find_symbols(&params.name, ws.as_deref()).await {
         Ok(symbols) => (
             StatusCode::OK,
             Json(serde_json::json!({
                 "symbol": params.name,
-                "workspace": params.workspace,
+                "workspace": ws,
                 "matches": symbols,
                 "count": symbols.len()
             })),
@@ -336,12 +354,13 @@ async fn references_handler(
     State(state): State<AppState>,
     Query(params): Query<ReferenceParams>,
 ) -> impl IntoResponse {
-    match state.db.find_references(&params.symbol, params.workspace.as_deref()).await {
+    let ws = normalize_workspace(params.workspace.as_deref());
+    match state.db.find_references(&params.symbol, ws.as_deref()).await {
         Ok(callers) => (
             StatusCode::OK,
             Json(serde_json::json!({
                 "symbol": params.symbol,
-                "workspace": params.workspace,
+                "workspace": ws,
                 "references": callers,
                 "count": callers.len()
             })),
@@ -361,12 +380,13 @@ async fn query_handler(
     Json(payload): Json<GraphRagPayload>,
 ) -> impl IntoResponse {
     let top_k = payload.top_k.unwrap_or(5);
+    let ws = normalize_workspace(payload.workspace.as_deref());
     match GraphRagEngine::query(
         &state.db,
         &state.embedder,
         &payload.prompt,
         top_k,
-        payload.workspace.as_deref(),
+        ws.as_deref(),
     )
     .await
     {
@@ -384,7 +404,8 @@ async fn cluster_handler(
     State(state): State<AppState>,
     payload_opt: Option<Json<ClusterPayload>>,
 ) -> impl IntoResponse {
-    let workspace = payload_opt.and_then(|p| p.workspace.clone());
+    let raw_ws = payload_opt.and_then(|p| p.workspace.clone());
+    let workspace = normalize_workspace(raw_ws.as_deref());
     match state.db.get_graph(workspace.as_deref()).await {
         Ok((nodes, links)) => {
             let assignments = CommunityDetector::detect(&nodes, &links, 15);

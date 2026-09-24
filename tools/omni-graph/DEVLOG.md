@@ -4,6 +4,35 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-24 — Path Normalization for Workspace Clustering & Queries
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~10m
+
+#### What Was Done
+- **Root Cause Analysis of 0 Communities Detected**:
+  - Ingestion assigns workspaces by their project/folder name (e.g., `tutor-intelligence`, `DSA`, `session-explorer`), not the full absolute host path.
+  - When users ran `make cluster /Users/aparv/.../tutor-intelligence`, the full directory path was passed verbatim as the workspace partition name, causing SurrealDB to query `workspace = '/Users/...'` which returned 0 nodes.
+- **Implemented Polyglot Workspace Path Normalization**:
+  - Added `normalize_workspace` helper in [`src/api/mod.rs`](file:///Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/tool-scripts/tools/omni-graph/src/api/mod.rs) to cleanly convert directory paths into canonical workspace folder names across all endpoints: `graph_handler`, `search_handler`, `condense_handler`, `symbol_handler`, `references_handler`, `query_handler`, and `cluster_handler`.
+  - Added `norm_ws` shell helper in `scripts/omni.sh` across all subcommands (`cluster`, `search`, `symbol`, `references`, `condense`, `query`).
+  - Synced scripts to `.agents/skills/omni-graph/scripts/omni.sh`.
+- **Verified Successful Execution**:
+  - `make cluster /Users/aparv/.../tutor-intelligence` now successfully detects **98 communities** across 231 AST nodes.
+  - `make cluster /Users/aparv/.../DSA` now successfully detects modular pattern clusters across 1,184 AST nodes.
+- **Container Cleanup**:
+  - Stopped all running containers via `docker compose down` per user constraint.
+
+#### Files Changed
+- `tools/omni-graph/src/api/mod.rs` — Added `normalize_workspace` and wired into all handlers
+- `tools/omni-graph/scripts/omni.sh` — Added `norm_ws` helper
+- `.agents/skills/omni-graph/scripts/omni.sh` — Synchronized with root tool script
+- `tools/omni-graph/skills/omni-graph/scripts/omni.sh` — Synchronized with root tool script
+- `tools/omni-graph/DEVLOG.md` — This entry
+
+---
+
 ### 2026-09-24 — UI Galaxy Clustering Suite & Subsystem Isolation Mode
 
 **Agent/Author**: Antigravity

@@ -31,6 +31,16 @@ EOF
 CMD="${1:-}"
 shift || true
 
+norm_ws() {
+  local raw="${1:-}"
+  if [ -n "${raw}" ] && [[ "${raw}" == *"/"* ]]; then
+    local trimmed="${raw%/}"
+    echo "${trimmed##*/}"
+  else
+    echo "${raw}"
+  fi
+}
+
 case "${CMD}" in
   health)
     curl -sf "${ENDPOINT}/api/health" | python3 -m json.tool 2>/dev/null || curl -s "${ENDPOINT}/api/health"
@@ -62,7 +72,7 @@ except Exception as e:
 
   search)
     QUERY="${1:-}"
-    WS="${2:-}"
+    WS="$(norm_ws "${2:-}")"
     K="${3:-10}"
     if [ -z "${QUERY}" ]; then echo "❌ Missing query argument"; exit 1; fi
     python3 -c "
@@ -80,7 +90,7 @@ with urllib.request.urlopen(req) as resp:
 
   symbol)
     SYM="${1:-}"
-    WS="${2:-}"
+    WS="$(norm_ws "${2:-}")"
     if [ -z "${SYM}" ]; then echo "❌ Missing symbol name"; exit 1; fi
     python3 -c "
 import urllib.request, urllib.parse, json, sys
@@ -97,7 +107,7 @@ with urllib.request.urlopen(req) as resp:
 
   references)
     SYM="${1:-}"
-    WS="${2:-}"
+    WS="$(norm_ws "${2:-}")"
     if [ -z "${SYM}" ]; then echo "❌ Missing symbol name"; exit 1; fi
     python3 -c "
 import urllib.request, urllib.parse, json, sys
@@ -114,7 +124,7 @@ with urllib.request.urlopen(req) as resp:
 
   condense)
     SYMBOL="${1:-}"
-    WS="${2:-}"
+    WS="$(norm_ws "${2:-}")"
     HOPS="${3:-2}"
     if [ -z "${SYMBOL}" ]; then echo "❌ Missing symbol argument"; exit 1; fi
     python3 -c "
@@ -132,7 +142,7 @@ with urllib.request.urlopen(req) as resp:
 
   query)
     PROMPT="${1:-}"
-    WS="${2:-}"
+    WS="$(norm_ws "${2:-}")"
     K="${3:-5}"
     if [ -z "${PROMPT}" ]; then echo "❌ Missing prompt argument"; exit 1; fi
     python3 -c "
@@ -157,7 +167,7 @@ with urllib.request.urlopen(req) as resp:
     ;;
 
   cluster)
-    WS="${1:-}"
+    WS="$(norm_ws "${1:-}")"
     python3 -c "
 import urllib.request, json, sys
 url = '${ENDPOINT}/api/cluster'
@@ -203,7 +213,7 @@ except Exception as e:
     fi
 
     python3 -c "
-import urllib.request, json, sys
+import urllib.request, urllib.error, json, sys
 url = '${ENDPOINT}/api/ingest'
 payload_data = {'path': sys.argv[1]}
 if sys.argv[2]:
@@ -211,7 +221,7 @@ if sys.argv[2]:
 payload = json.dumps(payload_data).encode('utf-8')
 req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
 try:
-    with urllib.request.urlopen(req) as resp:
+    with urllib.request.urlopen(req, timeout=300) as resp:
         res = json.loads(resp.read().decode())
         result = res.get('result', {})
         print('\n✅ Ingestion complete!')
@@ -225,8 +235,14 @@ try:
 except urllib.error.HTTPError as e:
     body = e.read().decode()
     print(f'❌ Ingestion failed ({e.code}): {body}')
+    sys.exit(1)
+except urllib.error.URLError as e:
+    print(f'❌ Ingestion failed (Connection error): {e.reason}')
+    print('   Please check if omni-graph stack is running: make up')
+    sys.exit(1)
 except Exception as e:
     print(f'❌ Ingestion failed: {e}')
+    sys.exit(1)
 " "${RESOLVED_PATH}" "${PROJECT}"
     ;;
 

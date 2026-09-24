@@ -31,6 +31,16 @@ EOF
 CMD="${1:-}"
 shift || true
 
+norm_ws() {
+  local raw="${1:-}"
+  if [ -n "${raw}" ] && [[ "${raw}" == *"/"* ]]; then
+    local trimmed="${raw%/}"
+    echo "${trimmed##*/}"
+  else
+    echo "${raw}"
+  fi
+}
+
 case "${CMD}" in
   health)
     curl -sf "${ENDPOINT}/api/health" | python3 -m json.tool 2>/dev/null || curl -s "${ENDPOINT}/api/health"
@@ -62,7 +72,7 @@ except Exception as e:
 
   search)
     QUERY="${1:-}"
-    WS="${2:-}"
+    WS="$(norm_ws "${2:-}")"
     K="${3:-10}"
     if [ -z "${QUERY}" ]; then echo "❌ Missing query argument"; exit 1; fi
     python3 -c "
@@ -80,7 +90,7 @@ with urllib.request.urlopen(req) as resp:
 
   symbol)
     SYM="${1:-}"
-    WS="${2:-}"
+    WS="$(norm_ws "${2:-}")"
     if [ -z "${SYM}" ]; then echo "❌ Missing symbol name"; exit 1; fi
     python3 -c "
 import urllib.request, urllib.parse, json, sys
@@ -97,7 +107,7 @@ with urllib.request.urlopen(req) as resp:
 
   references)
     SYM="${1:-}"
-    WS="${2:-}"
+    WS="$(norm_ws "${2:-}")"
     if [ -z "${SYM}" ]; then echo "❌ Missing symbol name"; exit 1; fi
     python3 -c "
 import urllib.request, urllib.parse, json, sys
@@ -114,7 +124,7 @@ with urllib.request.urlopen(req) as resp:
 
   condense)
     SYMBOL="${1:-}"
-    WS="${2:-}"
+    WS="$(norm_ws "${2:-}")"
     HOPS="${3:-2}"
     if [ -z "${SYMBOL}" ]; then echo "❌ Missing symbol argument"; exit 1; fi
     python3 -c "
@@ -132,7 +142,7 @@ with urllib.request.urlopen(req) as resp:
 
   query)
     PROMPT="${1:-}"
-    WS="${2:-}"
+    WS="$(norm_ws "${2:-}")"
     K="${3:-5}"
     if [ -z "${PROMPT}" ]; then echo "❌ Missing prompt argument"; exit 1; fi
     python3 -c "
@@ -157,7 +167,7 @@ with urllib.request.urlopen(req) as resp:
     ;;
 
   cluster)
-    WS="${1:-}"
+    WS="$(norm_ws "${1:-}")"
     python3 -c "
 import urllib.request, json, sys
 url = '${ENDPOINT}/api/cluster'
