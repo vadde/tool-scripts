@@ -168,9 +168,12 @@ export default function App() {
       if (res.ok) {
         const hJson = await res.json();
         setHealth(hJson);
+      } else {
+        setHealth(null);
       }
     } catch (err) {
       console.warn('Failed to load health status', err);
+      setHealth(null);
     }
   };
 
@@ -292,8 +295,10 @@ export default function App() {
       }
     } catch (err) {
       console.error('Clustering error', err);
-      setClusterToast('❌ Connection error to clustering engine');
-      setTimeout(() => setClusterToast(null), 5000);
+      setClusterToast(
+        '❌ Connection error: Backend stack may be offline. Run "make omni-graph" in your terminal to start services.'
+      );
+      setTimeout(() => setClusterToast(null), 6000);
     } finally {
       setIsClustering(false);
     }
@@ -387,7 +392,7 @@ export default function App() {
         setIngestNotice(`❌ Ingestion failed: ${errJson.message || 'Unknown error'}`);
       }
     } catch (err) {
-      setIngestNotice(`❌ Ingestion error: ${String(err)}`);
+      setIngestNotice('❌ Connection error: Backend stack may be offline. Run "make omni-graph" in your terminal to start.');
     } finally {
       setIsIngesting(false);
     }
@@ -722,14 +727,36 @@ export default function App() {
               paddingLeft: 14,
             }}
           >
-            <div title="SurrealDB v2 Status" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
-              <Database size={13} color={health?.services.surrealdb.status === 'ok' ? '#34d399' : '#f87171'} />
-              <span style={{ color: 'var(--text-muted)' }}>DB</span>
-            </div>
-            <div title="HuggingFace TEI Inference" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
-              <Cpu size={13} color={health?.services.tei.status === 'ok' ? '#34d399' : '#f87171'} />
-              <span style={{ color: 'var(--text-muted)' }}>TEI</span>
-            </div>
+            {health ? (
+              <>
+                <div title="SurrealDB v2 Status" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
+                  <Database size={13} color={health.services.surrealdb.status === 'ok' ? '#34d399' : '#f87171'} />
+                  <span style={{ color: 'var(--text-muted)' }}>DB</span>
+                </div>
+                <div title="HuggingFace TEI Inference" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
+                  <Cpu size={13} color={health.services.tei.status === 'ok' ? '#34d399' : '#f87171'} />
+                  <span style={{ color: 'var(--text-muted)' }}>TEI</span>
+                </div>
+              </>
+            ) : (
+              <div
+                title="Omni-Graph backend services are not running. Run 'make omni-graph' in terminal."
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  borderRadius: 12,
+                  padding: '2px 8px',
+                  fontSize: '0.7rem',
+                  color: '#f87171',
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
+                <span>Backend Offline</span>
+              </div>
+            )}
             <div title="Visible Nodes" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.72rem' }}>
               <Layers size={13} color="#38bdf8" />
               <span style={{ color: '#38bdf8', fontWeight: 600 }}>{displayNodes.length}</span>
