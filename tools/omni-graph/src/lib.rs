@@ -2,6 +2,7 @@
 // Re-exports core modules for external test access and integration
 
 pub mod analysis;
+pub mod analytics;
 pub mod api;
 pub mod condenser;
 pub mod config;

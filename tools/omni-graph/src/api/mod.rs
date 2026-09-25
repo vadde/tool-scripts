@@ -2,12 +2,13 @@
 // Implements: R-008, R-009, R-010, R-022, R-023, R-028
 
 use crate::analysis::{CommunityDetector, GraphRagEngine};
+use crate::analytics::AnalyticsEngine;
 use crate::condenser::ContextCondenser;
 use crate::db::DbClient;
 use crate::embedder::EmbedderClient;
 use crate::ingestion::IngestionPipeline;
 use axum::{
-    extract::{Query, State},
+    extract::{Path as AxumPath, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -152,6 +153,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/cluster", post(cluster_handler))
         .route("/api/galaxies", get(galaxies_handler))
         .route("/api/ingest", post(ingest_handler))
+        .route("/api/analytics", get(analytics_handler))
+        .route("/api/analytics/session/:id", get(session_detail_handler))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -787,6 +790,28 @@ async fn browse_handler(
         entries,
     })
     .into_response()
+}
+
+/// GET /api/analytics
+async fn analytics_handler() -> impl IntoResponse {
+    let resp = AnalyticsEngine::scan_analytics();
+    Json(resp).into_response()
+}
+
+/// GET /api/analytics/session/:id
+async fn session_detail_handler(
+    AxumPath(id): AxumPath<String>,
+) -> impl IntoResponse {
+    match AnalyticsEngine::get_session_detail(&id) {
+        Some(detail) => Json(detail).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!("Session {} not found", id)
+            })),
+        )
+            .into_response(),
+    }
 }
 
 

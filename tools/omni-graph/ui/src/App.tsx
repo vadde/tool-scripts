@@ -21,7 +21,9 @@ import {
   FolderPlus,
   Maximize2,
   Zap,
+  BarChart3,
 } from 'lucide-react';
+import AgentAnalytics from './AgentAnalytics';
 
 interface GraphNode {
   id: string;
@@ -92,6 +94,9 @@ const GALAXY_COLORS = [
 ];
 
 export default function App() {
+  // Navigation View Mode: 3D Graph Studio vs Agent Analytics & LSP Telemetry
+  const [viewMode, setViewMode] = useState<'graph' | 'analytics'>('graph');
+
   // Graph state
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [links, setLinks] = useState<GraphLink[]>([]);
@@ -665,78 +670,155 @@ export default function App() {
           </div>
         </div>
 
-        {/* Semantic Search Bar */}
-        <form
-          onSubmit={handleSearch}
+        {/* View Mode Switcher: 3D Graph Studio vs Agent Analytics & LSP Telemetry */}
+        <div
           style={{
             display: 'flex',
-            alignItems: 'center',
             background: 'rgba(0, 0, 0, 0.45)',
+            padding: 3,
+            borderRadius: 8,
             border: '1px solid rgba(255, 255, 255, 0.1)',
-            borderRadius: 24,
-            padding: '4px 14px',
-            width: 380,
-            transition: 'border-color 0.2s',
           }}
         >
-          <Search size={15} color="var(--text-muted)" style={{ marginRight: 8 }} />
-          <input
-            type="text"
-            placeholder={
-              selectedWorkspace
-                ? `Semantic search in ${selectedWorkspace}...`
-                : 'Semantic search across all codebases...'
-            }
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              outline: 'none',
-              color: '#fff',
-              fontSize: '0.82rem',
-              width: '100%',
-            }}
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('');
-                setSelectedNode(null);
-                loadGraph(selectedWorkspace);
-              }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
-            >
-              <X size={14} color="var(--text-muted)" />
-            </button>
-          )}
-          {isSearching && <RefreshCw size={14} className="pulsing-dot" color="var(--accent-cyan)" style={{ marginLeft: 6 }} />}
-        </form>
-
-        {/* Action Controls & Health Badges */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Galaxies & Subsystems Toggle */}
           <button
-            onClick={() => setIsGalaxyDrawerOpen(!isGalaxyDrawerOpen)}
-            className={`cyber-button-secondary ${isGalaxyDrawerOpen ? 'active' : ''}`}
-            title="Toggle Galaxy Subsystems Navigator"
+            type="button"
+            onClick={() => setViewMode('graph')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '5px 12px',
+              borderRadius: 6,
+              border: 'none',
+              fontSize: '0.76rem',
+              fontWeight: viewMode === 'graph' ? 600 : 400,
+              cursor: 'pointer',
+              background:
+                viewMode === 'graph'
+                  ? 'linear-gradient(135deg, rgba(2, 132, 199, 0.4), rgba(147, 51, 234, 0.4))'
+                  : 'transparent',
+              color: viewMode === 'graph' ? '#fff' : 'var(--text-secondary)',
+              boxShadow: viewMode === 'graph' ? '0 0 10px rgba(56, 189, 248, 0.3)' : 'none',
+            }}
           >
-            <Sparkles size={14} color={isGalaxyDrawerOpen ? 'var(--accent-cyan)' : 'var(--accent-purple)'} />
-            <span>Galaxies</span>
+            <Compass size={14} color={viewMode === 'graph' ? 'var(--accent-cyan)' : 'var(--text-muted)'} />
+            <span>3D Graph Studio</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('analytics')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '5px 12px',
+              borderRadius: 6,
+              border: 'none',
+              fontSize: '0.76rem',
+              fontWeight: viewMode === 'analytics' ? 600 : 400,
+              cursor: 'pointer',
+              background:
+                viewMode === 'analytics'
+                  ? 'linear-gradient(135deg, rgba(56, 189, 248, 0.3), rgba(52, 211, 153, 0.3))'
+                  : 'transparent',
+              color: viewMode === 'analytics' ? '#38bdf8' : 'var(--text-secondary)',
+              boxShadow: viewMode === 'analytics' ? '0 0 10px rgba(56, 189, 248, 0.3)' : 'none',
+            }}
+          >
+            <BarChart3 size={14} color={viewMode === 'analytics' ? '#38bdf8' : 'var(--text-muted)'} />
+            <span>Agent Analytics & LSP</span>
             <span
               style={{
-                background: 'rgba(168, 85, 247, 0.2)',
-                color: 'var(--accent-purple)',
+                background: 'rgba(52, 211, 153, 0.25)',
+                color: '#34d399',
                 borderRadius: 10,
-                padding: '1px 6px',
-                fontSize: '0.7rem',
+                padding: '1px 5px',
+                fontSize: '0.62rem',
                 fontWeight: 700,
               }}
             >
-              {clusters.length}
+              Omni-DB
             </span>
           </button>
+        </div>
+
+        {/* Semantic Search Bar (Graph Mode Only) */}
+        {viewMode === 'graph' && (
+          <form
+            onSubmit={handleSearch}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              background: 'rgba(0, 0, 0, 0.45)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: 24,
+              padding: '4px 14px',
+              width: 340,
+              transition: 'border-color 0.2s',
+            }}
+          >
+            <Search size={15} color="var(--text-muted)" style={{ marginRight: 8 }} />
+            <input
+              type="text"
+              placeholder={
+                selectedWorkspace
+                  ? `Semantic search in ${selectedWorkspace}...`
+                  : 'Semantic search across all codebases...'
+              }
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: '#fff',
+                fontSize: '0.82rem',
+                width: '100%',
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedNode(null);
+                  loadGraph(selectedWorkspace);
+                }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+              >
+                <X size={14} color="var(--text-muted)" />
+              </button>
+            )}
+            {isSearching && <RefreshCw size={14} className="pulsing-dot" color="var(--accent-cyan)" style={{ marginLeft: 6 }} />}
+          </form>
+        )}
+
+        {/* Action Controls & Health Badges */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* Galaxies & Subsystems Toggle (Graph Mode Only) */}
+          {viewMode === 'graph' && (
+            <button
+              onClick={() => setIsGalaxyDrawerOpen(!isGalaxyDrawerOpen)}
+              className={`cyber-button-secondary ${isGalaxyDrawerOpen ? 'active' : ''}`}
+              title="Toggle Galaxy Subsystems Navigator"
+            >
+              <Sparkles size={14} color={isGalaxyDrawerOpen ? 'var(--accent-cyan)' : 'var(--accent-purple)'} />
+              <span>Galaxies</span>
+              <span
+                style={{
+                  background: 'rgba(168, 85, 247, 0.2)',
+                  color: 'var(--accent-purple)',
+                  borderRadius: 10,
+                  padding: '1px 6px',
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                }}
+              >
+                {clusters.length}
+              </span>
+            </button>
+          )}
 
           {/* Quick Cluster Button if no clusters exist */}
           {clusters.length === 0 && nodes.length > 0 && (
@@ -810,8 +892,29 @@ export default function App() {
         </div>
       </header>
 
-      {/* ─── FLOATING ISOLATION MODE BANNER ─────────────────────────────────── */}
-      {isolatedClusterId !== null && (
+      {/* ─── AGENT ANALYTICS & LSP TELEMETRY VIEW ────────────────────── */}
+      {viewMode === 'analytics' && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 84,
+            left: 14,
+            right: 14,
+            bottom: 14,
+            zIndex: 90,
+            borderRadius: 12,
+            overflow: 'hidden',
+          }}
+        >
+          <AgentAnalytics />
+        </div>
+      )}
+
+      {/* ─── 3D GRAPH STUDIO VIEW ────────────────────────────────────── */}
+      {viewMode === 'graph' && (
+        <>
+          {/* ─── FLOATING ISOLATION MODE BANNER ─────────────────────────────────── */}
+          {isolatedClusterId !== null && (
         <div
           className="glass-panel"
           style={{
@@ -1483,6 +1586,8 @@ export default function App() {
             )}
           </div>
         </aside>
+      )}
+        </>
       )}
 
       {/* ─── 5. FUTURISTIC DIRECTORY BROWSER MODAL (INGEST DIALOG) ─────────── */}

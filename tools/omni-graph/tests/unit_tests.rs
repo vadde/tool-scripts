@@ -803,3 +803,98 @@ mod cluster_filter_tests {
         assert_eq!(filtered[0].node_count, 3);
     }
 }
+
+mod analytics_tests {
+    use omni_graph::analytics::AnalyticsEngine;
+    use std::fs::{self, File};
+    use std::io::Write;
+
+    #[test]
+    fn test_analytics_scan_and_detail_with_synthetic_session() {
+        let temp_dir = std::env::temp_dir().join(format!("omni_test_brain_{}", std::process::id()));
+        let session_id = "test-session-12345";
+        let session_dir = temp_dir.join(session_id).join(".system_generated").join("logs");
+        fs::create_dir_all(&session_dir).expect("create temp session dir");
+
+        let transcript_path = session_dir.join("transcript.jsonl");
+        let mut file = File::create(&transcript_path).expect("create transcript");
+
+        let step1 = serde_json::json!({
+            "step_index": 0,
+            "source": "USER_INPUT",
+            "type": "USER_INPUT",
+            "status": "DONE",
+            "created_at": "2026-09-25T12:00:00Z",
+            "content": "Look up symbol NewSessionIndex in GoLang",
+        });
+
+        let step2 = serde_json::json!({
+            "step_index": 1,
+            "source": "MODEL",
+            "type": "PLANNER_RESPONSE",
+            "status": "DONE",
+            "created_at": "2026-09-25T12:00:05Z",
+            "content": "Using omni-graph to find symbol definition",
+            "thinking": "I should query the Omni-Graph AST rather than dumping whole files.",
+            "tool_calls": [
+                {
+                    "name": "run_command",
+                    "args": {
+                        "CommandLine": "make graph-symbol SYM=NewSessionIndex"
+                    }
+                },
+                {
+                    "name": "view_file",
+                    "args": {
+                        "AbsolutePath": "/Users/aparv/code/server.go"
+                    }
+                }
+            ]
+        });
+
+        writeln!(file, "{}", step1).unwrap();
+        writeln!(file, "{}", step2).unwrap();
+        drop(file);
+
+        // Point BRAIN_DIR to temp_dir
+        std::env::set_var("BRAIN_DIR", &temp_dir);
+
+        let analytics = AnalyticsEngine::scan_analytics();
+        assert_eq!(analytics.summary.total_sessions, 1);
+        assert_eq!(analytics.summary.total_steps, 2);
+        assert_eq!(analytics.summary.total_tool_calls, 2);
+        assert_eq!(analytics.summary.total_omni_calls, 1);
+        assert_eq!(analytics.summary.total_lsp_lookups, 1);
+        assert!(analytics.summary.estimated_tokens_saved > 0);
+
+        // Verify tools breakdown
+        assert!(analytics.tools_breakdown.iter().any(|t| t.name == "run_command"));
+        assert!(analytics.tools_breakdown.iter().any(|t| t.name == "view_file"));
+
+        // Verify language telemetry detected .go
+        assert!(analytics.languages_telemetry.iter().any(|l| l.language == "Go"));
+
+        // Verify session detail
+        let detail = AnalyticsEngine::get_session_detail(session_id);
+        assert!(detail.is_some());
+        let d = detail.unwrap();
+        assert_eq!(d.session_id, session_id);
+        assert_eq!(d.total_steps, 2);
+        assert_eq!(d.total_tools, 2);
+        assert_eq!(d.omni_tools, 1);
+        assert_eq!(d.messages.len(), 2);
+        assert_eq!(d.messages[1].tool_calls.len(), 2);
+        assert!(d.messages[1].tool_calls[0].is_omni);
+        assert_eq!(
+            d.messages[1].tool_calls[0].omni_category,
+            Some("Omni-Graph LSP Engine".to_string())
+        );
+
+        // Non-existent session returns None
+        assert!(AnalyticsEngine::get_session_detail("non-existent-session-xyz").is_none());
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::remove_var("BRAIN_DIR");
+    }
+}

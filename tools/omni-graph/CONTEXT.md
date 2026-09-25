@@ -29,7 +29,8 @@ blockers: []
 | Spec Requirements (R-XXX) | 28 | 28 | 🟢 100% Complete |
 | Acceptance Criteria (AC-XXX) | 18 | 18 | 🟢 100% Complete |
 | Non-Functional (NF-XXX) | 11 | 11 | 🟢 100% Complete |
-| Test Coverage | 48/48 Unit & Integration Tests | 48 | 🟢 100% Verified in Docker |
+| Test Coverage | 49/49 Unit & Integration Tests | 49 | 🟢 100% Verified in Docker |
+| Agent Analytics & LSP Telemetry | Complete | — | 🟢 Live on Port 3000 & 8080 |
 | Documentation | Complete | — | ✅ Complete |
 
 ---
@@ -75,11 +76,10 @@ blockers: []
 
 > _What to do when you pick this tool up. Updated at the end of every session._
 
-1. Run `make up` to launch the multi-container stack (SurrealDB, TEI, Rust API, React UI)
-2. Ingest codebase via `./scripts/omni.sh ingest <path>` or UI button at `http://localhost:3000`
-3. Execute cluster community detection via `./scripts/omni.sh cluster`
-4. Test hybrid Graph-RAG queries via `./scripts/omni.sh query "<prompt>"`
-5. Write integration & automated test suite (`tests/`) to transition from `in-progress` to `testing`
+1. Multi-container stack (SurrealDB, TEI, Rust API, React UI) active and healthy
+2. Dynamic Live Sync (6s) & Grounding Paradigm Hub deployed to UI at `http://localhost:3000`
+3. 49/49 unit tests verified in Docker
+4. Ready for human review and transition to `review` phase
 
 ---
 
@@ -133,4 +133,4 @@ blockers: []
 
 ---
 
-_Last updated: 2026-09-24_
+_Last updated: 2026-09-25_

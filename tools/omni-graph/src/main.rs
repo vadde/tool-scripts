@@ -3,6 +3,7 @@
 // Purpose-built for 100% local Apple Silicon execution
 
 mod analysis;
+mod analytics;
 mod api;
 mod condenser;
 mod config;
