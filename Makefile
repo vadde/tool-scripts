@@ -10,7 +10,7 @@
 .PHONY: help setup new-tool test test-tool lint lint-tool build build-tool \
         run-tool demo-tool validate-specs catalog status clean \
         session-explorer omni-graph ingest cluster workspaces search-graph query-graph \
-        graph-symbol graph-references graph-condense graph-galaxies
+        graph-symbol graph-references graph-condense graph-galaxies graph-health health
 
 .DEFAULT_GOAL := help
 
@@ -164,6 +164,9 @@ graph-condense: ## Condense AST slice (<1500 tokens): make graph-condense SYM=<n
 
 graph-galaxies: ## Inspect architectural subsystems: make graph-galaxies [PROJECT=name]
 	@$(MAKE) -C $(TOOLS_DIR)/omni-graph galaxies PROJECT="$(PROJECT)"
+
+graph-health health: ## Check health of Omni-Graph services
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph health
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Build & Packaging
