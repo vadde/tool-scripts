@@ -9,7 +9,8 @@
 
 .PHONY: help setup new-tool test test-tool lint lint-tool build build-tool \
         run-tool demo-tool validate-specs catalog status clean \
-        session-explorer omni-graph ingest cluster workspaces search-graph query-graph
+        session-explorer omni-graph ingest cluster workspaces search-graph query-graph \
+        graph-symbol graph-references graph-condense graph-galaxies
 
 .DEFAULT_GOAL := help
 
@@ -21,7 +22,7 @@ SPECS_DIR   := specs
 T           ?=
 ARGS        ?=
 PROJECT     ?=
-PATH        ?=
+DIR         ?=
 Q           ?=
 K           ?= 10
 
@@ -103,14 +104,42 @@ help: ## Show this interactive command directory
 #  Tool Execution & Quick Launchers
 # ═══════════════════════════════════════════════════════════════════════════
 
+run-tool: ## Run a specific tool (T=tool-name [ARGS="..."])
+	@if [ -z "$(T)" ]; then \
+		echo "❌ Usage: make run-tool T=<tool-name> [ARGS=\"...\"]"; \
+		echo "   Example: make run-tool T=session-explorer"; \
+		exit 1; \
+	fi
+	@if [ -f "$(TOOLS_DIR)/$(T)/Makefile" ]; then \
+		printf "$(GREEN)🚀 Running tool: $(T)...$(NC)\n"; \
+		$(MAKE) -C "$(TOOLS_DIR)/$(T)" run ARGS="$(ARGS)"; \
+	else \
+		echo "❌ No Makefile found in tools/$(T)/"; \
+		exit 1; \
+	fi
+
+demo-tool: ## Run automated demo for a tool (T=tool-name)
+	@if [ -z "$(T)" ]; then \
+		echo "❌ Usage: make demo-tool T=<tool-name>"; \
+		echo "   Example: make demo-tool T=session-explorer"; \
+		exit 1; \
+	fi
+	@if [ -f "$(TOOLS_DIR)/$(T)/Makefile" ]; then \
+		printf "$(GREEN)📝 Running demo for: $(T)...$(NC)\n"; \
+		$(MAKE) -C "$(TOOLS_DIR)/$(T)" demo; \
+	else \
+		echo "❌ No Makefile found in tools/$(T)/"; \
+		exit 1; \
+	fi
+
 session-explorer: ## Quick launcher for Session Explorer
 	@$(MAKE) run-tool T=session-explorer ARGS="$(ARGS)"
 
 omni-graph: ## Quick launcher: start Omni-Graph semantic knowledge stack
 	@$(MAKE) -C $(TOOLS_DIR)/omni-graph up
 
-ingest: ## Index a codebase into Omni-Graph: make ingest [PATH=<dir>] [PROJECT=name]
-	@$(MAKE) -C $(TOOLS_DIR)/omni-graph ingest $(if $(INGEST_ARGS),$(INGEST_ARGS),$(if $(PATH),PATH="$(PATH)",)) PROJECT="$(PROJECT)"
+ingest: ## Index a codebase into Omni-Graph: make ingest [<dir>] [DIR=<dir>] [PROJECT=name]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph ingest $(if $(INGEST_ARGS),$(INGEST_ARGS),$(if $(DIR),PATH="$(DIR)",)) PROJECT="$(PROJECT)"
 
 cluster: ## Compute galaxy IDs: make cluster [PROJECT=name]
 	@$(MAKE) -C $(TOOLS_DIR)/omni-graph cluster $(if $(CLUSTER_ARGS),$(CLUSTER_ARGS),) PROJECT="$(PROJECT)"
@@ -123,6 +152,18 @@ search-graph: ## Search Omni-Graph knowledge hub: make search-graph Q="<terms>" 
 
 query-graph: ## Hybrid Graph-RAG retrieval: make query-graph Q="<question>" [PROJECT=name]
 	@$(MAKE) -C $(TOOLS_DIR)/omni-graph query Q="$(Q)" PROJECT="$(PROJECT)" K="$(K)"
+
+graph-symbol: ## LSP definition lookup: make graph-symbol SYM=<name> [PROJECT=name]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph symbol SYM="$(SYM)" PROJECT="$(PROJECT)"
+
+graph-references: ## LSP reference callers: make graph-references SYM=<name> [PROJECT=name]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph references SYM="$(SYM)" PROJECT="$(PROJECT)"
+
+graph-condense: ## Condense AST slice (<1500 tokens): make graph-condense SYM=<name> [HOPS=2] [PROJECT=name]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph condense SYM="$(SYM)" HOPS="$(HOPS)" PROJECT="$(PROJECT)"
+
+graph-galaxies: ## Inspect architectural subsystems: make graph-galaxies [PROJECT=name]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph galaxies PROJECT="$(PROJECT)"
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Build & Packaging

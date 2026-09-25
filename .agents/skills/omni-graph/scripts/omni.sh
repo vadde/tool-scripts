@@ -22,6 +22,7 @@ Commands:
   condense <sym> [ws] [hops] Multi-hop AST subgraph slice (<1500 tokens for agents)
   query <prompt> [ws] [k]    Hybrid Graph-RAG retrieval (seeds + AST + community)
   cluster [workspace]        Run Louvain/Leiden community detection clustering
+  galaxies [workspace]       Inspect architectural galaxy subsystems
   ingest <path> [project]    Index a codebase/directory into SurrealDB
   stats                      Show aggregated graph stats
 EOF
@@ -193,6 +194,39 @@ try:
             print(f'#{cid:<14} {cnt:<10} {name:<40}')
 except Exception as e:
     print(f'Error executing cluster: {e}')
+" "${WS}"
+    ;;
+
+  galaxies)
+    WS="$(norm_ws "${1:-}")"
+    python3 -c "
+import urllib.request, urllib.parse, json, sys
+url = '${ENDPOINT}/api/galaxies'
+if sys.argv[1]:
+    url += '?' + urllib.parse.urlencode({'workspace': sys.argv[1]})
+req = urllib.request.Request(url)
+try:
+    with urllib.request.urlopen(req) as resp:
+        data = json.loads(resp.read().decode())
+        galaxies = data.get('galaxies', [])
+        ws = data.get('workspace') or 'All Workspaces (Omniverse)'
+        print(f'🌌 Architectural Subsystems for [{ws}] — Total Galaxies: {len(galaxies)}\n')
+        if not galaxies:
+            print('No clusters computed yet. Run: make cluster')
+            exit(0)
+        print(f'{\"GALAXY ID\":<12} {\"NODES\":<8} {\"SUBSYSTEM / DOMINANT PATH\":<35} {\"LANGUAGES\":<15} {\"SAMPLE SYMBOLS\"}')
+        print('='*105)
+        for g in galaxies:
+            gid = f\"#{g.get('id', 0)}\"
+            cnt = g.get('node_count', 0)
+            name = g.get('name', '')
+            if len(name) > 33: name = name[:30] + '...'
+            langs = ', '.join(g.get('languages', []))
+            syms = ', '.join(g.get('sample_symbols', [])[:4])
+            if len(syms) > 40: syms = syms[:37] + '...'
+            print(f'{gid:<12} {cnt:<8} {name:<35} {langs:<15} {syms}')
+except Exception as e:
+    print(f'Error querying galaxies: {e}')
 " "${WS}"
     ;;
 

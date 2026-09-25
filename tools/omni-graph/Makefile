@@ -7,7 +7,7 @@
 # ============================================================================
 
 .PHONY: help setup test lint run build clean up down logs health \
-        ingest cluster workspaces search query setup-agent
+        ingest cluster workspaces search query symbol references condense galaxies setup-agent
 
 .DEFAULT_GOAL := help
 
@@ -129,6 +129,30 @@ query: ## Hybrid Graph-RAG synthesis: make query Q="<question>" [PROJECT=name]
 		exit 1; \
 	fi
 	@./scripts/omni.sh query "$(Q)" "$(PROJECT)" "$(K)"
+
+symbol: ## Lookup symbol definition: make symbol SYM=<name> [PROJECT=name]
+	@if [ -z "$(SYM)" ]; then \
+		echo "❌ Missing SYM argument: make symbol SYM=\"<symbol_name>\" [PROJECT=name]"; \
+		exit 1; \
+	fi
+	@./scripts/omni.sh symbol "$(SYM)" "$(PROJECT)"
+
+references: ## Find symbol callers: make references SYM=<name> [PROJECT=name]
+	@if [ -z "$(SYM)" ]; then \
+		echo "❌ Missing SYM argument: make references SYM=\"<symbol_name>\" [PROJECT=name]"; \
+		exit 1; \
+	fi
+	@./scripts/omni.sh references "$(SYM)" "$(PROJECT)"
+
+condense: ## Condense AST slice (<1500 tokens): make condense SYM=<name> [HOPS=2] [PROJECT=name]
+	@if [ -z "$(SYM)" ]; then \
+		echo "❌ Missing SYM argument: make condense SYM=\"<symbol_name>\" [HOPS=2] [PROJECT=name]"; \
+		exit 1; \
+	fi
+	@./scripts/omni.sh condense "$(SYM)" "$(PROJECT)" "$(if $(HOPS),$(HOPS),2)"
+
+galaxies: ## Inspect architectural subsystems: make galaxies [PROJECT=name]
+	@./scripts/omni.sh galaxies "$(PROJECT)"
 
 # ─── Test ───────────────────────────────────────────────────────────────────
 test: ## Run test suite

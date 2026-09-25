@@ -14,6 +14,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -147,6 +148,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/browse", get(browse_handler))
         .route("/api/query", post(query_handler))
         .route("/api/cluster", post(cluster_handler))
+        .route("/api/galaxies", get(galaxies_handler))
         .route("/api/ingest", post(ingest_handler))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
@@ -222,6 +224,84 @@ async fn graph_handler(
                     "total_nodes": total_nodes,
                     "total_links": total_links
                 }
+            }))
+            .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /api/galaxies?workspace=<ws> — Query architectural subsystems without re-clustering
+async fn galaxies_handler(
+    State(state): State<AppState>,
+    Query(params): Query<GraphParams>,
+) -> impl IntoResponse {
+    let ws = normalize_workspace(params.workspace.as_deref());
+    match state.db.get_graph(ws.as_deref()).await {
+        Ok((nodes, _links)) => {
+            let mut comm_map: HashMap<i32, Vec<crate::db::DbNode>> = HashMap::new();
+            for node in nodes {
+                if let Some(cid) = node.community {
+                    comm_map.entry(cid).or_default().push(node);
+                }
+            }
+
+            let mut galaxies: Vec<serde_json::Value> = comm_map
+                .into_iter()
+                .map(|(cid, cluster_nodes)| {
+                    let mut dir_counts: HashMap<String, usize> = HashMap::new();
+                    let mut languages: HashSet<String> = HashSet::new();
+                    for n in &cluster_nodes {
+                        if let Some(parent) = std::path::Path::new(&n.file_path).parent() {
+                            let p = parent.to_string_lossy().to_string();
+                            if !p.is_empty() && p != "." {
+                                *dir_counts.entry(p).or_insert(0) += 1;
+                            }
+                        }
+                        if !n.language.is_empty() {
+                            languages.insert(n.language.clone());
+                        }
+                    }
+                    let dominant = dir_counts
+                        .into_iter()
+                        .max_by_key(|(_, c)| *c)
+                        .map(|(d, _)| d)
+                        .unwrap_or_else(|| "root".to_string());
+                    let name = if cluster_nodes.len() == 1 {
+                        format!("{}: {} • {}", dominant, cluster_nodes[0].kind, cluster_nodes[0].label)
+                    } else {
+                        dominant.clone()
+                    };
+
+                    let sample_symbols: Vec<String> =
+                        cluster_nodes.iter().take(6).map(|n| n.label.clone()).collect();
+                    let langs: Vec<String> = languages.into_iter().collect();
+
+                    serde_json::json!({
+                        "id": cid,
+                        "name": name,
+                        "dominant_path": dominant,
+                        "node_count": cluster_nodes.len(),
+                        "languages": langs,
+                        "sample_symbols": sample_symbols
+                    })
+                })
+                .collect();
+
+            galaxies.sort_by(|a, b| {
+                b.get("node_count")
+                    .and_then(|v| v.as_u64())
+                    .cmp(&a.get("node_count").and_then(|v| v.as_u64()))
+            });
+
+            Json(serde_json::json!({
+                "total_galaxies": galaxies.len(),
+                "workspace": ws,
+                "galaxies": galaxies
             }))
             .into_response()
         }

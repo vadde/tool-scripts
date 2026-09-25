@@ -4,6 +4,53 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-25 — Restore session-explorer Launcher, Implement /api/galaxies, and Beef Up Agent Reconnaissance Ladder
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~35m
+
+#### What Was Done
+- **Restored `make session-explorer` & Root Makefile Health**:
+  - Identified root cause of `make session-explorer` failure: `run-tool` and `demo-tool` recipe blocks were omitted when inserting omni-graph shortcuts, causing `make` to report "Nothing to be done for 'run-tool'".
+  - Resolved variable collision where `PATH ?=` in the root Makefile shadowed the user's system `$PATH` environment variable, corrupting tool binary execution paths; renamed Makefile parameter to `DIR ?=`.
+  - Verified `make session-explorer ARGS="--help"`: successfully bundled 198 Bun frontend modules in 25ms, compiled the Go binary, and cleanly executed `--help`.
+- **Implemented Read-Only Subsystem Inspection (`GET /api/galaxies`)**:
+  - In `tools/omni-graph/src/api/mod.rs`, created `galaxies_handler` and registered `GET /api/galaxies`.
+  - Aggregates existing community assignments (community ID, node count, dominant path, languages, and top symbols) without triggering an expensive write or re-clustering.
+  - Rebuilt Docker Rust backend image (`omni-graph-rust-app`).
+- **Added CLI Commands & Root Makefile Targets**:
+  - Added `galaxies` subcommand to `tools/omni-graph/scripts/omni.sh` and synced to `.agents/skills/omni-graph/scripts/omni.sh`.
+  - Added `make graph-symbol`, `make graph-references`, `make graph-condense`, and `make graph-galaxies` to root `Makefile` and tool-local `Makefile`.
+- **Beefed Up Agent Reconnaissance Ladder & Documentation**:
+  - Upgraded `.agents/rules/08-omni-graph-enforcement.md` and `tools/omni-graph/rules/08-omni-graph-enforcement.md` with the 3-Tier Omniverse Reconnaissance Ladder:
+    - Tier 1 (Macro): `workspaces` (discover ingested codebases).
+    - Tier 2 (Meso): `graph-galaxies` (discover high-level subsystem communities and architectural boundaries).
+    - Tier 3 (Micro): `graph-symbol`, `graph-references`, `graph-condense` (extract token-budgeted <1500 AST subgraphs).
+  - Upgraded `.agents/skills/omni-graph/SKILL.md` and `tools/omni-graph/skills/omni-graph/SKILL.md` with multi-workspace guides, token budgeting rules, and practical agent recipes.
+  - Updated `AGENTS.md` orientation checklist and Key Commands table to enforce AST/Omni-Graph reconnaissance over brute-force grep.
+- **Verification & Governance**:
+  - Verified `make graph-galaxies PROJECT=session-explorer` returns 15 detected subsystems.
+  - Verified `make graph-condense SYM=extractWorkspace PROJECT=session-explorer` returns <1500 tokens of AST markdown.
+  - Verified `make validate-specs` (2 tools checked, 0 errors, 0 warnings).
+  - Gracefully stopped Docker containers via `docker compose down`.
+
+#### Files Changed
+- `Makefile` — Restored `run-tool`, `demo-tool`, renamed `PATH` to `DIR`, added graph convenience targets
+- `tools/omni-graph/Makefile` — Added `galaxies`, `condense`, `symbol`, `references` shortcuts
+- `tools/omni-graph/src/api/mod.rs` — Added `GET /api/galaxies` endpoint & handler
+- `tools/omni-graph/scripts/omni.sh` — Added `galaxies` CLI command
+- `.agents/skills/omni-graph/scripts/omni.sh` — Synced `galaxies` CLI command
+- `tools/omni-graph/skills/omni-graph/scripts/omni.sh` — Synced `galaxies` CLI command
+- `.agents/rules/08-omni-graph-enforcement.md` — Beefed up with 3-Tier Reconnaissance Ladder & token budgeting
+- `tools/omni-graph/rules/08-omni-graph-enforcement.md` — Synced rule updates
+- `.agents/skills/omni-graph/SKILL.md` — Complete agent guide for omniverse navigation
+- `tools/omni-graph/skills/omni-graph/SKILL.md` — Synced skill documentation
+- `.agents/AGENTS.md` — Updated orientation checklist and Key Commands table
+- `tools/omni-graph/DEVLOG.md` — This entry
+
+---
+
 ### 2026-09-25 — Eliminate Nested Scroll Trap & Dynamically Adapt Cluster Symbol List
 
 **Agent/Author**: Antigravity

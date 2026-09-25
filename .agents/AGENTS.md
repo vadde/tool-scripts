@@ -46,6 +46,8 @@ Before ANY action, complete this checklist:
 - [ ] Read the tool's `DEVLOG.md` (latest entry) for recent session context
 - [ ] Verify the tool's `STATUS.md` to confirm SDLC phase
 - [ ] Read the tool's spec in `specs/catalog/<name>.md` (if implementing)
+- [ ] Check if target codebase is indexed in Omni-Graph (`make workspaces`)
+- [ ] If exploring architecture, inspect subsystems (`make graph-galaxies`) and query AST before reading files (Rule 08)
 - [ ] Read relevant rules in `.agents/rules/`
 - [ ] Check `sdlc/ROADMAP.md` for context on priorities
 
@@ -136,14 +138,21 @@ Tools can be written in ANY language. Detect the language by checking for:
 Use the root `Makefile` as your primary interface:
 
 ```bash
-make help              # Show all available targets
-make new-tool NAME=x   # Scaffold a new tool
-make test              # Run ALL tool tests
-make test-tool T=name  # Run tests for a specific tool
-make lint              # Lint all tools
-make validate-specs    # Validate all SDD specs
-make catalog           # Regenerate tool catalog
-make status            # Show SDLC status dashboard
+make help                         # Show all available targets
+make new-tool NAME=x              # Scaffold a new tool
+make session-explorer             # Quick launcher for Session Explorer web UI
+make workspaces                   # List all indexed codebases & languages
+make graph-galaxies PROJECT=name  # Inspect architectural galaxy subsystems
+make graph-symbol SYM=name        # Lookup exact symbol definition (LSP)
+make graph-references SYM=name    # Find all callers/references (LSP)
+make graph-condense SYM=name      # Extract condensed call slice (<1500 tokens)
+make query-graph Q="question"     # Hybrid Graph-RAG synthesis
+make test                         # Run ALL tool tests
+make test-tool T=name             # Run tests for a specific tool
+make lint                         # Lint all tools
+make validate-specs               # Validate all SDD specs
+make catalog                      # Regenerate tool catalog
+make status                       # Show SDLC status dashboard
 ```
 
 ---
