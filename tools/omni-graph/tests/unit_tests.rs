@@ -1,0 +1,514 @@
+// =============================================================================
+// Omni-Graph Unit & Integration Test Suite
+// Covers: parser, condenser, community detection, API normalization
+// =============================================================================
+
+mod parser_tests {
+    use omni_graph::parser::CodeParser;
+
+    #[test]
+    fn parse_rust_function() {
+        let content = r#"
+fn hello_world(name: &str) -> String {
+    format!("Hello, {}!", name)
+}
+
+fn greet(user: &str) {
+    let msg = hello_world(user);
+    println!("{}", msg);
+}
+"#;
+        let result = CodeParser::parse_file("test-ws", "src/main.rs", content);
+        assert!(result.is_some(), "Parser should return Some for valid Rust");
+        let pr = result.unwrap();
+
+        assert_eq!(pr.nodes.len(), 2, "Should extract 2 functions");
+        assert_eq!(pr.nodes[0].label, "hello_world");
+        assert_eq!(pr.nodes[0].kind, "function");
+        assert_eq!(pr.nodes[0].language, "rust");
+        assert_eq!(pr.nodes[0].workspace, "test-ws");
+        assert_eq!(pr.nodes[0].file_path, "src/main.rs");
+        assert!(pr.nodes[0].line_start > 0);
+        assert!(pr.nodes[0].line_end >= pr.nodes[0].line_start);
+        assert_eq!(pr.nodes[1].label, "greet");
+
+        // Should have a CALLS edge from greet -> hello_world
+        let calls: Vec<_> = pr
+            .edges
+            .iter()
+            .filter(|e| e.edge_type == "CALLS")
+            .collect();
+        assert!(
+            !calls.is_empty(),
+            "Should detect CALLS edges from greet to hello_world"
+        );
+        assert!(calls.iter().any(|e| e.target_label == "hello_world"));
+    }
+
+    #[test]
+    fn parse_rust_struct() {
+        let content = r#"
+struct Config {
+    host: String,
+    port: u16,
+}
+"#;
+        let result = CodeParser::parse_file("test-ws", "config.rs", content).unwrap();
+        assert_eq!(result.nodes.len(), 1);
+        assert_eq!(result.nodes[0].label, "Config");
+        assert_eq!(result.nodes[0].kind, "struct");
+    }
+
+    #[test]
+    fn parse_rust_imports() {
+        let content = r#"
+use std::collections::HashMap;
+use std::sync::Arc;
+
+fn do_nothing() {}
+"#;
+        let result = CodeParser::parse_file("test-ws", "lib.rs", content).unwrap();
+        let imports: Vec<_> = result.nodes.iter().filter(|n| n.kind == "import").collect();
+        assert_eq!(imports.len(), 2, "Should extract 2 use declarations");
+    }
+
+    #[test]
+    fn parse_python_function() {
+        let content = r#"
+def calculate_sum(a, b):
+    return a + b
+
+def main():
+    result = calculate_sum(1, 2)
+    print(result)
+"#;
+        let result = CodeParser::parse_file("py-ws", "calc.py", content);
+        assert!(result.is_some(), "Parser should handle Python");
+        let pr = result.unwrap();
+        let fns: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "function").collect();
+        assert_eq!(fns.len(), 2);
+        assert_eq!(fns[0].label, "calculate_sum");
+        assert_eq!(fns[0].language, "python");
+        assert_eq!(fns[1].label, "main");
+    }
+
+    #[test]
+    fn parse_go_function() {
+        let content = r#"
+package main
+
+func Add(a int, b int) int {
+    return a + b
+}
+"#;
+        let result = CodeParser::parse_file("go-ws", "math.go", content);
+        assert!(result.is_some(), "Parser should handle Go");
+        let pr = result.unwrap();
+        let fns: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "function").collect();
+        assert!(fns.len() >= 1);
+        assert_eq!(fns[0].label, "Add");
+        assert_eq!(fns[0].language, "go");
+    }
+
+    #[test]
+    fn parse_javascript_function() {
+        let content = r#"
+function fetchData(url) {
+    return fetch(url);
+}
+"#;
+        let result = CodeParser::parse_file("js-ws", "api.js", content);
+        assert!(result.is_some(), "Parser should handle JavaScript");
+        let pr = result.unwrap();
+        let fns: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "function").collect();
+        assert!(fns.len() >= 1);
+        assert_eq!(fns[0].label, "fetchData");
+        assert_eq!(fns[0].language, "javascript");
+    }
+
+    #[test]
+    fn parse_typescript_function() {
+        let content = r#"
+function greet(name: string): string {
+    return `Hello, ${name}`;
+}
+"#;
+        let result = CodeParser::parse_file("ts-ws", "hello.ts", content);
+        assert!(result.is_some(), "Parser should handle TypeScript");
+        let pr = result.unwrap();
+        let fns: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "function").collect();
+        assert!(fns.len() >= 1);
+        assert_eq!(fns[0].label, "greet");
+        assert_eq!(fns[0].language, "typescript");
+    }
+
+    #[test]
+    fn parse_unsupported_extension_returns_none() {
+        let result = CodeParser::parse_file("ws", "readme.md", "# Hello");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn parse_empty_file() {
+        let result = CodeParser::parse_file("ws", "empty.rs", "");
+        assert!(result.is_some());
+        assert!(result.unwrap().nodes.is_empty());
+    }
+
+    #[test]
+    fn node_ids_contain_workspace_and_path() {
+        let content = "fn foo() {}";
+        let pr = CodeParser::parse_file("my-project", "src/lib.rs", content).unwrap();
+        assert!(!pr.nodes.is_empty());
+        let id = &pr.nodes[0].id;
+        assert!(
+            id.contains("my-project"),
+            "Node ID should contain workspace"
+        );
+        assert!(
+            id.contains("src/lib.rs"),
+            "Node ID should contain file path"
+        );
+    }
+
+    #[test]
+    fn text_truncation_at_1000_chars() {
+        // Generate a function with a very long body
+        let body = "let x = 1;\n".repeat(200); // ~2200 chars
+        let content = format!("fn huge_fn() {{\n{}}}", body);
+        let pr = CodeParser::parse_file("ws", "big.rs", &content).unwrap();
+        assert!(!pr.nodes.is_empty());
+        // Text should be truncated to ~1000 chars
+        assert!(
+            pr.nodes[0].text.len() <= 1100,
+            "Text should be truncated around 1000 chars, got {}",
+            pr.nodes[0].text.len()
+        );
+    }
+}
+
+mod condenser_tests {
+    use omni_graph::condenser::ContextCondenser;
+    use omni_graph::db::{DbLink, DbNode};
+
+    fn make_node(id: &str, label: &str, kind: &str, file_path: &str) -> DbNode {
+        DbNode {
+            id: id.to_string(),
+            workspace: Some("test".to_string()),
+            label: label.to_string(),
+            kind: kind.to_string(),
+            file_path: file_path.to_string(),
+            language: "rust".to_string(),
+            line_start: 1,
+            line_end: 10,
+            text: format!("fn {}() {{}}", label),
+            community: None,
+        }
+    }
+
+    fn make_link(source: &str, target: &str, edge_type: &str) -> DbLink {
+        DbLink {
+            id: format!("edge:{}_{}", source, target),
+            workspace: Some("test".to_string()),
+            source: source.to_string(),
+            target: target.to_string(),
+            edge_type: edge_type.to_string(),
+            category: "EXTRACTED".to_string(),
+        }
+    }
+
+    #[test]
+    fn condense_finds_root_symbol() {
+        let nodes = vec![
+            make_node("n1", "init_pool", "function", "src/db.rs"),
+            make_node("n2", "other_fn", "function", "src/main.rs"),
+        ];
+        let links = vec![];
+        let result = ContextCondenser::condense("init_pool", &nodes, &links, 2);
+
+        assert_eq!(result.root_symbol, "init_pool");
+        assert!(result.formatted_markdown.contains("init_pool"));
+        assert!(result.related_files.contains(&"src/db.rs".to_string()));
+    }
+
+    #[test]
+    fn condense_follows_edges_up_to_max_hops() {
+        let nodes = vec![
+            make_node("n1", "root_fn", "function", "src/a.rs"),
+            make_node("n2", "caller_fn", "function", "src/b.rs"),
+            make_node("n3", "callee_fn", "function", "src/c.rs"),
+            make_node("n4", "distant_fn", "function", "src/d.rs"),
+        ];
+        let links = vec![
+            make_link("n2", "n1", "CALLS"),  // caller -> root
+            make_link("n1", "n3", "CALLS"),  // root -> callee
+            make_link("n3", "n4", "CALLS"),  // callee -> distant (hop 2)
+        ];
+
+        // With hops=1, should NOT reach distant_fn
+        let result_1 = ContextCondenser::condense("root_fn", &nodes, &links, 1);
+        assert!(result_1.formatted_markdown.contains("caller_fn"));
+        assert!(result_1.formatted_markdown.contains("callee_fn"));
+        assert!(
+            !result_1.formatted_markdown.contains("distant_fn"),
+            "Should NOT include 2-hop distant_fn with max_hops=1"
+        );
+
+        // With hops=2, SHOULD reach distant_fn
+        let result_2 = ContextCondenser::condense("root_fn", &nodes, &links, 2);
+        assert!(
+            result_2.formatted_markdown.contains("distant_fn"),
+            "Should include 2-hop distant_fn with max_hops=2"
+        );
+    }
+
+    #[test]
+    fn condense_populates_callers_and_callees() {
+        let nodes = vec![
+            make_node("n1", "target", "function", "src/a.rs"),
+            make_node("n2", "caller", "function", "src/b.rs"),
+            make_node("n3", "callee", "function", "src/c.rs"),
+        ];
+        let links = vec![
+            make_link("n2", "n1", "CALLS"), // caller -> target
+            make_link("n1", "n3", "CALLS"), // target -> callee
+        ];
+
+        let result = ContextCondenser::condense("target", &nodes, &links, 2);
+        assert!(result.direct_callers.contains(&"n2".to_string()));
+        assert!(result.direct_callees.contains(&"n3".to_string()));
+    }
+
+    #[test]
+    fn condense_nonexistent_symbol_produces_empty() {
+        let nodes = vec![make_node("n1", "existing", "function", "src/a.rs")];
+        let result = ContextCondenser::condense("nonexistent", &nodes, &[], 2);
+        assert!(result.direct_callers.is_empty());
+        assert!(result.direct_callees.is_empty());
+        assert!(result.related_files.is_empty());
+    }
+
+    #[test]
+    fn condense_token_estimate_is_reasonable() {
+        let nodes = vec![
+            make_node("n1", "foo", "function", "src/a.rs"),
+            make_node("n2", "bar", "function", "src/b.rs"),
+        ];
+        let links = vec![make_link("n1", "n2", "CALLS")];
+        let result = ContextCondenser::condense("foo", &nodes, &links, 2);
+
+        // Token estimate = len / 4
+        assert!(result.token_estimate > 0);
+        assert_eq!(result.token_estimate, result.formatted_markdown.len() / 4);
+    }
+}
+
+mod community_tests {
+    use omni_graph::analysis::CommunityDetector;
+    use omni_graph::db::{DbLink, DbNode};
+
+    fn make_node(id: &str) -> DbNode {
+        DbNode {
+            id: id.to_string(),
+            workspace: Some("test".to_string()),
+            label: id.to_string(),
+            kind: "function".to_string(),
+            file_path: format!("src/{}.rs", id),
+            language: "rust".to_string(),
+            line_start: 1,
+            line_end: 10,
+            text: format!("fn {}() {{}}", id),
+            community: None,
+        }
+    }
+
+    fn make_link(source: &str, target: &str) -> DbLink {
+        DbLink {
+            id: format!("edge:{}_{}", source, target),
+            workspace: Some("test".to_string()),
+            source: source.to_string(),
+            target: target.to_string(),
+            edge_type: "CALLS".to_string(),
+            category: "EXTRACTED".to_string(),
+        }
+    }
+
+    #[test]
+    fn detect_assigns_all_nodes() {
+        let nodes = vec![make_node("a"), make_node("b"), make_node("c")];
+        let links = vec![make_link("a", "b"), make_link("b", "c")];
+        let assignments = CommunityDetector::detect(&nodes, &links, 15);
+
+        assert_eq!(assignments.len(), 3, "Every node should have a community");
+        assert!(assignments.contains_key("a"));
+        assert!(assignments.contains_key("b"));
+        assert!(assignments.contains_key("c"));
+    }
+
+    #[test]
+    fn detect_connected_nodes_same_community() {
+        // Fully connected triangle should converge to same community
+        let nodes = vec![make_node("a"), make_node("b"), make_node("c")];
+        let links = vec![
+            make_link("a", "b"),
+            make_link("b", "c"),
+            make_link("a", "c"),
+        ];
+        let assignments = CommunityDetector::detect(&nodes, &links, 15);
+
+        assert_eq!(
+            assignments["a"], assignments["b"],
+            "Connected nodes a and b should share a community"
+        );
+        assert_eq!(
+            assignments["b"], assignments["c"],
+            "Connected nodes b and c should share a community"
+        );
+    }
+
+    #[test]
+    fn detect_disconnected_components_different_communities() {
+        // Two disconnected pairs
+        let nodes = vec![
+            make_node("a"),
+            make_node("b"),
+            make_node("x"),
+            make_node("y"),
+        ];
+        let links = vec![
+            make_link("a", "b"), // cluster 1
+            make_link("x", "y"), // cluster 2
+        ];
+        let assignments = CommunityDetector::detect(&nodes, &links, 15);
+
+        assert_eq!(assignments["a"], assignments["b"]);
+        assert_eq!(assignments["x"], assignments["y"]);
+        assert_ne!(
+            assignments["a"], assignments["x"],
+            "Disconnected components should have different communities"
+        );
+    }
+
+    #[test]
+    fn detect_compact_ids_start_at_zero() {
+        let nodes = vec![make_node("a"), make_node("b")];
+        let links = vec![make_link("a", "b")];
+        let assignments = CommunityDetector::detect(&nodes, &links, 15);
+
+        let min_id = *assignments.values().min().unwrap();
+        assert_eq!(min_id, 0, "Compact IDs should start at 0");
+    }
+
+    #[test]
+    fn detect_empty_graph() {
+        let assignments = CommunityDetector::detect(&[], &[], 15);
+        assert!(assignments.is_empty());
+    }
+
+    #[test]
+    fn detect_isolated_nodes() {
+        let nodes = vec![make_node("a"), make_node("b"), make_node("c")];
+        let links = vec![]; // no edges
+        let assignments = CommunityDetector::detect(&nodes, &links, 15);
+        assert_eq!(assignments.len(), 3);
+        // Each isolated node keeps its own community
+        let unique_communities: std::collections::HashSet<_> =
+            assignments.values().collect();
+        assert_eq!(
+            unique_communities.len(),
+            3,
+            "Isolated nodes should each be in their own community"
+        );
+    }
+
+    #[test]
+    fn summarize_produces_correct_counts() {
+        let nodes = vec![make_node("a"), make_node("b"), make_node("c")];
+        let mut assignments = std::collections::HashMap::new();
+        assignments.insert("a".to_string(), 0);
+        assignments.insert("b".to_string(), 0);
+        assignments.insert("c".to_string(), 1);
+
+        let summaries = CommunityDetector::summarize(&nodes, &assignments);
+        assert_eq!(summaries.len(), 2);
+
+        let comm0 = summaries.iter().find(|s| s.id == 0).unwrap();
+        assert_eq!(comm0.node_count, 2);
+
+        let comm1 = summaries.iter().find(|s| s.id == 1).unwrap();
+        assert_eq!(comm1.node_count, 1);
+    }
+
+    #[test]
+    fn summarize_sorted_by_size_descending() {
+        let nodes = vec![
+            make_node("a"),
+            make_node("b"),
+            make_node("c"),
+            make_node("d"),
+        ];
+        let mut assignments = std::collections::HashMap::new();
+        assignments.insert("a".to_string(), 0);
+        assignments.insert("b".to_string(), 1);
+        assignments.insert("c".to_string(), 1);
+        assignments.insert("d".to_string(), 1);
+
+        let summaries = CommunityDetector::summarize(&nodes, &assignments);
+        assert!(
+            summaries[0].node_count >= summaries[1].node_count,
+            "Summaries should be sorted by node_count descending"
+        );
+    }
+}
+
+mod api_normalize_tests {
+    use omni_graph::api::normalize_workspace;
+
+    #[test]
+    fn normalize_full_path() {
+        let result = normalize_workspace(Some("/Users/aparv/projects/my-repo"));
+        assert_eq!(result, Some("my-repo".to_string()));
+    }
+
+    #[test]
+    fn normalize_trailing_slash() {
+        let result = normalize_workspace(Some("/Users/aparv/projects/my-repo/"));
+        assert_eq!(result, Some("my-repo".to_string()));
+    }
+
+    #[test]
+    fn normalize_bare_name() {
+        let result = normalize_workspace(Some("session-explorer"));
+        assert_eq!(result, Some("session-explorer".to_string()));
+    }
+
+    #[test]
+    fn normalize_empty_string() {
+        let result = normalize_workspace(Some(""));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn normalize_whitespace_only() {
+        let result = normalize_workspace(Some("   "));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn normalize_none() {
+        let result = normalize_workspace(None);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn normalize_single_segment_with_trailing_slash() {
+        let result = normalize_workspace(Some("myproject/"));
+        assert_eq!(result, Some("myproject".to_string()));
+    }
+
+    #[test]
+    fn normalize_deeply_nested_path() {
+        let result = normalize_workspace(Some("/a/b/c/d/e/deep-project"));
+        assert_eq!(result, Some("deep-project".to_string()));
+    }
+}

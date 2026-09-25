@@ -29,7 +29,7 @@ blockers: []
 | Spec Requirements (R-XXX) | 28 | 28 | 🟢 100% Complete |
 | Acceptance Criteria (AC-XXX) | 18 | 18 | 🟢 100% Complete |
 | Non-Functional (NF-XXX) | 11 | 11 | 🟢 100% Complete |
-| Test Coverage | 90% | — | 🟢 Verified |
+| Test Coverage | Unit tests written | — | 🟡 Pending Docker verification |
 | Documentation | Complete | — | ✅ Complete |
 
 ---

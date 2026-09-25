@@ -7,6 +7,9 @@
 
 set -euo pipefail
 
+# Ensure python3 is available (required for JSON formatting)
+command -v python3 >/dev/null 2>&1 || { echo "❌ python3 is required but not found. Install Python 3."; exit 1; }
+
 ENDPOINT="${OMNI_API_URL:-http://localhost:8080}"
 
 usage() {

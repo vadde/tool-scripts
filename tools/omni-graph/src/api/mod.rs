@@ -519,18 +519,55 @@ async fn cluster_handler(
     }
 }
 
+/// Allowlist of browseable root directories.
+/// Set BROWSE_ROOTS env var to override (comma-separated), e.g. BROWSE_ROOTS=/workspace,/Users/aparv
+fn allowed_browse_roots() -> Vec<std::path::PathBuf> {
+    if let Ok(roots) = std::env::var("BROWSE_ROOTS") {
+        return roots
+            .split(',')
+            .map(|s| std::path::PathBuf::from(s.trim()))
+            .filter(|p| p.exists())
+            .collect();
+    }
+    // Default: /workspace (Docker) and /Users (macOS host mount)
+    let mut roots = Vec::new();
+    if std::path::Path::new("/workspace").exists() {
+        roots.push(std::path::PathBuf::from("/workspace"));
+    }
+    if std::path::Path::new("/Users").exists() {
+        roots.push(std::path::PathBuf::from("/Users"));
+    }
+    if roots.is_empty() {
+        // Fallback to cwd if nothing else exists
+        if let Ok(cwd) = std::env::current_dir() {
+            roots.push(cwd);
+        }
+    }
+    roots
+}
+
+/// Check if a canonical path is under any allowed browse root
+fn is_path_allowed(canonical: &std::path::Path, roots: &[std::path::PathBuf]) -> bool {
+    roots.iter().any(|root| {
+        if let Ok(canon_root) = root.canonicalize() {
+            canonical.starts_with(&canon_root)
+        } else {
+            canonical.starts_with(root)
+        }
+    })
+}
+
 /// GET /api/browse?path=<dir> (Dynamic filesystem directory traversal for UI)
+/// Security: paths are canonicalized and checked against an allowlist of browse roots.
 async fn browse_handler(
     Query(params): Query<BrowseParams>,
 ) -> impl IntoResponse {
+    let roots = allowed_browse_roots();
+
     let raw_path = params.path.unwrap_or_else(|| {
-        if std::path::Path::new("/workspace").exists() {
-            "/workspace".to_string()
-        } else if std::path::Path::new("/Users").exists() {
-            "/Users".to_string()
-        } else {
-            ".".to_string()
-        }
+        roots.first()
+            .map(|r| r.to_string_lossy().to_string())
+            .unwrap_or_else(|| ".".to_string())
     });
 
     let current_dir = std::path::PathBuf::from(&raw_path);
@@ -542,10 +579,41 @@ async fn browse_handler(
             .into_response();
     }
 
-    let parent_path = current_dir.parent().map(|p| p.to_string_lossy().to_string());
+    // Canonicalize to resolve symlinks and normalize the path
+    let canonical = match current_dir.canonicalize() {
+        Ok(c) => c,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "Failed to resolve path" })),
+            )
+                .into_response();
+        }
+    };
+
+    // Security: verify the resolved path is under an allowed root
+    if !is_path_allowed(&canonical, &roots) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": format!("Access denied: path '{}' is outside allowed browse roots", raw_path),
+                "allowed_roots": roots.iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>()
+            })),
+        )
+            .into_response();
+    }
+
+    // Only expose parent_path if it stays within an allowed root
+    let parent_path = canonical.parent().and_then(|p| {
+        if is_path_allowed(p, &roots) {
+            Some(p.to_string_lossy().to_string())
+        } else {
+            None // At root boundary — don't navigate up
+        }
+    });
 
     let mut entries = Vec::new();
-    if let Ok(read_dir) = std::fs::read_dir(&current_dir) {
+    if let Ok(read_dir) = std::fs::read_dir(&canonical) {
         for entry in read_dir.flatten() {
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
@@ -605,7 +673,7 @@ async fn browse_handler(
     });
 
     Json(BrowseResponse {
-        current_path: current_dir.to_string_lossy().to_string(),
+        current_path: canonical.to_string_lossy().to_string(),
         parent_path,
         entries,
     })

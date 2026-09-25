@@ -86,6 +86,7 @@ services:
       - SURREAL_NS=omni
       - SURREAL_DB=graph
       - TEI_URL=http://embedding-engine:80
+      - BROWSE_ROOTS=/workspace,/Users
       - RUST_LOG=info
     depends_on:
       graph-db:

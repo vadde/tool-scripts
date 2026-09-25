@@ -41,18 +41,26 @@ impl ContextCondenser {
             related_files_set.insert(root.file_path.clone());
         }
 
-        // 2. BFS traversal up to max_hops
+        // 2. BFS traversal up to max_hops (hard-capped at MAX_CONDENSED_NODES to prevent context blowout)
+        const MAX_CONDENSED_NODES: usize = 60;
         let mut queue = VecDeque::new();
         for root in &root_nodes {
             queue.push_back((root.id.clone(), 0));
         }
 
+        let mut truncated_count: usize = 0;
         while let Some((curr_id, depth)) = queue.pop_front() {
             if depth >= max_hops {
                 continue;
             }
 
             for link in links {
+                // Stop expanding if we've hit the node cap
+                if relevant_node_ids.len() >= MAX_CONDENSED_NODES {
+                    truncated_count += 1;
+                    continue;
+                }
+
                 if link.source == curr_id {
                     // Outgoing: curr CALLS target
                     if relevant_node_ids.insert(link.target.clone()) {
@@ -87,12 +95,26 @@ impl ContextCondenser {
             ));
         }
 
+        if truncated_count > 0 {
+            md.push_str(&format!(
+                "\n> ⚠️ Graph truncated: {} additional edges skipped (node cap: {}).\n",
+                truncated_count, MAX_CONDENSED_NODES
+            ));
+        }
+
         md.push_str("\n#### Structural Relationships (Call / Import Traces)\n");
         for link in links.iter().filter(|l| relevant_node_ids.contains(&l.source) || relevant_node_ids.contains(&l.target)) {
             md.push_str(&format!(
                 "- `{}` ──[{}: {}]──▶ `{}`\n",
                 link.source, link.category, link.edge_type, link.target
             ));
+            // Hard cap on output length (~1500 tokens at 4 chars/token = 6000 chars)
+            if md.len() > 6000 {
+                md.push_str(&format!(
+                    "\n> ⚠️ Output truncated at ~1500 tokens. Use smaller HOPS or narrower workspace filter.\n"
+                ));
+                break;
+            }
         }
 
         let token_estimate = md.len() / 4; // Standard heuristic: 4 chars/token

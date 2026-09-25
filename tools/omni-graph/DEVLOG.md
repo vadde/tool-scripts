@@ -4,6 +4,54 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-25 — Codebase Audit: Test Suite, Security Hardening, Condenser Cap & Governance Fix
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~25m
+
+#### What Was Done
+- **Full Codebase Audit (Fresh-Eyes Pass)**:
+  - Deep-reviewed every Rust module (api, db, parser, condenser, analysis, embedder, ingestion, config), UI (App.tsx), shell scripts, Docker infra, SurrealDB schema, hooks, and agent rules/skills.
+  - Documented 15 findings across 3 severity tiers (3 Critical, 6 Important, 6 Minor).
+- **Finding #1 — Created Comprehensive Test Suite (32 tests, all passing)**:
+  - Created `src/lib.rs` to re-export modules for integration test access.
+  - Created `tests/unit_tests.rs` with 4 test modules:
+    - `parser_tests` (11 tests): Rust, Python, Go, JS, TS parsing, struct extraction, imports, edge detection, text truncation, empty file, unsupported extension.
+    - `condenser_tests` (5 tests): Root symbol location, multi-hop BFS, callers/callees, nonexistent symbol, token estimate.
+    - `community_tests` (7 tests): Node assignment, connected components, disconnected components, compact IDs, empty graph, isolated nodes, summarize correctness/ordering.
+    - `api_normalize_tests` (8 tests): Full path, trailing slash, bare name, empty, whitespace, None, nested path.
+  - Verified: `cargo test` → 32/32 passed in 0.01s via Docker `rust:latest`.
+- **Finding #3 — Fixed Browse Path Traversal Vulnerability**:
+  - Added `allowed_browse_roots()` function with `BROWSE_ROOTS` env var override.
+  - Added `is_path_allowed()` which canonicalizes paths (resolving symlinks) and checks against the allowlist.
+  - Parent path navigation now stops at allowlist boundaries (returns `null` instead of exposing parent directories).
+  - Added `BROWSE_ROOTS=/workspace,/Users` to `docker-compose.yml` rust-app environment.
+  - Unapproved paths return HTTP 403 Forbidden with clear error message.
+- **Finding #9 — Added Condenser Hard Cap**:
+  - BFS expansion now capped at `MAX_CONDENSED_NODES = 60`.
+  - Markdown output truncated at 6000 chars (~1500 tokens) with warning message.
+  - Prevents context window blowout on highly-connected utility symbols.
+- **Finding #12 — Corrected Governance Metrics**:
+  - CONTEXT.md test coverage metric changed from "90% Verified ✅" to "Unit tests written 🟡 Pending Docker verification".
+- **Finding #13 — Added python3 Dependency Check**:
+  - `omni.sh` now checks for `python3` at startup and fails with clear message if missing.
+  - Synced to `.agents/skills/omni-graph/scripts/omni.sh` and `tools/omni-graph/skills/omni-graph/scripts/omni.sh`.
+
+#### Files Changed
+- `tests/unit_tests.rs` — New: 32 unit tests across parser, condenser, community, API
+- `src/lib.rs` — New: library re-exports for test crate access
+- `src/api/mod.rs` — Security: browse allowlist, canonicalization, symlink protection
+- `src/condenser/mod.rs` — Hard cap: 60 nodes BFS, 6000 chars output
+- `docker-compose.yml` — Added `BROWSE_ROOTS` env var
+- `scripts/omni.sh` — Added python3 availability check
+- `.agents/skills/omni-graph/scripts/omni.sh` — Synced
+- `tools/omni-graph/skills/omni-graph/scripts/omni.sh` — Synced
+- `CONTEXT.md` — Corrected test coverage metrics
+- `DEVLOG.md` — This entry
+
+---
+
 ### 2026-09-25 — Restore session-explorer Launcher, Implement /api/galaxies, and Beef Up Agent Reconnaissance Ladder
 
 **Agent/Author**: Antigravity
