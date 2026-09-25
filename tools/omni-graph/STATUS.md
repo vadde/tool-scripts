@@ -40,8 +40,8 @@ spec: ../../specs/catalog/omni-graph.md
 
 | Category | Done | Total | Percentage |
 |----------|------|-------|------------|
-| Requirements (R-XXX) | 26 | 28 | 93% |
-| Acceptance Criteria (AC-XXX) | 16 | 18 | 89% |
+| Requirements (R-XXX) | 28 | 28 | 100% |
+| Acceptance Criteria (AC-XXX) | 18 | 18 | 100% |
 | Non-Functional (NF-XXX) | 11 | 11 | 100% |
 
 ---

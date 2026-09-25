@@ -30,6 +30,7 @@ pub struct AppState {
 #[derive(Deserialize, Default)]
 pub struct GraphParams {
     pub workspace: Option<String>,
+    pub min_size: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -74,6 +75,7 @@ pub struct IngestPayload {
 #[derive(Deserialize, Default)]
 pub struct ClusterPayload {
     pub workspace: Option<String>,
+    pub min_size: Option<usize>,
 }
 
 #[derive(Deserialize, Default)]
@@ -235,12 +237,81 @@ async fn graph_handler(
     }
 }
 
-/// GET /api/galaxies?workspace=<ws> — Query architectural subsystems without re-clustering
+/// GET /api/galaxies?workspace=<ws>&min_size=<n> — Query architectural subsystems without re-clustering
 async fn galaxies_handler(
     State(state): State<AppState>,
     Query(params): Query<GraphParams>,
 ) -> impl IntoResponse {
     let ws = normalize_workspace(params.workspace.as_deref());
+    let min_size = params.min_size.unwrap_or(1);
+
+    // Try server-side aggregation first for instant response without loading full topology (Finding #7)
+    if let Ok(agg_rows) = state.db.get_galaxy_aggregation(ws.as_deref()).await {
+        if !agg_rows.is_empty() {
+            let mut galaxies: Vec<serde_json::Value> = Vec::new();
+            for row in agg_rows {
+                let cid = row.get("community").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                let count = row.get("node_count").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                if count < min_size {
+                    continue; // Skip singletons/small clusters if min_size filter applied (Finding #6)
+                }
+
+                let files: Vec<String> = row.get("files")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|str| str.to_string())).collect())
+                    .unwrap_or_default();
+
+                let mut dir_counts: HashMap<String, usize> = HashMap::new();
+                for f in &files {
+                    if let Some(parent) = std::path::Path::new(f).parent() {
+                        let p = parent.to_string_lossy().to_string();
+                        if !p.is_empty() && p != "." {
+                            *dir_counts.entry(p).or_insert(0) += 1;
+                        }
+                    }
+                }
+                let dominant = dir_counts
+                    .into_iter()
+                    .max_by_key(|(_, c)| *c)
+                    .map(|(d, _)| d)
+                    .unwrap_or_else(|| "root".to_string());
+
+                let sample_symbols: Vec<String> = row.get("sample_symbols")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|str| str.to_string())).collect())
+                    .unwrap_or_default();
+
+                let languages: Vec<String> = row.get("languages")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|str| str.to_string())).collect())
+                    .unwrap_or_default();
+
+                galaxies.push(serde_json::json!({
+                    "id": cid,
+                    "name": dominant.clone(),
+                    "dominant_path": dominant,
+                    "node_count": count,
+                    "languages": languages,
+                    "sample_symbols": sample_symbols
+                }));
+            }
+
+            galaxies.sort_by(|a, b| {
+                b.get("node_count")
+                    .and_then(|v| v.as_u64())
+                    .cmp(&a.get("node_count").and_then(|v| v.as_u64()))
+            });
+
+            return Json(serde_json::json!({
+                "total_galaxies": galaxies.len(),
+                "workspace": ws,
+                "galaxies": galaxies
+            }))
+            .into_response();
+        }
+    }
+
+    // Fallback: load graph and aggregate in-memory
     match state.db.get_graph(ws.as_deref()).await {
         Ok((nodes, _links)) => {
             let mut comm_map: HashMap<i32, Vec<crate::db::DbNode>> = HashMap::new();
@@ -252,6 +323,7 @@ async fn galaxies_handler(
 
             let mut galaxies: Vec<serde_json::Value> = comm_map
                 .into_iter()
+                .filter(|(_, cluster_nodes)| cluster_nodes.len() >= min_size)
                 .map(|(cid, cluster_nodes)| {
                     let mut dir_counts: HashMap<String, usize> = HashMap::new();
                     let mut languages: HashSet<String> = HashSet::new();
@@ -484,12 +556,13 @@ async fn cluster_handler(
     State(state): State<AppState>,
     payload_opt: Option<Json<ClusterPayload>>,
 ) -> impl IntoResponse {
-    let raw_ws = payload_opt.and_then(|p| p.workspace.clone());
+    let raw_ws = payload_opt.as_ref().and_then(|p| p.workspace.clone());
+    let min_size = payload_opt.as_ref().and_then(|p| p.min_size).unwrap_or(1);
     let workspace = normalize_workspace(raw_ws.as_deref());
     match state.db.get_graph(workspace.as_deref()).await {
         Ok((nodes, links)) => {
             let assignments = CommunityDetector::detect(&nodes, &links, 15);
-            let summaries = CommunityDetector::summarize(&nodes, &assignments);
+            let summaries = CommunityDetector::summarize_filtered(&nodes, &assignments, min_size);
             let total_communities = summaries.len();
 
             if let Err(e) = state.db.update_communities(&assignments).await {

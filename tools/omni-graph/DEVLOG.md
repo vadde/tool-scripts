@@ -4,6 +4,54 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-25 — Audit Backlog Resolution: SQL Injection, File Hash Persistence, LPA Shuffle, Singleton Noise Filter & Host Portability
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~30m
+
+#### What Was Done
+- **Finding #2 — SQL Injection Hardening**:
+  - Implemented centralized `surql_escape()` in `src/db/mod.rs` escaping backslashes, single quotes, control characters, null bytes, and converting newlines.
+  - Refactored all queries (`store_nodes`, `store_edges`, `search_vector`, `get_graph`, `find_symbols`, `find_references`, `update_communities`, `get_galaxy_aggregation`, `get_file_hashes`) to use `surql_escape()`.
+  - Added unit test suite `escape_tests` verifying escaping and defeat of SQL injection payloads.
+- **Finding #4 — Persisted File Hash Staleness Tracking**:
+  - Updated `DbNode` and `store_nodes()` to persist `file_hash` directly into SurrealDB node records.
+  - Added `get_file_hashes()` in `src/db/mod.rs` to fetch existing hashes on startup.
+  - Added `FileCache::populate()` in `src/ingestion/mod.rs` to restore cached hashes on scan start.
+  - Switched `FileCache` keys to canonical relative paths matching SurrealDB `file_path`.
+- **Finding #5 — LPA Non-Random Iteration Order Fix**:
+  - Implemented `SimpleRng` (lightweight, zero-dependency Xorshift64 PRNG) in `src/analysis/mod.rs`.
+  - Added Fisher-Yates shuffle to node index order in each iteration of `CommunityDetector::detect()`, eliminating traversal bias while remaining deterministic and reproducible.
+- **Finding #6 — Singleton Cluster Noise Elimination**:
+  - Implemented `CommunityDetector::summarize_filtered(nodes, assignments, min_size)`.
+  - Added `min_size` query parameter support to `GET /api/galaxies` and `POST /api/cluster`.
+  - Added unit test suite `cluster_filter_tests` verifying singletons are dropped when `min_size >= 2`.
+- **Finding #7 — Server-Side Galaxy Aggregation Query**:
+  - Added `get_galaxy_aggregation()` in `src/db/mod.rs` leveraging SurrealDB `GROUP BY community`.
+  - Updated `galaxies_handler` in `src/api/mod.rs` to prioritize server-side aggregation, bypassing memory-heavy full topology scans.
+- **Finding #8 — Host Mount Portability**:
+  - Updated `docker-compose.yml` to use `${HOST_MOUNT:-/Users}` for both directory mount and `BROWSE_ROOTS`.
+  - Created `.env.example` documenting configuration for macOS, Linux, and Windows WSL.
+- **Test Suite Expansion**:
+  - Expanded `tests/unit_tests.rs` from 32 to 40 tests across 7 modules (parser, condenser, community, API normalization, SQL escape, PRNG shuffle, cluster filter).
+  - Verified 40/40 tests passing in 0.01s via Docker `rust:latest`.
+  - Verified `make test`, `make test-tool T=omni-graph`, and `make validate-specs` all pass cleanly.
+
+#### Files Changed
+- `src/db/mod.rs` — Centralized `surql_escape()`, `file_hash` persistence, server-side galaxy aggregation
+- `src/ingestion/mod.rs` — `FileCache::populate()`, startup hash restoration, relative path indexing
+- `src/analysis/mod.rs` — `SimpleRng` Xorshift64 PRNG, shuffled LPA iterations, `summarize_filtered()`
+- `src/api/mod.rs` — `min_size` parameter in `GraphParams` / `ClusterPayload`, server-side aggregation in `galaxies_handler`
+- `docker-compose.yml` — `${HOST_MOUNT:-/Users}` volume mount and BROWSE_ROOTS
+- `.env.example` — Environment template for host directory mount configuration
+- `tests/unit_tests.rs` — Expanded to 40 tests (added `escape_tests`, `lpa_rng_tests`, `cluster_filter_tests`)
+- `CONTEXT.md` — Updated test coverage to 40/40 verified in Docker
+- `STATUS.md` — Updated progress to 100% and test references
+- `DEVLOG.md` — This entry
+
+---
+
 ### 2026-09-25 — Codebase Audit: Test Suite, Security Hardening, Condenser Cap & Governance Fix
 
 **Agent/Author**: Antigravity

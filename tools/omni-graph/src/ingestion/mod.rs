@@ -25,6 +25,11 @@ impl FileCache {
         }
     }
 
+    pub async fn populate(&self, hashes: HashMap<String, String>) {
+        let mut map = self.hashes.lock().await;
+        map.extend(hashes);
+    }
+
     pub async fn is_stale(&self, file_path: &str, current_hash: &str) -> bool {
         let map = self.hashes.lock().await;
         if let Some(prev_hash) = map.get(file_path) {
@@ -93,6 +98,14 @@ impl IngestionPipeline {
 
         info!("Ingestion assigned workspace namespace: '{}'", workspace_name);
 
+        // Restore staleness cache from persisted database file hashes (Finding #4)
+        if let Ok(persisted_hashes) = self.db.get_file_hashes(&workspace_name).await {
+            if !persisted_hashes.is_empty() {
+                info!("Restored {} persisted file hashes for '{}' from SurrealDB", persisted_hashes.len(), workspace_name);
+                self.cache.populate(persisted_hashes).await;
+            }
+        }
+
         let mut files_scanned = 0;
         let mut files_indexed = 0;
         let mut files_skipped = 0;
@@ -139,17 +152,17 @@ impl IngestionPipeline {
             hasher.update(content.as_bytes());
             let hash = hex::encode(hasher.finalize());
 
-            if !self.cache.is_stale(&path_str, &hash).await {
-                files_skipped += 1;
-                continue;
-            }
-
             // Derive relative file path for clean and portable node IDs
             let rel_path = path
                 .strip_prefix(root)
                 .unwrap_or(path)
                 .to_string_lossy()
                 .to_string();
+
+            if !self.cache.is_stale(&rel_path, &hash).await {
+                files_skipped += 1;
+                continue;
+            }
 
             // Parse AST (R-003)
             if let Some(parse_res) = CodeParser::parse_file(&workspace_name, &rel_path, &content) {
@@ -169,8 +182,8 @@ impl IngestionPipeline {
                 };
 
                 let mut stored_nodes_ok = false;
-                // Store nodes with workspace namespace (R-005)
-                if let Err(e) = self.db.store_nodes(&parse_res.nodes, &embeddings).await {
+                // Store nodes with workspace namespace and file hash (R-005, Finding #4)
+                if let Err(e) = self.db.store_nodes(&parse_res.nodes, &embeddings, Some(&hash)).await {
                     error!("Failed to store nodes for {}: {}", rel_path, e);
                 } else {
                     total_nodes += parse_res.nodes.len();
@@ -185,7 +198,7 @@ impl IngestionPipeline {
                 }
 
                 if stored_nodes_ok {
-                    self.cache.update(&path_str, &hash).await;
+                    self.cache.update(&rel_path, &hash).await;
                 }
 
                 files_indexed += 1;

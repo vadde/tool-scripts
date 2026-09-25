@@ -86,7 +86,7 @@ services:
       - SURREAL_NS=omni
       - SURREAL_DB=graph
       - TEI_URL=http://embedding-engine:80
-      - BROWSE_ROOTS=/workspace,/Users
+      - BROWSE_ROOTS=/workspace,${HOST_MOUNT:-/Users}
       - RUST_LOG=info
     depends_on:
       graph-db:
@@ -95,7 +95,7 @@ services:
         condition: service_healthy
     volumes:
       - ../../:/workspace:ro
-      - /Users:/Users:ro
+      - ${HOST_MOUNT:-/Users}:${HOST_MOUNT:-/Users}:ro
     networks:
       - omni-net
     healthcheck:

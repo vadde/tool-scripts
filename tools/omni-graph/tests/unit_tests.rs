@@ -203,6 +203,7 @@ mod condenser_tests {
             line_end: 10,
             text: format!("fn {}() {{}}", label),
             community: None,
+            file_hash: None,
         }
     }
 
@@ -319,6 +320,7 @@ mod community_tests {
             line_end: 10,
             text: format!("fn {}() {{}}", id),
             community: None,
+            file_hash: None,
         }
     }
 
@@ -510,5 +512,120 @@ mod api_normalize_tests {
     fn normalize_deeply_nested_path() {
         let result = normalize_workspace(Some("/a/b/c/d/e/deep-project"));
         assert_eq!(result, Some("deep-project".to_string()));
+    }
+}
+
+mod escape_tests {
+    use omni_graph::db::surql_escape;
+
+    #[test]
+    fn escape_single_quotes() {
+        assert_eq!(surql_escape("hello'world"), "hello\\'world");
+        assert_eq!(surql_escape("'test'"), "\\'test\\'");
+    }
+
+    #[test]
+    fn escape_backslashes() {
+        assert_eq!(surql_escape("path\\to\\file"), "path\\\\to\\\\file");
+    }
+
+    #[test]
+    fn escape_newlines_and_returns() {
+        assert_eq!(surql_escape("line1\nline2\r\nline3"), "line1 line2 line3");
+    }
+
+    #[test]
+    fn escape_null_and_control_chars() {
+        assert_eq!(surql_escape("clean\0text\x07bell"), "cleantextbell");
+    }
+
+    #[test]
+    fn defeat_sql_injection_payload() {
+        let malicious = "' OR '1'='1' --; DROP TABLE node;";
+        let escaped = surql_escape(malicious);
+        assert_eq!(escaped, "\\' OR \\'1\\'=\\'1\\' --; DROP TABLE node;");
+        assert!(escaped.starts_with("\\'"));
+    }
+}
+
+mod lpa_rng_tests {
+    use omni_graph::analysis::SimpleRng;
+
+    #[test]
+    fn rng_deterministic_shuffle() {
+        let mut rng1 = SimpleRng::new(42);
+        let mut rng2 = SimpleRng::new(42);
+        let mut v1 = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let mut v2 = vec![1, 2, 3, 4, 5, 6, 7, 8];
+
+        rng1.shuffle(&mut v1);
+        rng2.shuffle(&mut v2);
+
+        assert_eq!(v1, v2, "Same seed must produce identical shuffle");
+        assert_eq!(v1.len(), 8);
+        for item in 1..=8 {
+            assert!(v1.contains(&item));
+        }
+    }
+
+    #[test]
+    fn rng_different_seeds_differ() {
+        let mut rng1 = SimpleRng::new(12345);
+        let mut rng2 = SimpleRng::new(67890);
+        let mut v1: Vec<usize> = (0..20).collect();
+        let mut v2: Vec<usize> = (0..20).collect();
+
+        rng1.shuffle(&mut v1);
+        rng2.shuffle(&mut v2);
+
+        assert_ne!(v1, v2, "Different seeds should produce different shuffles");
+    }
+}
+
+mod cluster_filter_tests {
+    use omni_graph::analysis::CommunityDetector;
+    use omni_graph::db::DbNode;
+    use std::collections::HashMap;
+
+    fn make_node(id: &str, file: &str, label: &str) -> DbNode {
+        DbNode {
+            id: id.to_string(),
+            workspace: Some("test".to_string()),
+            label: label.to_string(),
+            kind: "function".to_string(),
+            file_path: file.to_string(),
+            language: "rust".to_string(),
+            line_start: 1,
+            line_end: 10,
+            text: format!("fn {}() {{}}", label),
+            community: None,
+            file_hash: None,
+        }
+    }
+
+    #[test]
+    fn filter_singletons() {
+        let nodes = vec![
+            make_node("1", "src/a.rs", "fn_a1"),
+            make_node("2", "src/a.rs", "fn_a2"),
+            make_node("3", "src/a.rs", "fn_a3"),
+            make_node("4", "src/b.rs", "fn_b1"), // singleton
+        ];
+
+        let mut assignments = HashMap::new();
+        assignments.insert("1".to_string(), 0);
+        assignments.insert("2".to_string(), 0);
+        assignments.insert("3".to_string(), 0);
+        assignments.insert("4".to_string(), 1); // singleton cluster
+
+        // summarize without filter returns both
+        let all = CommunityDetector::summarize(&nodes, &assignments);
+        assert_eq!(all.len(), 2);
+
+        // summarize_filtered with min_size=2 drops the singleton
+        let filtered = CommunityDetector::summarize_filtered(&nodes, &assignments, 2);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].id, 0);
+        assert_eq!(filtered[0].node_count, 3);
     }
 }

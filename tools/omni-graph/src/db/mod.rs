@@ -10,6 +10,24 @@ use std::collections::HashMap;
 use std::time::Duration;
 use tracing::info;
 
+/// Comprehensive SurrealQL string escaping to prevent injection attacks.
+/// Handles: backslashes, single quotes, newlines, carriage returns, null bytes, and control chars.
+pub fn surql_escape(input: &str) -> String {
+    let mut out = String::with_capacity(input.len() + 16);
+    for ch in input.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\'' => out.push_str("\\'"),
+            '\n' => out.push(' '),
+            '\r' => {},
+            '\0' => {},
+            c if c.is_control() => {},
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 #[derive(Clone, Debug)]
 pub struct DbClient {
     base_url: String,
@@ -31,6 +49,8 @@ pub struct DbNode {
     pub line_end: usize,
     pub text: String,
     pub community: Option<i32>,
+    #[serde(default)]
+    pub file_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -192,27 +212,31 @@ impl DbClient {
         &self,
         nodes: &[ExtractedNode],
         embeddings: &[Vec<f32>],
+        file_hash: Option<&str>,
     ) -> Result<(), String> {
         if nodes.is_empty() {
             return Ok(());
         }
 
+        let hash_field = match file_hash {
+            Some(h) => format!(", file_hash: '{}'", surql_escape(h)),
+            None => String::new(),
+        };
+
         let mut query = String::new();
         for (node, emb) in nodes.iter().zip(embeddings.iter()) {
             let emb_str = serde_json::to_string(emb).unwrap_or_else(|_| "[]".to_string());
-            let escaped_text = node
-                .text
-                .replace('\\', "\\\\")
-                .replace('\'', "\\'")
-                .replace('\n', " ");
-            let escaped_label = node.label.replace('\'', "\\'");
-            let escaped_path = node.file_path.replace('\'', "\\'");
-            let escaped_ws = node.workspace.replace('\'', "\\'");
-            let escaped_id = node.id.replace('\'', "\\'");
+            let escaped_text = surql_escape(&node.text);
+            let escaped_label = surql_escape(&node.label);
+            let escaped_path = surql_escape(&node.file_path);
+            let escaped_ws = surql_escape(&node.workspace);
+            let escaped_id = surql_escape(&node.id);
+            let escaped_kind = surql_escape(&node.kind);
+            let escaped_lang = surql_escape(&node.language);
 
             query.push_str(&format!(
-                "UPSERT type::thing('node', '{}') CONTENT {{ workspace: '{}', label: '{}', kind: '{}', file_path: '{}', language: '{}', line_start: {}, line_end: {}, text: '{}', embedding: {} }};\n",
-                escaped_id, escaped_ws, escaped_label, node.kind, escaped_path, node.language, node.line_start, node.line_end, escaped_text, emb_str
+                "UPSERT type::thing('node', '{}') CONTENT {{ workspace: '{}', label: '{}', kind: '{}', file_path: '{}', language: '{}', line_start: {}, line_end: {}, text: '{}', embedding: {}{} }};\n",
+                escaped_id, escaped_ws, escaped_label, escaped_kind, escaped_path, escaped_lang, node.line_start, node.line_end, escaped_text, emb_str, hash_field
             ));
         }
 
@@ -228,9 +252,11 @@ impl DbClient {
 
         let mut query = String::new();
         for edge in edges {
-            let escaped_ws = edge.workspace.replace('\'', "\\'");
-            let escaped_label = edge.target_label.replace('\'', "\\'");
-            let escaped_source = edge.source_id.replace('\'', "\\'");
+            let escaped_ws = surql_escape(&edge.workspace);
+            let escaped_label = surql_escape(&edge.target_label);
+            let escaped_source = surql_escape(&edge.source_id);
+            let escaped_type = surql_escape(&edge.edge_type);
+            let escaped_cat = surql_escape(&edge.category);
 
             query.push_str(&format!(
                 "LET $src = type::thing('node', '{}');\n\
@@ -240,8 +266,8 @@ impl DbClient {
                 escaped_ws,
                 escaped_label,
                 escaped_ws,
-                edge.edge_type,
-                edge.category
+                escaped_type,
+                escaped_cat
             ));
         }
 
@@ -258,7 +284,7 @@ impl DbClient {
     ) -> Result<Vec<SearchResult>, String> {
         let vec_json = serde_json::to_string(query_vec).map_err(|e| e.to_string())?;
         let where_clause = match workspace {
-            Some(ws) if !ws.is_empty() => format!("WHERE workspace = '{}'", ws.replace('\'', "\\'")),
+            Some(ws) if !ws.is_empty() => format!("WHERE workspace = '{}'", surql_escape(ws)),
             _ => String::new(),
         };
         let q = format!(
@@ -286,7 +312,7 @@ impl DbClient {
     pub async fn get_graph(&self, workspace: Option<&str>) -> Result<(Vec<DbNode>, Vec<DbLink>), String> {
         let (node_q, link_q) = match workspace {
             Some(ws) if !ws.is_empty() => {
-                let escaped = ws.replace('\'', "\\'");
+                let escaped = surql_escape(ws);
                 (
                     format!("SELECT id, workspace, label, kind, file_path, language, line_start, line_end, text, community FROM node WHERE workspace = '{}';", escaped),
                     format!("SELECT id, workspace, in AS source, out AS target, type, category FROM linked_to WHERE workspace = '{}';", escaped),
@@ -382,9 +408,9 @@ impl DbClient {
 
     /// Symbolic lookup: Find symbol definitions by name (LSP textDocument/definition equivalent)
     pub async fn find_symbols(&self, name: &str, workspace: Option<&str>) -> Result<Vec<DbNode>, String> {
-        let escaped = name.replace('\'', "\\'");
+        let escaped = surql_escape(name);
         let ws_filter = match workspace {
-            Some(ws) if !ws.is_empty() => format!("AND workspace = '{}'", ws.replace('\'', "\\'")),
+            Some(ws) if !ws.is_empty() => format!("AND workspace = '{}'", surql_escape(ws)),
             _ => String::new(),
         };
         let q = format!(
@@ -409,9 +435,9 @@ impl DbClient {
 
     /// Symbolic references: Find all callers / references of a symbol (LSP textDocument/references equivalent)
     pub async fn find_references(&self, symbol_name: &str, workspace: Option<&str>) -> Result<Vec<DbNode>, String> {
-        let escaped = symbol_name.replace('\'', "\\'");
+        let escaped = surql_escape(symbol_name);
         let ws_filter = match workspace {
-            Some(ws) if !ws.is_empty() => format!("AND workspace = '{}'", ws.replace('\'', "\\'")),
+            Some(ws) if !ws.is_empty() => format!("AND workspace = '{}'", surql_escape(ws)),
             _ => String::new(),
         };
         let q = format!(
@@ -458,7 +484,7 @@ impl DbClient {
                     .trim_matches('⟩')
                     .trim_matches('"')
                     .trim_matches('\'');
-                let escaped_id = clean_id.replace('\\', "\\\\").replace('\'', "\\'");
+                let escaped_id = surql_escape(clean_id);
                 query.push_str(&format!(
                     "UPDATE type::thing('node', '{}') SET community = {};\n",
                     escaped_id, comm_id
@@ -470,6 +496,52 @@ impl DbClient {
 
         info!("Successfully updated communities for {} nodes.", entries.len());
         Ok(())
+    }
+
+    /// Server-side galaxy aggregation query — avoids fetching all nodes (Finding #7)
+    /// Returns community-level aggregates directly from SurrealDB.
+    pub async fn get_galaxy_aggregation(&self, workspace: Option<&str>) -> Result<Vec<serde_json::Value>, String> {
+        let ws_filter = match workspace {
+            Some(ws) if !ws.is_empty() => format!("WHERE workspace = '{}' AND community IS NOT NONE", surql_escape(ws)),
+            _ => "WHERE community IS NOT NONE".to_string(),
+        };
+        let q = format!(
+            "SELECT community, count() AS node_count, array::distinct(language) AS languages, \
+             array::distinct(file_path) AS files, array::slice(array::distinct(label), 0, 6) AS sample_symbols \
+             FROM node {} GROUP BY community ORDER BY node_count DESC;",
+            ws_filter
+        );
+
+        let resp = self.query_sql(&q).await?;
+        let mut results = Vec::new();
+        if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            for item in arr {
+                results.push(item.clone());
+            }
+        }
+        Ok(results)
+    }
+
+    /// Retrieve persisted file hashes for staleness cache restoration (Finding #4)
+    pub async fn get_file_hashes(&self, workspace: &str) -> Result<HashMap<String, String>, String> {
+        let escaped = surql_escape(workspace);
+        let q = format!(
+            "SELECT file_path, file_hash FROM node WHERE workspace = '{}' AND file_hash IS NOT NONE GROUP BY file_path, file_hash;",
+            escaped
+        );
+        let resp = self.query_sql(&q).await?;
+        let mut map = HashMap::new();
+        if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            for item in arr {
+                if let (Some(path), Some(hash)) = (
+                    item.get("file_path").and_then(|v| v.as_str()),
+                    item.get("file_hash").and_then(|v| v.as_str()),
+                ) {
+                    map.insert(path.to_string(), hash.to_string());
+                }
+            }
+        }
+        Ok(map)
     }
 }
 

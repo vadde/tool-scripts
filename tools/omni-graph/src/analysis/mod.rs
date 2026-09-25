@@ -25,10 +25,37 @@ pub struct GraphRagResponse {
     pub token_estimate: usize,
 }
 
+/// Deterministic lightweight pseudo-random number generator (Xorshift64)
+/// Used for shuffling node evaluation order in LPA to eliminate deterministic traversal bias (Finding #5)
+pub struct SimpleRng(u64);
+
+impl SimpleRng {
+    pub fn new(seed: u64) -> Self {
+        Self(if seed == 0 { 0x853c49e6748fea9b } else { seed })
+    }
+
+    pub fn next_u64(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
+    }
+
+    pub fn shuffle<T>(&mut self, slice: &mut [T]) {
+        for i in (1..slice.len()).rev() {
+            let j = (self.next_u64() as usize) % (i + 1);
+            slice.swap(i, j);
+        }
+    }
+}
+
 pub struct CommunityDetector;
 
 impl CommunityDetector {
     /// Detect communities using iterative label propagation (high-speed O(E) modular clustering)
+    /// Uses randomized node iteration order per round to prevent oscillation and deterministic bias (Finding #5)
     pub fn detect(nodes: &[DbNode], links: &[DbLink], max_iterations: usize) -> HashMap<String, i32> {
         let mut labels: HashMap<String, i32> = HashMap::new();
         let mut adj: HashMap<String, Vec<String>> = HashMap::new();
@@ -47,10 +74,15 @@ impl CommunityDetector {
             }
         }
 
-        // 3. Iterative label propagation
+        // 3. Iterative label propagation with randomized node ordering (Finding #5)
+        let mut rng = SimpleRng::new(0x4d595f5345454431); // Deterministic seed for reproducible testing
+        let mut node_indices: Vec<usize> = (0..nodes.len()).collect();
+
         for _ in 0..max_iterations {
             let mut changed = false;
-            for node in nodes {
+            rng.shuffle(&mut node_indices);
+            for &idx in &node_indices {
+                let node = &nodes[idx];
                 let neighbors = match adj.get(&node.id) {
                     Some(n) if !n.is_empty() => n,
                     _ => continue,
@@ -99,6 +131,15 @@ impl CommunityDetector {
 
     /// Summarize detected communities (macroscopic view)
     pub fn summarize(nodes: &[DbNode], assignments: &HashMap<String, i32>) -> Vec<CommunitySummary> {
+        Self::summarize_filtered(nodes, assignments, 1)
+    }
+
+    /// Summarize detected communities with minimum node count filter to eliminate singleton noise (Finding #6)
+    pub fn summarize_filtered(
+        nodes: &[DbNode],
+        assignments: &HashMap<String, i32>,
+        min_size: usize,
+    ) -> Vec<CommunitySummary> {
         let mut groups: HashMap<i32, Vec<&DbNode>> = HashMap::new();
         for node in nodes {
             if let Some(&cid) = assignments.get(&node.id) {
@@ -108,6 +149,9 @@ impl CommunityDetector {
 
         let mut summaries = Vec::new();
         for (cid, members) in groups {
+            if members.len() < min_size {
+                continue;
+            }
             let mut files_set = HashSet::new();
             let mut top_symbols = Vec::new();
 
