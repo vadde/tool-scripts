@@ -133,7 +133,7 @@ impl IngestionPipeline {
 
             let path_str = path.to_string_lossy().to_string();
             let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-            if !matches!(ext, "rs" | "py" | "go" | "js" | "jsx" | "ts" | "tsx") {
+            if !matches!(ext, "rs" | "py" | "go" | "js" | "jsx" | "ts" | "tsx" | "md" | "markdown") {
                 continue;
             }
 

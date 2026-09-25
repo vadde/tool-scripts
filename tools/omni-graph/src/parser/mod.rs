@@ -45,6 +45,9 @@ impl CodeParser {
 
     pub fn parse_file(workspace: &str, file_path: &str, content: &str) -> Option<ParseResult> {
         let extension = file_path.rsplit('.').next()?;
+        if matches!(extension, "md" | "markdown") {
+            return Self::parse_markdown(workspace, file_path, content);
+        }
         let (language_name, mut parser) = match extension {
             "rs" => {
                 let mut p = Parser::new();
@@ -237,6 +240,216 @@ impl CodeParser {
                 nodes,
                 edges,
             );
+        }
+    }
+
+    /// Semantic parser for Markdown documents (.md, .markdown)
+    /// Extracts sections, chapters, concepts, and embedded code blocks with hierarchical CONTAINS edges
+    pub fn parse_markdown(workspace: &str, file_path: &str, content: &str) -> Option<ParseResult> {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        let lines: Vec<&str> = content.lines().collect();
+        if lines.is_empty() {
+            return None;
+        }
+
+        struct SectionMarker {
+            level: usize,
+            label: String,
+            line_start: usize,
+            body_lines: Vec<String>,
+            node_id: String,
+        }
+
+        let mut current_section: Option<SectionMarker> = None;
+        let mut section_stack: Vec<(usize, String, String)> = Vec::new(); // (level, label, node_id)
+
+        let mut in_code_block = false;
+        let mut code_lang = String::new();
+        let mut code_lines: Vec<String> = Vec::new();
+        let mut code_start_line = 0;
+
+        for (idx, line) in lines.iter().enumerate() {
+            let line_num = idx + 1;
+            let trimmed = line.trim();
+
+            // Handle fenced code blocks
+            if trimmed.starts_with("```") {
+                if in_code_block {
+                    // Ending code block
+                    in_code_block = false;
+                    let code_text = code_lines.join("\n");
+                    let lang = if code_lang.is_empty() { "code" } else { &code_lang };
+
+                    // Extract function or symbol definition name if present
+                    let mut fn_name = None;
+                    for cline in &code_lines {
+                        let ctrim = cline.trim();
+                        if let Some(rest) = ctrim.strip_prefix("func ") {
+                            let name = rest.split(&['(', ' '][..]).next().unwrap_or("");
+                            if !name.is_empty() { fn_name = Some(name.to_string()); break; }
+                        } else if let Some(rest) = ctrim.strip_prefix("def ") {
+                            let name = rest.split(&['(', ':', ' '][..]).next().unwrap_or("");
+                            if !name.is_empty() { fn_name = Some(name.to_string()); break; }
+                        } else if let Some(rest) = ctrim.strip_prefix("fn ") {
+                            let name = rest.split(&['(', '<', ' '][..]).next().unwrap_or("");
+                            if !name.is_empty() { fn_name = Some(name.to_string()); break; }
+                        } else if let Some(rest) = ctrim.strip_prefix("class ") {
+                            let name = rest.split(&['(', ':', '{', ' '][..]).next().unwrap_or("");
+                            if !name.is_empty() { fn_name = Some(name.to_string()); break; }
+                        } else if let Some(rest) = ctrim.strip_prefix("kind: ") {
+                            fn_name = Some(format!("k8s:{}", rest.trim()));
+                            break;
+                        }
+                    }
+
+                    let parent_label = current_section.as_ref().map(|s| s.label.as_str()).unwrap_or("document");
+                    let (label, kind) = match fn_name {
+                        Some(name) => (name, "function".to_string()),
+                        None => (format!("{} ({})", parent_label, lang), "snippet".to_string()),
+                    };
+
+                    let snippet_id = format!("{}:{}:{}:{}", workspace, file_path, label, code_start_line);
+                    let snippet_text = Self::safe_truncate(&code_text, 1000).to_string();
+
+                    nodes.push(ExtractedNode {
+                        id: snippet_id.clone(),
+                        workspace: workspace.to_string(),
+                        label: label.clone(),
+                        kind,
+                        file_path: file_path.to_string(),
+                        language: lang.to_string(),
+                        line_start: code_start_line,
+                        line_end: line_num,
+                        text: snippet_text,
+                    });
+
+                    // Link parent section -> snippet
+                    if let Some(cur) = &current_section {
+                        edges.push(ExtractedEdge {
+                            workspace: workspace.to_string(),
+                            source_id: cur.node_id.clone(),
+                            target_label: label.clone(),
+                            edge_type: "CONTAINS".to_string(),
+                            category: "EXTRACTED".to_string(),
+                        });
+                    }
+
+                    code_lines.clear();
+                    code_lang.clear();
+                } else {
+                    // Starting code block
+                    in_code_block = true;
+                    code_start_line = line_num;
+                    code_lang = trimmed.trim_start_matches('`').trim().to_lowercase();
+                    code_lines.clear();
+                }
+                continue;
+            }
+
+            if in_code_block {
+                code_lines.push(line.to_string());
+                continue;
+            }
+
+            // Check for Markdown headings: #, ##, ###, ####
+            let is_heading = trimmed.starts_with('#');
+            if is_heading {
+                let level = trimmed.chars().take_while(|&c| c == '#').count();
+                if level >= 1 && level <= 4 {
+                    let heading_text = trimmed[level..].trim();
+                    let clean_label = heading_text.trim_matches(&['*', '_', '`'][..]).trim().to_string();
+
+                    if !clean_label.is_empty() {
+                        // Flush previous section
+                        if let Some(prev) = current_section.take() {
+                            let text = Self::safe_truncate(&prev.body_lines.join("\n"), 1000).to_string();
+                            nodes.push(ExtractedNode {
+                                id: prev.node_id.clone(),
+                                workspace: workspace.to_string(),
+                                label: prev.label.clone(),
+                                kind: if prev.level == 1 { "document".to_string() } else { "section".to_string() },
+                                file_path: file_path.to_string(),
+                                language: "markdown".to_string(),
+                                line_start: prev.line_start,
+                                line_end: line_num.saturating_sub(1),
+                                text,
+                            });
+                        }
+
+                        let node_id = format!("{}:{}:{}:{}", workspace, file_path, clean_label, line_num);
+
+                        // Hierarchy edges: link to current parent in stack
+                        while let Some((parent_level, _, _)) = section_stack.last() {
+                            if *parent_level >= level {
+                                section_stack.pop();
+                            } else {
+                                break;
+                            }
+                        }
+
+                        if let Some((_, _, parent_id)) = section_stack.last() {
+                            edges.push(ExtractedEdge {
+                                workspace: workspace.to_string(),
+                                source_id: parent_id.clone(),
+                                target_label: clean_label.clone(),
+                                edge_type: "CONTAINS".to_string(),
+                                category: "EXTRACTED".to_string(),
+                            });
+                        }
+
+                        section_stack.push((level, clean_label.clone(), node_id.clone()));
+                        current_section = Some(SectionMarker {
+                            level,
+                            label: clean_label,
+                            line_start: line_num,
+                            body_lines: vec![format!("{} {}", "#".repeat(level), heading_text)],
+                            node_id,
+                        });
+                        continue;
+                    }
+                }
+            }
+
+            // Normal content line
+            if let Some(cur) = current_section.as_mut() {
+                cur.body_lines.push(line.to_string());
+            } else if !trimmed.is_empty() {
+                // Content before first header
+                let doc_label = file_path.rsplit('/').next().unwrap_or(file_path).to_string();
+                let node_id = format!("{}:{}:{}:{}", workspace, file_path, doc_label, 1);
+                current_section = Some(SectionMarker {
+                    level: 1,
+                    label: doc_label.clone(),
+                    line_start: 1,
+                    body_lines: vec![line.to_string()],
+                    node_id: node_id.clone(),
+                });
+                section_stack.push((1, doc_label, node_id));
+            }
+        }
+
+        // Flush trailing section
+        if let Some(last) = current_section {
+            let text = Self::safe_truncate(&last.body_lines.join("\n"), 1000).to_string();
+            nodes.push(ExtractedNode {
+                id: last.node_id,
+                workspace: workspace.to_string(),
+                label: last.label,
+                kind: if last.level == 1 { "document".to_string() } else { "section".to_string() },
+                file_path: file_path.to_string(),
+                language: "markdown".to_string(),
+                line_start: last.line_start,
+                line_end: lines.len(),
+                text,
+            });
+        }
+
+        if nodes.is_empty() {
+            None
+        } else {
+            Some(ParseResult { nodes, edges })
         }
     }
 }

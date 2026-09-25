@@ -144,7 +144,7 @@ function greet(name: string): string {
 
     #[test]
     fn parse_unsupported_extension_returns_none() {
-        let result = CodeParser::parse_file("ws", "readme.md", "# Hello");
+        let result = CodeParser::parse_file("ws", "data.xyz", "some random data");
         assert!(result.is_none());
     }
 
@@ -184,6 +184,62 @@ function greet(name: string): string {
             "Text should be truncated around 1000 chars, got {}",
             pr.nodes[0].text.len()
         );
+    }
+
+    #[test]
+    fn parse_markdown_sections_and_snippets() {
+        let content = r#"# Concurrency Foundations
+
+Some introductory text about concurrency.
+
+## Goroutines
+
+A goroutine is a lightweight thread.
+
+```go
+func doWork(id int) {
+    println(id)
+}
+```
+
+## Channels
+
+Channels connect concurrent goroutines.
+"#;
+        let pr = CodeParser::parse_file("test-ws", "docs/concurrency.md", content).unwrap();
+
+        // Check extracted nodes
+        let labels: Vec<&str> = pr.nodes.iter().map(|n| n.label.as_str()).collect();
+        assert!(labels.contains(&"Concurrency Foundations"), "Should extract root title");
+        assert!(labels.contains(&"Goroutines"), "Should extract H2 Goroutines");
+        assert!(labels.contains(&"Channels"), "Should extract H2 Channels");
+        assert!(labels.contains(&"doWork"), "Should extract embedded Go function doWork");
+
+        // Verify snippet has language 'go' and kind 'function'
+        let do_work_node = pr.nodes.iter().find(|n| n.label == "doWork").unwrap();
+        assert_eq!(do_work_node.language, "go");
+        assert_eq!(do_work_node.kind, "function");
+
+        // Verify hierarchy edges: Concurrency Foundations -> Goroutines -> doWork
+        assert!(pr.edges.iter().any(|e| e.target_label == "Goroutines" && e.edge_type == "CONTAINS"));
+        assert!(pr.edges.iter().any(|e| e.target_label == "doWork" && e.edge_type == "CONTAINS"));
+    }
+
+    #[test]
+    fn parse_markdown_python_code_block() {
+        let content = r#"# GenAI Foundations
+
+## Attention Mechanism
+
+```python
+def scaled_dot_product_attention(q, k, v):
+    return torch.matmul(q, k.transpose(-2, -1))
+```
+"#;
+        let pr = CodeParser::parse_file("genai-ws", "notes/attention.md", content).unwrap();
+        let fn_node = pr.nodes.iter().find(|n| n.label == "scaled_dot_product_attention");
+        assert!(fn_node.is_some(), "Should extract python function from markdown block");
+        assert_eq!(fn_node.unwrap().language, "python");
     }
 }
 

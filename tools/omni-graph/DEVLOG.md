@@ -4,6 +4,44 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-25 — Markdown AST & Knowledge Base Ingestion: GoLang, GenAI & k8s-eks
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~20m
+
+#### What Was Done
+- **Markdown Semantic AST Extractor (`parse_markdown`)**:
+  - Implemented deterministic markdown AST parsing in `src/parser/mod.rs`.
+  - Extracts document titles, sections, chapters, sub-sections (`#`, `##`, `###`, `####`), and fenced code blocks (`go`, `python`, `yaml`, `bash`, etc.).
+  - Extracts function definitions (`func`, `def`, `fn`, `class`, `k8s:Kind`) embedded inside code blocks.
+  - Automatically constructs hierarchical `CONTAINS` edges from Documents -> Sections -> Subsections -> Code Snippets.
+  - Added support for `.md` and `.markdown` in `src/ingestion/mod.rs`.
+- **Knowledge Base Ingestion & Community Clustering**:
+  - Ingested **`GoLang`**: 16 files, 325 AST nodes, 309 edges, 75 communities detected.
+  - Ingested **`GenAI`**: 12 files, 452 AST nodes, 440 edges, 79 communities detected.
+  - Ingested **`k8s-eks`**: 52 files, 696 AST nodes, 644 edges, 79 communities detected.
+  - Total Knowledge Nodes: **1,473 nodes, 1,393 edges, 233 clusters** with 384-d TEI embeddings.
+- **Continuous Container Operation**:
+  - Maintained 100% container uptime for SurrealDB and TEI inference engines; hot-updated orchestrator binary in place without killing or re-initializing data services.
+- **Spot-Checks & Verification**:
+  - Verified `make graph-symbol SYM=Goroutines PROJECT=GoLang` returns exact markdown chapters, sections, and embedded code blocks.
+  - Verified `make query-graph` synthesizes hybrid Graph-RAG answers for:
+    - GoLang: Goroutines, channels, M:N scheduler, and interview Q&As.
+    - GenAI: RAG architectures, chunking, re-ranking, and agentic RAG.
+    - k8s-eks: AWS IRSA, EKS Access Entries, IAM Roles for Service Accounts.
+- **Test Suite**:
+  - Added unit tests `parse_markdown_sections_and_snippets` and `parse_markdown_python_code_block`.
+  - 42/42 tests passing in Docker.
+
+#### Files Changed
+- `src/parser/mod.rs` — Added `parse_markdown()` and markdown extension dispatch
+- `src/ingestion/mod.rs` — Added `md` and `markdown` to allowed scanner extensions
+- `tests/unit_tests.rs` — Added 2 markdown parser unit tests; updated unsupported extension test (42 tests total)
+- `DEVLOG.md` — This entry
+
+---
+
 ### 2026-09-25 — Audit Backlog Resolution: SQL Injection, File Hash Persistence, LPA Shuffle, Singleton Noise Filter & Host Portability
 
 **Agent/Author**: Antigravity
