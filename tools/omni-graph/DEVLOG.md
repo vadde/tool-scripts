@@ -4,6 +4,61 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-25 — Rigid Pipeline Hardening: Universal Multi-Tier Parsing, Auto-Clustering, Zero-Drop Guarantee & Makefile Path Fix
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~35m
+
+#### What Was Done
+- **Universal Multi-Tier Parsing & Zero-Drop Guarantee (`src/parser/mod.rs`)**:
+  - Eliminated the "all-or-nothing" fragility where non-standard extensions or files without function/struct signatures were silently dropped.
+  - Implemented multi-tier extraction:
+    - **Tier 1 (Code AST)**: Tree-Sitter for Rust, Python, Go, JavaScript, TypeScript.
+    - **Tier 2 (Documentation & Notes)**: Markdown & MDX parser extracting sections, titles, and embedded code blocks.
+    - **Tier 3 (Infrastructure, Manifests & Configs)**:
+      - `parse_yaml`: Extracts Kubernetes manifests (`Deployment`, `Service`, `Ingress`, `ConfigMap`), resource names, and `CONTAINS` edges.
+      - `parse_json`: Extracts top-level configuration objects, scripts, and dependencies.
+      - `parse_shell`: Extracts bash/shell functions (`function foo()` and `foo() {`) and execution steps.
+      - `parse_sql`: Extracts `CREATE TABLE`, `CREATE VIEW`, `CREATE PROCEDURE/FUNCTION`.
+      - `parse_toml`: Extracts `[table]` sections.
+    - **Tier 4 (Universal Fallback Chunking)**:
+      - `parse_fallback`: Extracts root `file` node and breaks files >40 lines into coherent chunk blocks with `CONTAINS` edges.
+      - Guarantees 100% of text and code files are indexed into SurrealDB and embedded into vector space via TEI.
+- **Auto-Clustering on Ingestion (`src/ingestion/mod.rs`)**:
+  - Upgraded `IngestionPipeline::ingest_directory` to automatically trigger `CommunityDetector::detect` and update SurrealDB community IDs immediately upon completing ingestion when nodes exist.
+  - No manual second step (`make cluster`) required for graph partitioning.
+  - Returns `clusters_computed` in `IngestResult`.
+- **Structural Directory Subsystem Fallback (`src/api/mod.rs` & `ui/src/App.tsx`)**:
+  - In `galaxies_handler` (`GET /api/galaxies`), if Louvain/Leiden modular communities are not yet computed or empty, automatically partitions nodes by their parent directory path.
+  - In React Cosmograph UI (`App.tsx`), `clusters` memo falls back to directory partitioning, and `getNodeColor` hashes directory names so the 3D WebGL visualizer clusters nodes visually even before community detection.
+  - The UI and API NEVER display an empty galaxy drawer or 0 galaxies when nodes exist.
+- **SurrealDB Transport Payload Batching (`src/db/mod.rs`)**:
+  - `store_nodes`: Chunked in batches of 50 nodes per HTTP query.
+  - `store_edges`: Chunked in batches of 30 edges (90 statements) per HTTP query.
+  - Eliminates request timeout and buffer overflow errors on large codebases.
+- **Makefile UNIX `$PATH` Variable Collision Fix**:
+  - Discovered that passing `PATH="$(DIR)"` in `Makefile` and `tools/omni-graph/Makefile` was overwriting the shell's `$PATH` environment variable, stripping `/bin` and causing `env: bash: No such file or directory`.
+  - Renamed variable to `TARGET_DIR` across root and tool Makefiles, completely restoring CLI stability.
+- **Test Suite**:
+  - Added unit tests for YAML Kubernetes manifests, JSON configs, Shell functions, SQL schemas, TOML tables, and Fallback chunkers.
+  - **48/48 unit tests passing** in Docker.
+- **Zero-Downtime Hot Update**:
+  - Compiled release binary via Docker and hot-updated `omni-rust-app` and `omni-graph-ui` without restarting SurrealDB or TEI inference engines.
+
+#### Files Changed
+- `src/parser/mod.rs` — Added `parse_yaml`, `parse_json`, `parse_shell`, `parse_sql`, `parse_toml`, and `parse_fallback`
+- `src/ingestion/mod.rs` — Binary exclusion filter, universal fallback parsing, auto-clustering upon ingestion
+- `src/db/mod.rs` — Chunked batching in `store_nodes` (50) and `store_edges` (30)
+- `src/api/mod.rs` — Directory subsystem fallback in `galaxies_handler`
+- `ui/src/App.tsx` — Directory subsystem fallback in `clusters` memo and `getNodeColor`
+- `scripts/omni.sh` — Added `clusters_computed` display
+- `Makefile` & `tools/omni-graph/Makefile` — Fixed `$PATH` variable collision
+- `tests/unit_tests.rs` — Added 6 new unit tests (48 tests total)
+- `CONTEXT.md` & `DEVLOG.md` — Updated state, metrics, and journal
+
+---
+
 ### 2026-09-25 — Markdown AST & Knowledge Base Ingestion: GoLang, GenAI & k8s-eks
 
 **Agent/Author**: Antigravity

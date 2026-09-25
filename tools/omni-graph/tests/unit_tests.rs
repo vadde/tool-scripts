@@ -241,6 +241,124 @@ def scaled_dot_product_attention(q, k, v):
         assert!(fn_node.is_some(), "Should extract python function from markdown block");
         assert_eq!(fn_node.unwrap().language, "python");
     }
+
+    #[test]
+    fn parse_yaml_kubernetes_manifest() {
+        let content = r#"apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-app
+spec:
+  replicas: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-svc
+spec:
+  ports:
+    - port: 80
+"#;
+        let pr = CodeParser::parse_file("k8s-ws", "manifests/frontend.yaml", content).unwrap();
+        let labels: Vec<&str> = pr.nodes.iter().map(|n| n.label.as_str()).collect();
+        assert!(labels.contains(&"frontend-app"), "Should extract Deployment name");
+        assert!(labels.contains(&"frontend-svc"), "Should extract Service name");
+
+        let dep_node = pr.nodes.iter().find(|n| n.label == "frontend-app").unwrap();
+        assert_eq!(dep_node.kind, "Deployment");
+        assert_eq!(dep_node.language, "yaml");
+
+        assert!(pr.edges.iter().any(|e| e.target_label == "frontend-app" && e.edge_type == "CONTAINS"));
+        assert!(pr.edges.iter().any(|e| e.target_label == "frontend-svc" && e.edge_type == "CONTAINS"));
+    }
+
+    #[test]
+    fn parse_json_config() {
+        let content = r#"{
+  "name": "omni-graph-ui",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build"
+  }
+}"#;
+        let pr = CodeParser::parse_file("test-ws", "package.json", content).unwrap();
+        let labels: Vec<&str> = pr.nodes.iter().map(|n| n.label.as_str()).collect();
+        assert!(labels.iter().any(|l| l.contains("scripts")));
+        assert!(labels.iter().any(|l| l.contains("version")));
+    }
+
+    #[test]
+    fn parse_shell_functions() {
+        let content = r#"#!/usr/bin/env bash
+function build_stack() {
+    cargo build --release
+}
+
+run_tests() {
+    cargo test
+}
+"#;
+        let pr = CodeParser::parse_file("sh-ws", "scripts/build.sh", content).unwrap();
+        let labels: Vec<&str> = pr.nodes.iter().map(|n| n.label.as_str()).collect();
+        assert!(labels.contains(&"build_stack"));
+        assert!(labels.contains(&"run_tests"));
+        let fn_node = pr.nodes.iter().find(|n| n.label == "build_stack").unwrap();
+        assert_eq!(fn_node.kind, "function");
+        assert_eq!(fn_node.language, "bash");
+    }
+
+    #[test]
+    fn parse_sql_tables_and_functions() {
+        let content = r#"
+CREATE TABLE users (
+    id INT PRIMARY KEY,
+    username VARCHAR(50)
+);
+
+CREATE FUNCTION get_user_count() RETURNS INT AS $$
+BEGIN
+    RETURN 42;
+END;
+$$ LANGUAGE plpgsql;
+"#;
+        let pr = CodeParser::parse_file("db-ws", "schema.sql", content).unwrap();
+        let labels: Vec<&str> = pr.nodes.iter().map(|n| n.label.as_str()).collect();
+        assert!(labels.contains(&"users"));
+        assert!(labels.contains(&"get_user_count"));
+    }
+
+    #[test]
+    fn parse_toml_tables() {
+        let content = r#"
+[package]
+name = "omni-graph"
+version = "0.1.0"
+
+[dependencies]
+tokio = "1.0"
+"#;
+        let pr = CodeParser::parse_file("ws", "Cargo.toml", content).unwrap();
+        let labels: Vec<&str> = pr.nodes.iter().map(|n| n.label.as_str()).collect();
+        assert!(labels.iter().any(|l| l.contains("[package]")));
+        assert!(labels.iter().any(|l| l.contains("[dependencies]")));
+    }
+
+    #[test]
+    fn parse_fallback_chunker() {
+        let lines: Vec<String> = (1..=100).map(|i| format!("Note line number {}", i)).collect();
+        let content = lines.join("\n");
+        let pr = CodeParser::parse_fallback("ws", "notes/study-guide.sample", &content).unwrap();
+
+        assert!(!pr.nodes.is_empty());
+        let root = &pr.nodes[0];
+        assert_eq!(root.kind, "file");
+        assert_eq!(root.label, "study-guide.sample");
+
+        let blocks: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "block").collect();
+        assert!(!blocks.is_empty(), "Should generate chunk blocks for 100-line text");
+        assert!(pr.edges.iter().any(|e| e.edge_type == "CONTAINS"));
+    }
 }
 
 mod condenser_tests {

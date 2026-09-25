@@ -268,6 +268,8 @@ try:
         print(f\"  • Files Skipped: {result.get('files_skipped')} (unchanged cache)\")
         print(f\"  • Nodes Created: {result.get('nodes_created')}\")
         print(f\"  • Edges Created: {result.get('edges_created')}\")
+        if result.get('clusters_computed') is not None:
+            print(f\"  • Clusters:      {result.get('clusters_computed')} modular galaxy subsystems\")
         print(f\"  • Duration:      {result.get('duration_ms')}ms\")
 except urllib.error.HTTPError as e:
     body = e.read().decode()

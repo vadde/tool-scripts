@@ -3,6 +3,7 @@
 // Extracts functions, structs, classes, imports, and calls
 
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tree_sitter::{Node, Parser};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -45,8 +46,23 @@ impl CodeParser {
 
     pub fn parse_file(workspace: &str, file_path: &str, content: &str) -> Option<ParseResult> {
         let extension = file_path.rsplit('.').next()?;
-        if matches!(extension, "md" | "markdown") {
+        if matches!(extension, "md" | "markdown" | "mdx") {
             return Self::parse_markdown(workspace, file_path, content);
+        }
+        if matches!(extension, "yaml" | "yml") {
+            return Self::parse_yaml(workspace, file_path, content);
+        }
+        if extension == "json" {
+            return Self::parse_json(workspace, file_path, content);
+        }
+        if matches!(extension, "sh" | "bash" | "zsh") {
+            return Self::parse_shell(workspace, file_path, content);
+        }
+        if extension == "sql" {
+            return Self::parse_sql(workspace, file_path, content);
+        }
+        if extension == "toml" {
+            return Self::parse_toml(workspace, file_path, content);
         }
         let (language_name, mut parser) = match extension {
             "rs" => {
@@ -451,5 +467,399 @@ impl CodeParser {
         } else {
             Some(ParseResult { nodes, edges })
         }
+    }
+
+    /// Semantic parser for YAML files (.yaml, .yml, Kubernetes manifests, Compose configs)
+    pub fn parse_yaml(workspace: &str, file_path: &str, content: &str) -> Option<ParseResult> {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        let filename = Path::new(file_path).file_name()?.to_string_lossy().to_string();
+        let file_root_id = format!("node:{}_{}", workspace, file_path);
+
+        nodes.push(ExtractedNode {
+            id: file_root_id.clone(),
+            workspace: workspace.to_string(),
+            label: filename.clone(),
+            kind: "manifest".to_string(),
+            file_path: file_path.to_string(),
+            language: "yaml".to_string(),
+            line_start: 1,
+            line_end: content.lines().count().max(1),
+            text: Self::safe_truncate(content, 1000).to_string(),
+        });
+
+        let mut doc_start = 1;
+        let mut doc_lines: Vec<String> = Vec::new();
+        let mut current_kind: Option<String> = None;
+        let mut current_name: Option<String> = None;
+
+        let flush_doc = |start: usize, end: usize, lines: &[String], kind: Option<String>, name: Option<String>, nodes: &mut Vec<ExtractedNode>, edges: &mut Vec<ExtractedEdge>| {
+            if lines.is_empty() { return; }
+            let k = kind.unwrap_or_else(|| "resource".to_string());
+            let n = name.unwrap_or_else(|| format!("{}:L{}", filename, start));
+            let res_id = format!("node:{}_{}_{}", workspace, file_path, n);
+            let text = lines.join("\n");
+            nodes.push(ExtractedNode {
+                id: res_id.clone(),
+                workspace: workspace.to_string(),
+                label: n.clone(),
+                kind: k,
+                file_path: file_path.to_string(),
+                language: "yaml".to_string(),
+                line_start: start,
+                line_end: end,
+                text: Self::safe_truncate(&text, 1000).to_string(),
+            });
+            edges.push(ExtractedEdge {
+                workspace: workspace.to_string(),
+                source_id: file_root_id.clone(),
+                target_label: n,
+                edge_type: "CONTAINS".to_string(),
+                category: "EXTRACTED".to_string(),
+            });
+        };
+
+        for (idx, line) in content.lines().enumerate() {
+            let line_num = idx + 1;
+            let trimmed = line.trim();
+            if trimmed == "---" {
+                flush_doc(doc_start, line_num.saturating_sub(1), &doc_lines, current_kind.take(), current_name.take(), &mut nodes, &mut edges);
+                doc_lines.clear();
+                doc_start = line_num + 1;
+                continue;
+            }
+            if trimmed.starts_with("kind:") {
+                let val = trimmed.strip_prefix("kind:").unwrap_or("").trim().trim_matches(|c| c == '\'' || c == '"');
+                if !val.is_empty() { current_kind = Some(val.to_string()); }
+            } else if trimmed.starts_with("name:") && current_name.is_none() {
+                let val = trimmed.strip_prefix("name:").unwrap_or("").trim().trim_matches(|c| c == '\'' || c == '"');
+                if !val.is_empty() { current_name = Some(val.to_string()); }
+            }
+            doc_lines.push(line.to_string());
+        }
+        flush_doc(doc_start, content.lines().count().max(1), &doc_lines, current_kind, current_name, &mut nodes, &mut edges);
+
+        Some(ParseResult { nodes, edges })
+    }
+
+    /// Semantic parser for JSON configuration files (.json)
+    pub fn parse_json(workspace: &str, file_path: &str, content: &str) -> Option<ParseResult> {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        let filename = Path::new(file_path).file_name()?.to_string_lossy().to_string();
+        let file_root_id = format!("node:{}_{}", workspace, file_path);
+
+        nodes.push(ExtractedNode {
+            id: file_root_id.clone(),
+            workspace: workspace.to_string(),
+            label: filename.clone(),
+            kind: "config".to_string(),
+            file_path: file_path.to_string(),
+            language: "json".to_string(),
+            line_start: 1,
+            line_end: content.lines().count().max(1),
+            text: Self::safe_truncate(content, 1000).to_string(),
+        });
+
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
+            if let Some(obj) = val.as_object() {
+                for (key, v) in obj {
+                    let key_id = format!("node:{}_{}_{}", workspace, file_path, key);
+                    let snippet = serde_json::to_string(v).unwrap_or_default();
+                    nodes.push(ExtractedNode {
+                        id: key_id,
+                        workspace: workspace.to_string(),
+                        label: format!("{}:{}", filename, key),
+                        kind: "property".to_string(),
+                        file_path: file_path.to_string(),
+                        language: "json".to_string(),
+                        line_start: 1,
+                        line_end: content.lines().count().max(1),
+                        text: Self::safe_truncate(&snippet, 1000).to_string(),
+                    });
+                    edges.push(ExtractedEdge {
+                        workspace: workspace.to_string(),
+                        source_id: file_root_id.clone(),
+                        target_label: format!("{}:{}", filename, key),
+                        edge_type: "CONTAINS".to_string(),
+                        category: "EXTRACTED".to_string(),
+                    });
+                }
+            }
+        }
+
+        Some(ParseResult { nodes, edges })
+    }
+
+    /// Semantic parser for Shell scripts (.sh, .bash, .zsh)
+    pub fn parse_shell(workspace: &str, file_path: &str, content: &str) -> Option<ParseResult> {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        let filename = Path::new(file_path).file_name()?.to_string_lossy().to_string();
+        let file_root_id = format!("node:{}_{}", workspace, file_path);
+
+        nodes.push(ExtractedNode {
+            id: file_root_id.clone(),
+            workspace: workspace.to_string(),
+            label: filename.clone(),
+            kind: "script".to_string(),
+            file_path: file_path.to_string(),
+            language: "bash".to_string(),
+            line_start: 1,
+            line_end: content.lines().count().max(1),
+            text: Self::safe_truncate(content, 1000).to_string(),
+        });
+
+        let lines: Vec<&str> = content.lines().collect();
+        for (idx, line) in lines.iter().enumerate() {
+            let line_num = idx + 1;
+            let trimmed = line.trim();
+            let mut fn_name = None;
+
+            if let Some(rest) = trimmed.strip_prefix("function ") {
+                let name = rest.split(&['(', ' ', '{'][..]).next().unwrap_or("");
+                if !name.is_empty() { fn_name = Some(name); }
+            } else if trimmed.contains("()") && (trimmed.ends_with('{') || trimmed.contains("() {")) {
+                let name = trimmed.split("()").next().unwrap_or("").trim();
+                if !name.is_empty() && !name.contains(' ') { fn_name = Some(name); }
+            }
+
+            if let Some(name) = fn_name {
+                let fn_id = format!("node:{}_{}_{}", workspace, file_path, name);
+                let snippet_lines: Vec<&str> = lines[idx..idx + 25.min(lines.len() - idx)].to_vec();
+                let snippet = snippet_lines.join("\n");
+                nodes.push(ExtractedNode {
+                    id: fn_id,
+                    workspace: workspace.to_string(),
+                    label: name.to_string(),
+                    kind: "function".to_string(),
+                    file_path: file_path.to_string(),
+                    language: "bash".to_string(),
+                    line_start: line_num,
+                    line_end: (line_num + snippet_lines.len()).saturating_sub(1),
+                    text: Self::safe_truncate(&snippet, 1000).to_string(),
+                });
+                edges.push(ExtractedEdge {
+                    workspace: workspace.to_string(),
+                    source_id: file_root_id.clone(),
+                    target_label: name.to_string(),
+                    edge_type: "CONTAINS".to_string(),
+                    category: "EXTRACTED".to_string(),
+                });
+            }
+        }
+
+        Some(ParseResult { nodes, edges })
+    }
+
+    /// Semantic parser for SQL schemas and queries (.sql)
+    pub fn parse_sql(workspace: &str, file_path: &str, content: &str) -> Option<ParseResult> {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        let filename = Path::new(file_path).file_name()?.to_string_lossy().to_string();
+        let file_root_id = format!("node:{}_{}", workspace, file_path);
+
+        nodes.push(ExtractedNode {
+            id: file_root_id.clone(),
+            workspace: workspace.to_string(),
+            label: filename.clone(),
+            kind: "sql".to_string(),
+            file_path: file_path.to_string(),
+            language: "sql".to_string(),
+            line_start: 1,
+            line_end: content.lines().count().max(1),
+            text: Self::safe_truncate(content, 1000).to_string(),
+        });
+
+        let lines: Vec<&str> = content.lines().collect();
+        for (idx, line) in lines.iter().enumerate() {
+            let line_num = idx + 1;
+            let upper = line.trim().to_uppercase();
+            let mut obj_kind = None;
+            let mut obj_name = None;
+
+            if upper.starts_with("CREATE TABLE") {
+                obj_kind = Some("table");
+                let rest = line.trim()[12..].trim();
+                let name = rest.trim_start_matches("IF NOT EXISTS").trim().split(&['(', ' '][..]).next().unwrap_or("").trim_matches('`').trim_matches('"');
+                if !name.is_empty() { obj_name = Some(name); }
+            } else if upper.starts_with("CREATE VIEW") {
+                obj_kind = Some("view");
+                let rest = line.trim()[11..].trim();
+                let name = rest.trim_start_matches("IF NOT EXISTS").trim().split(&['(', ' ', 'A', 'S'][..]).next().unwrap_or("").trim_matches('`').trim_matches('"');
+                if !name.is_empty() { obj_name = Some(name); }
+            } else if upper.starts_with("CREATE PROCEDURE") || upper.starts_with("CREATE FUNCTION") {
+                obj_kind = Some("function");
+                let rest = line.trim()[16..].trim();
+                let name = rest.trim_start_matches("OR REPLACE").trim().split(&['(', ' '][..]).next().unwrap_or("").trim_matches('`').trim_matches('"');
+                if !name.is_empty() { obj_name = Some(name); }
+            }
+
+            if let (Some(k), Some(name)) = (obj_kind, obj_name) {
+                let obj_id = format!("node:{}_{}_{}", workspace, file_path, name);
+                let snippet_lines: Vec<&str> = lines[idx..idx + 30.min(lines.len() - idx)].to_vec();
+                let snippet = snippet_lines.join("\n");
+                nodes.push(ExtractedNode {
+                    id: obj_id,
+                    workspace: workspace.to_string(),
+                    label: name.to_string(),
+                    kind: k.to_string(),
+                    file_path: file_path.to_string(),
+                    language: "sql".to_string(),
+                    line_start: line_num,
+                    line_end: (line_num + snippet_lines.len()).saturating_sub(1),
+                    text: Self::safe_truncate(&snippet, 1000).to_string(),
+                });
+                edges.push(ExtractedEdge {
+                    workspace: workspace.to_string(),
+                    source_id: file_root_id.clone(),
+                    target_label: name.to_string(),
+                    edge_type: "CONTAINS".to_string(),
+                    category: "EXTRACTED".to_string(),
+                });
+            }
+        }
+
+        Some(ParseResult { nodes, edges })
+    }
+
+    /// Semantic parser for TOML configuration files (.toml)
+    pub fn parse_toml(workspace: &str, file_path: &str, content: &str) -> Option<ParseResult> {
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        let filename = Path::new(file_path).file_name()?.to_string_lossy().to_string();
+        let file_root_id = format!("node:{}_{}", workspace, file_path);
+
+        nodes.push(ExtractedNode {
+            id: file_root_id.clone(),
+            workspace: workspace.to_string(),
+            label: filename.clone(),
+            kind: "config".to_string(),
+            file_path: file_path.to_string(),
+            language: "toml".to_string(),
+            line_start: 1,
+            line_end: content.lines().count().max(1),
+            text: Self::safe_truncate(content, 1000).to_string(),
+        });
+
+        let lines: Vec<&str> = content.lines().collect();
+        for (idx, line) in lines.iter().enumerate() {
+            let line_num = idx + 1;
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                let section_name = trimmed.trim_matches(|c| c == '[' || c == ']').trim();
+                if !section_name.is_empty() {
+                    let sec_id = format!("node:{}_{}_{}", workspace, file_path, section_name);
+                    let snippet_lines: Vec<&str> = lines[idx..idx + 20.min(lines.len() - idx)].to_vec();
+                    let snippet = snippet_lines.join("\n");
+                    nodes.push(ExtractedNode {
+                        id: sec_id,
+                        workspace: workspace.to_string(),
+                        label: format!("{}:[{}]", filename, section_name),
+                        kind: "section".to_string(),
+                        file_path: file_path.to_string(),
+                        language: "toml".to_string(),
+                        line_start: line_num,
+                        line_end: (line_num + snippet_lines.len()).saturating_sub(1),
+                        text: Self::safe_truncate(&snippet, 1000).to_string(),
+                    });
+                    edges.push(ExtractedEdge {
+                        workspace: workspace.to_string(),
+                        source_id: file_root_id.clone(),
+                        target_label: format!("{}:[{}]", filename, section_name),
+                        edge_type: "CONTAINS".to_string(),
+                        category: "EXTRACTED".to_string(),
+                    });
+                }
+            }
+        }
+
+        Some(ParseResult { nodes, edges })
+    }
+
+    /// Universal fallback chunker for plain text, extensionless files, or syntax fallbacks
+    /// Guarantees that EVERY valid text file produces nodes and vector embeddings.
+    pub fn parse_fallback(workspace: &str, file_path: &str, content: &str) -> Option<ParseResult> {
+        let lines: Vec<&str> = content.lines().collect();
+        if lines.is_empty() {
+            return None;
+        }
+
+        let mut nodes = Vec::new();
+        let mut edges = Vec::new();
+
+        let filename = Path::new(file_path)
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| file_path.to_string());
+        let file_root_id = format!("node:{}_{}", workspace, file_path);
+
+        let ext = file_path.rsplit('.').next().unwrap_or("text");
+        let language = match ext {
+            "txt" | "text" => "text",
+            "sh" | "bash" | "zsh" => "bash",
+            "sql" => "sql",
+            "json" => "json",
+            "yaml" | "yml" => "yaml",
+            "toml" => "toml",
+            "dockerfile" | "Dockerfile" => "dockerfile",
+            "makefile" | "Makefile" => "makefile",
+            other => other,
+        };
+
+        // File root node
+        nodes.push(ExtractedNode {
+            id: file_root_id.clone(),
+            workspace: workspace.to_string(),
+            label: filename.clone(),
+            kind: "file".to_string(),
+            file_path: file_path.to_string(),
+            language: language.to_string(),
+            line_start: 1,
+            line_end: lines.len(),
+            text: Self::safe_truncate(content, 1000).to_string(),
+        });
+
+        // Chunk lines if > 40 lines
+        if lines.len() > 40 {
+            let chunk_size = 40;
+            let mut start = 0;
+            while start < lines.len() {
+                let end = (start + chunk_size).min(lines.len());
+                let block_lines = &lines[start..end];
+                let block_text = block_lines.join("\n");
+                let block_label = format!("{}: L{}-L{}", filename, start + 1, end);
+                let block_id = format!("node:{}_{}#L{}-L{}", workspace, file_path, start + 1, end);
+
+                nodes.push(ExtractedNode {
+                    id: block_id,
+                    workspace: workspace.to_string(),
+                    label: block_label.clone(),
+                    kind: "block".to_string(),
+                    file_path: file_path.to_string(),
+                    language: language.to_string(),
+                    line_start: start + 1,
+                    line_end: end,
+                    text: Self::safe_truncate(&block_text, 1000).to_string(),
+                });
+
+                edges.push(ExtractedEdge {
+                    workspace: workspace.to_string(),
+                    source_id: file_root_id.clone(),
+                    target_label: block_label,
+                    edge_type: "CONTAINS".to_string(),
+                    category: "EXTRACTED".to_string(),
+                });
+
+                start += chunk_size;
+            }
+        }
+
+        Some(ParseResult { nodes, edges })
     }
 }

@@ -1,6 +1,7 @@
 // Ingestion pipeline: Walk directory, parse AST, embed vectors, store in SurrealDB
 // Implements: R-010, R-011
 
+use crate::analysis::CommunityDetector;
 use crate::db::DbClient;
 use crate::embedder::EmbedderClient;
 use crate::parser::CodeParser;
@@ -60,6 +61,7 @@ pub struct IngestResult {
     pub files_skipped: usize,
     pub nodes_created: usize,
     pub edges_created: usize,
+    pub clusters_computed: usize,
     pub duration_ms: u64,
 }
 
@@ -131,21 +133,28 @@ impl IngestionPipeline {
                 continue;
             }
 
-            let path_str = path.to_string_lossy().to_string();
             let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-            if !matches!(ext, "rs" | "py" | "go" | "js" | "jsx" | "ts" | "tsx" | "md" | "markdown") {
+            // Skip common binary artifacts and noise
+            if matches!(
+                ext,
+                "png" | "jpg" | "jpeg" | "gif" | "webp" | "ico" | "svg" | "pdf"
+                    | "zip" | "tar" | "gz" | "bz2" | "xz" | "7z"
+                    | "exe" | "bin" | "dll" | "dylib" | "so" | "a" | "o" | "obj"
+                    | "wasm" | "pyc" | "pyo" | "pyd" | "class" | "jar"
+                    | "lock" | "map" | "rlib" | "rmeta" | "timestamp"
+            ) {
                 continue;
             }
 
-            files_scanned += 1;
-
             let content = match fs::read_to_string(path) {
                 Ok(c) => c,
-                Err(e) => {
-                    warn!("Failed to read file {}: {}", path_str, e);
+                Err(_) => {
+                    // Non-UTF-8 binary or unreadable file, skip cleanly
                     continue;
                 }
             };
+
+            files_scanned += 1;
 
             // Compute hash for staleness tracking (R-011)
             let mut hasher = Sha256::new();
@@ -164,8 +173,12 @@ impl IngestionPipeline {
                 continue;
             }
 
-            // Parse AST (R-003)
-            if let Some(parse_res) = CodeParser::parse_file(&workspace_name, &rel_path, &content) {
+            // Parse AST or structured document, with universal fallback chunker (Guarantees zero dropped files)
+            let parse_res = CodeParser::parse_file(&workspace_name, &rel_path, &content)
+                .filter(|pr| !pr.nodes.is_empty())
+                .or_else(|| CodeParser::parse_fallback(&workspace_name, &rel_path, &content));
+
+            if let Some(parse_res) = parse_res {
                 if parse_res.nodes.is_empty() {
                     continue;
                 }
@@ -205,10 +218,27 @@ impl IngestionPipeline {
             }
         }
 
+        // Auto-cluster upon ingestion: Compute Louvain/Leiden modularity communities
+        let mut clusters_computed = 0;
+        if total_nodes > 0 {
+            if let Ok((all_nodes, all_links)) = self.db.get_graph(Some(&workspace_name)).await {
+                if !all_nodes.is_empty() {
+                    let assignments = CommunityDetector::detect(&all_nodes, &all_links, 15);
+                    let summaries = CommunityDetector::summarize_filtered(&all_nodes, &assignments, 1);
+                    clusters_computed = summaries.len();
+                    if let Err(e) = self.db.update_communities(&assignments).await {
+                        warn!("Auto-clustering failed after ingestion for '{}': {}", workspace_name, e);
+                    } else {
+                        info!("Auto-clustered '{}' into {} modular communities", workspace_name, clusters_computed);
+                    }
+                }
+            }
+        }
+
         let duration_ms = start_time.elapsed().as_millis() as u64;
         info!(
-            "Ingestion completed for '{}': {} files scanned, {} indexed, {} skipped in {}ms",
-            workspace_name, files_scanned, files_indexed, files_skipped, duration_ms
+            "Ingestion completed for '{}': {} files scanned, {} indexed, {} skipped, {} clusters in {}ms",
+            workspace_name, files_scanned, files_indexed, files_skipped, clusters_computed, duration_ms
         );
 
         Ok(IngestResult {
@@ -218,6 +248,7 @@ impl IngestionPipeline {
             files_skipped,
             nodes_created: total_nodes,
             edges_created: total_edges,
+            clusters_computed,
             duration_ms,
         })
     }

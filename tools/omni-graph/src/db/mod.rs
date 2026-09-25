@@ -223,24 +223,26 @@ impl DbClient {
             None => String::new(),
         };
 
-        let mut query = String::new();
-        for (node, emb) in nodes.iter().zip(embeddings.iter()) {
-            let emb_str = serde_json::to_string(emb).unwrap_or_else(|_| "[]".to_string());
-            let escaped_text = surql_escape(&node.text);
-            let escaped_label = surql_escape(&node.label);
-            let escaped_path = surql_escape(&node.file_path);
-            let escaped_ws = surql_escape(&node.workspace);
-            let escaped_id = surql_escape(&node.id);
-            let escaped_kind = surql_escape(&node.kind);
-            let escaped_lang = surql_escape(&node.language);
+        // Chunk in batches of 50 nodes to avoid HTTP payload buffer limits on large files
+        for (chunk_nodes, chunk_embs) in nodes.chunks(50).zip(embeddings.chunks(50)) {
+            let mut query = String::new();
+            for (node, emb) in chunk_nodes.iter().zip(chunk_embs.iter()) {
+                let emb_str = serde_json::to_string(emb).unwrap_or_else(|_| "[]".to_string());
+                let escaped_text = surql_escape(&node.text);
+                let escaped_label = surql_escape(&node.label);
+                let escaped_path = surql_escape(&node.file_path);
+                let escaped_ws = surql_escape(&node.workspace);
+                let escaped_id = surql_escape(&node.id);
+                let escaped_kind = surql_escape(&node.kind);
+                let escaped_lang = surql_escape(&node.language);
 
-            query.push_str(&format!(
-                "UPSERT type::thing('node', '{}') CONTENT {{ workspace: '{}', label: '{}', kind: '{}', file_path: '{}', language: '{}', line_start: {}, line_end: {}, text: '{}', embedding: {}{} }};\n",
-                escaped_id, escaped_ws, escaped_label, escaped_kind, escaped_path, escaped_lang, node.line_start, node.line_end, escaped_text, emb_str, hash_field
-            ));
+                query.push_str(&format!(
+                    "UPSERT type::thing('node', '{}') CONTENT {{ workspace: '{}', label: '{}', kind: '{}', file_path: '{}', language: '{}', line_start: {}, line_end: {}, text: '{}', embedding: {}{} }};\n",
+                    escaped_id, escaped_ws, escaped_label, escaped_kind, escaped_path, escaped_lang, node.line_start, node.line_end, escaped_text, emb_str, hash_field
+                ));
+            }
+            self.query_sql(&query).await?;
         }
-
-        self.query_sql(&query).await?;
         Ok(())
     }
 
@@ -250,28 +252,30 @@ impl DbClient {
             return Ok(());
         }
 
-        let mut query = String::new();
-        for edge in edges {
-            let escaped_ws = surql_escape(&edge.workspace);
-            let escaped_label = surql_escape(&edge.target_label);
-            let escaped_source = surql_escape(&edge.source_id);
-            let escaped_type = surql_escape(&edge.edge_type);
-            let escaped_cat = surql_escape(&edge.category);
+        // Chunk in batches of 30 edges (each edge produces 3 SurrealDB statements)
+        for chunk in edges.chunks(30) {
+            let mut query = String::new();
+            for edge in chunk {
+                let escaped_ws = surql_escape(&edge.workspace);
+                let escaped_label = surql_escape(&edge.target_label);
+                let escaped_source = surql_escape(&edge.source_id);
+                let escaped_type = surql_escape(&edge.edge_type);
+                let escaped_cat = surql_escape(&edge.category);
 
-            query.push_str(&format!(
-                "LET $src = type::thing('node', '{}');\n\
-                 LET $targets = (SELECT VALUE id FROM node WHERE workspace = '{}' AND label = '{}' LIMIT 1);\n\
-                 RELATE $src->linked_to->$targets SET workspace = '{}', type = '{}', category = '{}';\n",
-                escaped_source,
-                escaped_ws,
-                escaped_label,
-                escaped_ws,
-                escaped_type,
-                escaped_cat
-            ));
+                query.push_str(&format!(
+                    "LET $src = type::thing('node', '{}');\n\
+                     LET $targets = (SELECT VALUE id FROM node WHERE workspace = '{}' AND label = '{}' LIMIT 1);\n\
+                     RELATE $src->linked_to->$targets SET workspace = '{}', type = '{}', category = '{}';\n",
+                    escaped_source,
+                    escaped_ws,
+                    escaped_label,
+                    escaped_ws,
+                    escaped_type,
+                    escaped_cat
+                ));
+            }
+            self.query_sql(&query).await?;
         }
-
-        self.query_sql(&query).await?;
         Ok(())
     }
 

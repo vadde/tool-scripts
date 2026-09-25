@@ -102,7 +102,7 @@ health: ## Check health of all services
 	@./scripts/omni.sh health 2>/dev/null || echo "❌ API not responding"
 
 # ─── Ingestion, Clustering & Graph RAG ───────────────────────────────────────
-TARGET_INGEST_PATH := $(if $(INGEST_ARGS),$(firstword $(INGEST_ARGS)),$(if $(PATH),$(PATH),/workspace))
+TARGET_INGEST_PATH := $(if $(INGEST_ARGS),$(firstword $(INGEST_ARGS)),$(if $(TARGET_DIR),$(TARGET_DIR),$(if $(DIR),$(DIR),/workspace)))
 TARGET_PROJECT_NAME := $(if $(PROJECT),$(PROJECT),$(if $(filter-out $(TARGET_INGEST_PATH),$(INGEST_ARGS)),$(word 2,$(INGEST_ARGS)),))
 
 ingest: ## Index a codebase or monorepo: make ingest <path> [PROJECT=name]

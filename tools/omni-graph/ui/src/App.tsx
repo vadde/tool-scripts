@@ -211,29 +211,54 @@ export default function App() {
       }
     }
 
-    const list = Array.from(map.entries()).map(([cid, clusterNodes]) => {
-      const paths = clusterNodes.map((n) => {
-        const parts = n.file_path.split('/');
-        return parts.length > 1 ? parts.slice(0, -1).join('/') : n.file_path;
+    if (map.size > 0) {
+      const list = Array.from(map.entries()).map(([cid, clusterNodes]) => {
+        const paths = clusterNodes.map((n) => {
+          const parts = n.file_path.split('/');
+          return parts.length > 1 ? parts.slice(0, -1).join('/') : n.file_path;
+        });
+        const counts: Record<string, number> = {};
+        paths.forEach((p) => (counts[p] = (counts[p] || 0) + 1));
+        const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'subsystem';
+
+        const clusterTitle =
+          clusterNodes.length === 1
+            ? `Cluster #${cid}: ${dominant} • ${clusterNodes[0].label}`
+            : `Cluster #${cid}: ${dominant}`;
+
+        return {
+          id: cid,
+          name: clusterTitle,
+          node_count: clusterNodes.length,
+          nodes: clusterNodes,
+          isCommunity: true,
+        };
       });
-      const counts: Record<string, number> = {};
-      paths.forEach((p) => (counts[p] = (counts[p] || 0) + 1));
-      const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'subsystem';
 
-      const clusterTitle =
-        clusterNodes.length === 1
-          ? `Cluster #${cid}: ${dominant} • ${clusterNodes[0].label}`
-          : `Cluster #${cid}: ${dominant}`;
+      return list.sort((a, b) => b.node_count - a.node_count);
+    }
 
-      return {
-        id: cid,
-        name: clusterTitle,
-        node_count: clusterNodes.length,
-        nodes: clusterNodes,
-      };
-    });
+    // Fallback: Group by directory if communities are not yet computed
+    const dirMap = new Map<string, GraphNode[]>();
+    for (const node of nodes) {
+      const parts = node.file_path.split('/');
+      const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : 'root';
+      if (!dirMap.has(dir)) {
+        dirMap.set(dir, []);
+      }
+      dirMap.get(dir)!.push(node);
+    }
 
-    return list.sort((a, b) => b.node_count - a.node_count);
+    let syntheticId = 1;
+    const dirList = Array.from(dirMap.entries()).map(([dir, dirNodes]) => ({
+      id: syntheticId++,
+      name: `Subsystem: ${dir}`,
+      node_count: dirNodes.length,
+      nodes: dirNodes,
+      isCommunity: false,
+    }));
+
+    return dirList.sort((a, b) => b.node_count - a.node_count);
   }, [nodes]);
 
   const filteredClusters = useMemo(() => {
@@ -486,17 +511,15 @@ export default function App() {
     if (node.community !== undefined && node.community !== null) {
       return GALAXY_COLORS[Math.abs(node.community) % GALAXY_COLORS.length];
     }
-    switch (node.kind) {
-      case 'function':
-        return '#38bdf8';
-      case 'struct':
-      case 'class':
-        return '#c084fc';
-      case 'import':
-        return '#94a3b8';
-      default:
-        return '#60a5fa';
+    // Color-code by directory subsystem so graph clusters visually even before LPA clustering
+    const parts = node.file_path.split('/');
+    const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : 'root';
+    let hash = 0;
+    for (let i = 0; i < dir.length; i++) {
+      hash = (hash << 5) - hash + dir.charCodeAt(i);
+      hash |= 0;
     }
+    return GALAXY_COLORS[Math.abs(hash) % GALAXY_COLORS.length];
   };
 
   return (

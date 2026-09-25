@@ -315,54 +315,90 @@ async fn galaxies_handler(
     match state.db.get_graph(ws.as_deref()).await {
         Ok((nodes, _links)) => {
             let mut comm_map: HashMap<i32, Vec<crate::db::DbNode>> = HashMap::new();
-            for node in nodes {
+            for node in &nodes {
                 if let Some(cid) = node.community {
-                    comm_map.entry(cid).or_default().push(node);
+                    comm_map.entry(cid).or_default().push(node.clone());
                 }
             }
 
-            let mut galaxies: Vec<serde_json::Value> = comm_map
-                .into_iter()
-                .filter(|(_, cluster_nodes)| cluster_nodes.len() >= min_size)
-                .map(|(cid, cluster_nodes)| {
-                    let mut dir_counts: HashMap<String, usize> = HashMap::new();
-                    let mut languages: HashSet<String> = HashSet::new();
-                    for n in &cluster_nodes {
-                        if let Some(parent) = std::path::Path::new(&n.file_path).parent() {
-                            let p = parent.to_string_lossy().to_string();
-                            if !p.is_empty() && p != "." {
-                                *dir_counts.entry(p).or_insert(0) += 1;
+            let mut galaxies: Vec<serde_json::Value> = if !comm_map.is_empty() {
+                comm_map
+                    .into_iter()
+                    .filter(|(_, cluster_nodes)| cluster_nodes.len() >= min_size)
+                    .map(|(cid, cluster_nodes)| {
+                        let mut dir_counts: HashMap<String, usize> = HashMap::new();
+                        let mut languages: HashSet<String> = HashSet::new();
+                        for n in &cluster_nodes {
+                            if let Some(parent) = std::path::Path::new(&n.file_path).parent() {
+                                let p = parent.to_string_lossy().to_string();
+                                if !p.is_empty() && p != "." {
+                                    *dir_counts.entry(p).or_insert(0) += 1;
+                                }
+                            }
+                            if !n.language.is_empty() {
+                                languages.insert(n.language.clone());
                             }
                         }
-                        if !n.language.is_empty() {
-                            languages.insert(n.language.clone());
-                        }
-                    }
-                    let dominant = dir_counts
-                        .into_iter()
-                        .max_by_key(|(_, c)| *c)
-                        .map(|(d, _)| d)
-                        .unwrap_or_else(|| "root".to_string());
-                    let name = if cluster_nodes.len() == 1 {
-                        format!("{}: {} • {}", dominant, cluster_nodes[0].kind, cluster_nodes[0].label)
-                    } else {
-                        dominant.clone()
-                    };
+                        let dominant = dir_counts
+                            .into_iter()
+                            .max_by_key(|(_, c)| *c)
+                            .map(|(d, _)| d)
+                            .unwrap_or_else(|| "root".to_string());
+                        let name = if cluster_nodes.len() == 1 {
+                            format!("{}: {} • {}", dominant, cluster_nodes[0].kind, cluster_nodes[0].label)
+                        } else {
+                            dominant.clone()
+                        };
 
-                    let sample_symbols: Vec<String> =
-                        cluster_nodes.iter().take(6).map(|n| n.label.clone()).collect();
-                    let langs: Vec<String> = languages.into_iter().collect();
+                        let sample_symbols: Vec<String> =
+                            cluster_nodes.iter().take(6).map(|n| n.label.clone()).collect();
+                        let langs: Vec<String> = languages.into_iter().collect();
 
-                    serde_json::json!({
-                        "id": cid,
-                        "name": name,
-                        "dominant_path": dominant,
-                        "node_count": cluster_nodes.len(),
-                        "languages": langs,
-                        "sample_symbols": sample_symbols
+                        serde_json::json!({
+                            "id": cid,
+                            "name": name,
+                            "dominant_path": dominant,
+                            "node_count": cluster_nodes.len(),
+                            "languages": langs,
+                            "sample_symbols": sample_symbols
+                        })
                     })
-                })
-                .collect();
+                    .collect()
+            } else if !nodes.is_empty() {
+                // Fallback to structural directory subsystems when Louvain/Leiden communities are not yet computed
+                let mut dir_map: HashMap<String, Vec<&crate::db::DbNode>> = HashMap::new();
+                for node in &nodes {
+                    let parent = std::path::Path::new(&node.file_path)
+                        .parent()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .filter(|p| !p.is_empty() && p != ".")
+                        .unwrap_or_else(|| "root".to_string());
+                    dir_map.entry(parent).or_default().push(node);
+                }
+
+                dir_map
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, (dir, dir_nodes))| {
+                        let mut langs: HashSet<String> = HashSet::new();
+                        let mut sample_syms: Vec<String> = Vec::new();
+                        for n in &dir_nodes {
+                            if !n.language.is_empty() { langs.insert(n.language.clone()); }
+                            if sample_syms.len() < 6 { sample_syms.push(n.label.clone()); }
+                        }
+                        serde_json::json!({
+                            "id": (idx + 1) as i32,
+                            "name": format!("Subsystem: {}", dir),
+                            "dominant_path": dir,
+                            "node_count": dir_nodes.len(),
+                            "languages": langs.into_iter().collect::<Vec<_>>(),
+                            "sample_symbols": sample_syms
+                        })
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
             galaxies.sort_by(|a, b| {
                 b.get("node_count")

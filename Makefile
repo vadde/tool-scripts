@@ -139,7 +139,7 @@ omni-graph: ## Quick launcher: start Omni-Graph semantic knowledge stack
 	@$(MAKE) -C $(TOOLS_DIR)/omni-graph up
 
 ingest: ## Index a codebase into Omni-Graph: make ingest [<dir>] [DIR=<dir>] [PROJECT=name]
-	@$(MAKE) -C $(TOOLS_DIR)/omni-graph ingest $(if $(INGEST_ARGS),$(INGEST_ARGS),$(if $(DIR),PATH="$(DIR)",)) PROJECT="$(PROJECT)"
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph ingest $(if $(INGEST_ARGS),$(INGEST_ARGS),$(if $(DIR),TARGET_DIR="$(DIR)",)) PROJECT="$(PROJECT)"
 
 cluster: ## Compute galaxy IDs: make cluster [PROJECT=name]
 	@$(MAKE) -C $(TOOLS_DIR)/omni-graph cluster $(if $(CLUSTER_ARGS),$(CLUSTER_ARGS),) PROJECT="$(PROJECT)"
