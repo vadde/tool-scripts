@@ -118,6 +118,7 @@ export default function App() {
   const [clusterToast, setClusterToast] = useState<string | null>(null);
   const [autoClusterAfterIngest, setAutoClusterAfterIngest] = useState(true);
   const [visibleClusterCount, setVisibleClusterCount] = useState(60);
+  const [expandedAllNodes, setExpandedAllNodes] = useState<{ [clusterId: number]: boolean }>({});
 
   // Directory Browser Modal state
   const [isBrowserModalOpen, setIsBrowserModalOpen] = useState(false);
@@ -1193,57 +1194,84 @@ export default function App() {
                         </button>
                       </div>
 
-                      {/* Filtered symbols list */}
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 3,
-                          maxHeight: 200,
-                          overflowY: 'auto',
-                          marginTop: 4,
-                        }}
-                      >
-                        {filteredNodes.map((node) => {
-                          const kindClass =
-                            node.kind === 'function'
-                              ? 'kind-badge-function'
-                              : node.kind === 'struct' || node.kind === 'class'
-                              ? 'kind-badge-struct'
-                              : node.kind === 'import'
-                              ? 'kind-badge-import'
-                              : 'kind-badge-default';
+                      {/* Filtered symbols list - adapts dynamically without nested scroll trap */}
+                      {(() => {
+                        const isShowingAll = !!expandedAllNodes[c.id];
+                        const displayNodes = isShowingAll ? filteredNodes : filteredNodes.slice(0, 30);
+                        const hasMore = filteredNodes.length > 30;
 
-                          return (
-                            <div
-                              key={node.id}
-                              onClick={() => handleFocusNode(node)}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                padding: '4px 6px',
-                                borderRadius: 4,
-                                cursor: 'pointer',
-                                background: selectedNode?.id === node.id ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
-                                fontSize: '0.75rem',
-                                color: selectedNode?.id === node.id ? 'var(--accent-cyan)' : 'var(--text-secondary)',
-                              }}
-                            >
-                              <span style={{ fontFamily: 'var(--code-font)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {node.label}
-                              </span>
-                              <span className={`kind-badge ${kindClass}`}>{node.kind}</span>
-                            </div>
-                          );
-                        })}
+                        return (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 3,
+                              marginTop: 4,
+                            }}
+                          >
+                            {displayNodes.map((node) => {
+                              const kindClass =
+                                node.kind === 'function'
+                                  ? 'kind-badge-function'
+                                  : node.kind === 'struct' || node.kind === 'class'
+                                  ? 'kind-badge-struct'
+                                  : node.kind === 'import'
+                                  ? 'kind-badge-import'
+                                  : 'kind-badge-default';
 
-                        {filteredNodes.length === 0 && (
-                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', padding: 8 }}>
-                            No symbols match current filter.
+                              return (
+                                <div
+                                  key={node.id}
+                                  onClick={() => handleFocusNode(node)}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    padding: '4px 6px',
+                                    borderRadius: 4,
+                                    cursor: 'pointer',
+                                    background: selectedNode?.id === node.id ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
+                                    fontSize: '0.75rem',
+                                    color: selectedNode?.id === node.id ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                                  }}
+                                >
+                                  <span style={{ fontFamily: 'var(--code-font)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {node.label}
+                                  </span>
+                                  <span className={`kind-badge ${kindClass}`}>{node.kind}</span>
+                                </div>
+                              );
+                            })}
+
+                            {hasMore && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedAllNodes((prev) => ({ ...prev, [c.id]: !isShowingAll }));
+                                }}
+                                className="cyber-button-secondary"
+                                style={{
+                                  padding: '4px 8px',
+                                  fontSize: '0.7rem',
+                                  marginTop: 4,
+                                  width: '100%',
+                                  justifyContent: 'center',
+                                }}
+                              >
+                                {isShowingAll
+                                  ? 'Show less (first 30)'
+                                  : `Show all ${filteredNodes.length} symbols (${filteredNodes.length - 30} more)`}
+                              </button>
+                            )}
+
+                            {filteredNodes.length === 0 && (
+                              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', padding: 8 }}>
+                                No symbols match current filter.
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>

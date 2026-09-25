@@ -4,6 +4,35 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-25 — Eliminate Nested Scroll Trap & Dynamically Adapt Cluster Symbol List
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~15m
+
+#### What Was Done
+- **Root Cause Analysis of Cluster Accordion Scroll Trap**:
+  - Inside the expanded galaxy cluster card, the symbol list container had hardcoded `maxHeight: 200` with `overflowY: 'auto'`.
+  - This caused two major UX flaws:
+    1. **Nested Scroll Chaining / Trap**: When mouse/trackpad scrolling occurred over the expanded card, wheel events were captured by the child container (`outer.scrollTop` remained locked at `0`). The outer drawer could never scroll down to view clusters 10, 11, ... 20+, making it feel as if the user could only see 7–10 clusters.
+    2. **Artificial Content Clamping**: Despite a cluster containing 20+, 50+, or 67 symbols, only 7–8 items fit inside the 200px box, forcing micro-scrolling in a tiny nested box.
+- **Implemented Dynamic Adaptation & Unified Flow**:
+  - Removed `maxHeight: 200` and `overflowY: 'auto'` from the symbol list container.
+  - Allowed symbols to flow naturally into the drawer's primary scroll container, establishing a **single unified scroll context**.
+  - Added dynamic pagination: initial slice displays up to 30 symbols directly (adapting height dynamically to 10, 15, 20, 25, 30 items without awkward cutoff).
+  - For larger clusters (> 30 items), added a sleek `+ Show all X symbols (Y more)` toggle that expands to show all items on demand with a `Show less (first 30)` toggle.
+- **Verified via Automated Headless Browser Testing**:
+  - Simulated mouse wheel scrolling (`deltaY: 600`, `deltaY: 800`) directly over the expanded cluster card.
+  - Confirmed `outer.scrollTop` increased from `0` to `600px` and `1400px`, scrolling smoothly through all 20+ clusters without trapping.
+  - Tested clicking `Show all 67 symbols`: verified all 67 items render in the flow (`cardHeight: 1985px`) and `Show less` button renders.
+  - Captured verified screenshots: `cluster_expanded_dynamic.png`, `cluster_scrolled_deep.png`, `cluster_show_all_symbols.png`.
+
+#### Files Changed
+- `tools/omni-graph/ui/src/App.tsx` — Replaced fixed `maxHeight: 200` and `overflowY: 'auto'` with dynamic adaptation and `Show all / Show less` toggle
+- `tools/omni-graph/DEVLOG.md` — This entry
+
+---
+
 ### 2026-09-25 — Fix Cluster Card Flexbox Collapse & Add Windowed Subsystem Rendering
 
 **Agent/Author**: Antigravity
