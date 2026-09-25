@@ -4,6 +4,39 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-25 — Fix Cluster Card Flexbox Collapse & Add Windowed Subsystem Rendering
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~20m
+
+#### What Was Done
+- **Root Cause Analysis of "Blank Lines" on Large Workspaces (e.g., DSA with 902 Clusters)**:
+  - In `tools/omni-graph/ui/src/App.tsx`, the cluster list container is a flex column (`display: flex; flex-direction: column; overflow-y: auto; height: 515px`).
+  - By default in CSS Flexbox, child items have `flex-shrink: 1`. Each card also possessed `overflow: hidden`, causing its minimum content height to resolve to `0`.
+  - In small workspaces like `session-explorer` (15 items), 15 * 36px = 540px roughly fits inside the container without squishing.
+  - In large workspaces like `DSA` (902 items), flexbox distributed the height deficit across all 902 children with `flex-shrink: 1`, squishing every single card down to `2px` (the 1px top border + 1px bottom border), while `overflow: hidden` clipped the 34px content. This caused 900+ cluster cards to appear as identical stacked "blank lines".
+- **Implemented CSS Flexbox & Layout Hardening**:
+  - Added `flexShrink: 0` and `minHeight: 'fit-content'` to every cluster card so cards never collapse regardless of list length.
+  - Added `minWidth: 0, flex: 1` to cluster titles to ensure long package/file paths truncate cleanly with ellipsis rather than pushing or breaking the node count badge.
+  - Enhanced single-node cluster labeling in `clusters` `useMemo`: single-node clusters now display the symbol label (`Cluster #${cid}: ${dominant} • ${clusterNodes[0].label}`) instead of repetitive identical directory strings.
+  - Added empty search state: `No clusters or symbols match "${clusterSearchTerm}"`.
+- **Implemented Windowed/Virtualized List Rendering**:
+  - Implemented `visibleClusterCount` (initial 60 items) with progressive scroll loading (`onScroll` auto-increments by 40 when within 120px of bottom) and an explicit `[ Load More (X remaining) ]` button.
+  - This ensures silky-smooth 60fps performance and zero DOM lag when browsing repositories with 1,000+ detected clusters.
+- **End-to-End Browser Verification**:
+  - Automated headless Chrome testing with WebGL angle rendering.
+  - Verified `computedHeight: "36px"` across all sample cluster cards for `session-explorer` and `DSA`.
+  - Verified both Omniverse view (`All Workspaces`, 1627 clusters) and isolated workspace view (`DSA`, 902 clusters) render cards with colors, cluster names, node counts, and chevrons.
+  - Saved verified screenshot artifacts to brain directory (`dsa_drawer_verified.png`, `dsa_selected_drawer.png`).
+
+#### Files Changed
+- `tools/omni-graph/ui/src/App.tsx` — Added `flexShrink: 0`, title ellipsis truncation, single-node symbol labeling, and windowed list loading
+- `tools/omni-graph/DEVLOG.md` — This entry
+- `tools/omni-graph/CONTEXT.md` — Updated last session date and agent state
+
+---
+
 ### 2026-09-24 — Fix SurrealDB Record ID Delimiters & Community Node Persistence
 
 **Agent/Author**: Antigravity

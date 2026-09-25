@@ -117,6 +117,7 @@ export default function App() {
   const [isClustering, setIsClustering] = useState(false);
   const [clusterToast, setClusterToast] = useState<string | null>(null);
   const [autoClusterAfterIngest, setAutoClusterAfterIngest] = useState(true);
+  const [visibleClusterCount, setVisibleClusterCount] = useState(60);
 
   // Directory Browser Modal state
   const [isBrowserModalOpen, setIsBrowserModalOpen] = useState(false);
@@ -218,9 +219,14 @@ export default function App() {
       paths.forEach((p) => (counts[p] = (counts[p] || 0) + 1));
       const dominant = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'subsystem';
 
+      const clusterTitle =
+        clusterNodes.length === 1
+          ? `Cluster #${cid}: ${dominant} • ${clusterNodes[0].label}`
+          : `Cluster #${cid}: ${dominant}`;
+
       return {
         id: cid,
-        name: `Cluster #${cid}: ${dominant}`,
+        name: clusterTitle,
         node_count: clusterNodes.length,
         nodes: clusterNodes,
       };
@@ -228,6 +234,18 @@ export default function App() {
 
     return list.sort((a, b) => b.node_count - a.node_count);
   }, [nodes]);
+
+  const filteredClusters = useMemo(() => {
+    if (!clusterSearchTerm.trim()) return clusters;
+    const term = clusterSearchTerm.toLowerCase();
+    return clusters.filter(
+      (c) => c.name.toLowerCase().includes(term) || c.nodes.some((n) => n.label.toLowerCase().includes(term))
+    );
+  }, [clusters, clusterSearchTerm]);
+
+  useEffect(() => {
+    setVisibleClusterCount(60);
+  }, [selectedWorkspace, clusterSearchTerm]);
 
   // Active display nodes and links (Respecting Galaxy Isolation Mode)
   const displayNodes = useMemo(() => {
@@ -1046,95 +1064,100 @@ export default function App() {
         </div>
 
         {/* Clusters Accordion List */}
-        <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}>
-          {clusters
-            .filter((c) => {
-              if (!clusterSearchTerm) return true;
-              const term = clusterSearchTerm.toLowerCase();
-              return c.name.toLowerCase().includes(term) || c.nodes.some((n) => n.label.toLowerCase().includes(term));
-            })
-            .map((c) => {
-              const color = GALAXY_COLORS[Math.abs(c.id) % GALAXY_COLORS.length];
-              const isExpanded = selectedClusterId === c.id;
-              const isIsolated = isolatedClusterId === c.id;
+        <div
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            if (el.scrollHeight - el.scrollTop - el.clientHeight < 250) {
+              setVisibleClusterCount((prev) => Math.min(prev + 60, filteredClusters.length));
+            }
+          }}
+          style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}
+        >
+          {filteredClusters.slice(0, visibleClusterCount).map((c) => {
+            const color = GALAXY_COLORS[Math.abs(c.id) % GALAXY_COLORS.length];
+            const isExpanded = selectedClusterId === c.id;
+            const isIsolated = isolatedClusterId === c.id;
 
-              const filteredNodes = c.nodes.filter((node) => {
-                const matchesTerm = !clusterSearchTerm || node.label.toLowerCase().includes(clusterSearchTerm.toLowerCase());
-                const matchesKind = selectedKindFilter === 'all' || node.kind.toLowerCase() === selectedKindFilter.toLowerCase();
-                return matchesTerm && matchesKind;
-              });
+            const filteredNodes = c.nodes.filter((node) => {
+              const matchesTerm = !clusterSearchTerm || node.label.toLowerCase().includes(clusterSearchTerm.toLowerCase());
+              const matchesKind = selectedKindFilter === 'all' || node.kind.toLowerCase() === selectedKindFilter.toLowerCase();
+              return matchesTerm && matchesKind;
+            });
 
-              return (
-                <div
-                  key={c.id}
-                  style={{
-                    borderRadius: 8,
-                    background: isIsolated
-                      ? 'rgba(168, 85, 247, 0.15)'
+            return (
+              <div
+                key={c.id}
+                style={{
+                  borderRadius: 8,
+                  flexShrink: 0,
+                  minHeight: 'fit-content',
+                  background: isIsolated
+                    ? 'rgba(168, 85, 247, 0.15)'
+                    : isExpanded
+                    ? 'rgba(56, 189, 248, 0.08)'
+                    : 'rgba(255, 255, 255, 0.03)',
+                  border: `1px solid ${
+                    isIsolated
+                      ? 'rgba(168, 85, 247, 0.6)'
                       : isExpanded
-                      ? 'rgba(56, 189, 248, 0.08)'
-                      : 'rgba(255, 255, 255, 0.03)',
-                    border: `1px solid ${
-                      isIsolated
-                        ? 'rgba(168, 85, 247, 0.6)'
-                        : isExpanded
-                        ? 'rgba(56, 189, 248, 0.4)'
-                        : 'rgba(255, 255, 255, 0.06)'
-                    }`,
-                    overflow: 'hidden',
-                    transition: 'all 0.18s ease',
+                      ? 'rgba(56, 189, 248, 0.4)'
+                      : 'rgba(255, 255, 255, 0.06)'
+                  }`,
+                  overflow: 'hidden',
+                  transition: 'all 0.18s ease',
+                }}
+              >
+                <div
+                  onClick={() => handleFocusCluster(c.id)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 10px',
+                    cursor: 'pointer',
                   }}
                 >
-                  <div
-                    onClick={() => handleFocusCluster(c.id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 10px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          width: 9,
-                          height: 9,
-                          borderRadius: '50%',
-                          backgroundColor: color,
-                          boxShadow: `0 0 8px ${color}`,
-                          flexShrink: 0,
-                        }}
-                      />
-                      <span
-                        style={{
-                          fontSize: '0.8rem',
-                          fontWeight: 600,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          color: isIsolated ? 'var(--accent-purple)' : isExpanded ? 'var(--accent-cyan)' : '#e2e8f0',
-                        }}
-                      >
-                        {c.name}
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span
-                        style={{
-                          fontSize: '0.7rem',
-                          color: 'var(--text-muted)',
-                          background: 'rgba(255, 255, 255, 0.06)',
-                          borderRadius: 4,
-                          padding: '2px 6px',
-                        }}
-                      >
-                        {c.node_count}
-                      </span>
-                      {isExpanded ? <ChevronDown size={14} color="var(--text-muted)" /> : <ChevronRight size={14} color="var(--text-muted)" />}
-                    </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden', minWidth: 0, flex: 1 }}>
+                    <div
+                      style={{
+                        width: 9,
+                        height: 9,
+                        borderRadius: '50%',
+                        backgroundColor: color,
+                        boxShadow: `0 0 8px ${color}`,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: '0.8rem',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        color: isIsolated ? 'var(--accent-purple)' : isExpanded ? 'var(--accent-cyan)' : '#e2e8f0',
+                      }}
+                      title={c.name}
+                    >
+                      {c.name}
+                    </span>
                   </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, marginLeft: 8 }}>
+                    <span
+                      style={{
+                        fontSize: '0.7rem',
+                        color: 'var(--text-muted)',
+                        background: 'rgba(255, 255, 255, 0.06)',
+                        borderRadius: 4,
+                        padding: '2px 6px',
+                      }}
+                    >
+                      {c.node_count}
+                    </span>
+                    {isExpanded ? <ChevronDown size={14} color="var(--text-muted)" /> : <ChevronRight size={14} color="var(--text-muted)" />}
+                  </div>
+                </div>
 
                   {/* Expanded Cluster Actions & Symbols */}
                   {isExpanded && (
@@ -1227,9 +1250,32 @@ export default function App() {
               );
             })}
 
+          {filteredClusters.length > visibleClusterCount && (
+            <button
+              onClick={() => setVisibleClusterCount((prev) => Math.min(prev + 60, filteredClusters.length))}
+              className="cyber-button-secondary"
+              style={{
+                width: '100%',
+                justifyContent: 'center',
+                padding: '8px 12px',
+                fontSize: '0.75rem',
+                flexShrink: 0,
+                marginTop: 4,
+              }}
+            >
+              <span>Load More ({filteredClusters.length - visibleClusterCount} remaining)</span>
+            </button>
+          )}
+
           {clusters.length === 0 && (
             <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: 20 }}>
               No galaxy clusters computed yet. Click <strong>"Compute Galaxy Clusters"</strong> above to partition the AST graph!
+            </div>
+          )}
+
+          {clusters.length > 0 && filteredClusters.length === 0 && (
+            <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem', padding: 20 }}>
+              No clusters or symbols match "{clusterSearchTerm}".
             </div>
           )}
         </div>
