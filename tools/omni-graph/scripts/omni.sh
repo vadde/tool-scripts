@@ -237,9 +237,37 @@ except Exception as e:
     RAW_PATH="${1:-/workspace}"
     PROJECT="${2:-}"
 
-    # Resolve host paths to absolute paths
-    if [ "${RAW_PATH}" != "/workspace" ] && [ -d "${RAW_PATH}" ]; then
+    # Guardrails: Check path validity before making Docker API call
+    if [ "${RAW_PATH}" != "/workspace" ]; then
+      if [ -f "${RAW_PATH}" ]; then
+        echo "❌ ERROR: Target path is a file, not a directory: ${RAW_PATH}"
+        echo "💡 Omni-Graph indexes entire directory trees. Did you mean: $(dirname "${RAW_PATH}")"
+        exit 1
+      fi
+
+      if [ ! -e "${RAW_PATH}" ]; then
+        echo "❌ ERROR: Target directory does not exist on host:"
+        echo "   '${RAW_PATH}'"
+        PARENT_DIR="$(dirname "${RAW_PATH}")"
+        BASE_NAME="$(basename "${RAW_PATH}")"
+        if [ -d "${PARENT_DIR}" ]; then
+          echo ""
+          echo "💡 Existing folders in '${PARENT_DIR}':"
+          find "${PARENT_DIR}" -maxdepth 1 -mindepth 1 -type d | grep -i "${BASE_NAME:0:3}" | head -n 5 | while IFS= read -r match; do
+            echo "   • ${match}"
+          done || true
+        fi
+        exit 1
+      fi
+
       RESOLVED_PATH="$(cd "${RAW_PATH}" && pwd)"
+
+      case "${RESOLVED_PATH}" in
+        / | /root | /bin | /sbin | /usr | /System* | /Library* | /Applications* | /etc* | /var* | /private*)
+          echo "🛑 ERROR: Refusing to ingest protected system directory: ${RESOLVED_PATH}"
+          exit 1
+          ;;
+      esac
     else
       RESOLVED_PATH="${RAW_PATH}"
     fi
