@@ -45,6 +45,23 @@ impl FileCache {
         let mut map = self.hashes.lock().await;
         map.insert(file_path.to_string(), current_hash.to_string());
     }
+
+    pub async fn remove(&self, file_path: &str) {
+        let mut map = self.hashes.lock().await;
+        map.remove(file_path);
+    }
+
+    pub async fn rename(&self, old_path: &str, new_path: &str) {
+        let mut map = self.hashes.lock().await;
+        if let Some(h) = map.remove(old_path) {
+            map.insert(new_path.to_string(), h);
+        }
+    }
+
+    pub async fn get_all_paths(&self) -> Vec<String> {
+        let map = self.hashes.lock().await;
+        map.keys().cloned().collect()
+    }
 }
 
 pub struct IngestionPipeline {

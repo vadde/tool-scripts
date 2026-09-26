@@ -22,6 +22,10 @@ import {
   Maximize2,
   Zap,
   BarChart3,
+  Radio,
+  Activity,
+  Play,
+  Square,
 } from 'lucide-react';
 import AgentAnalytics from './AgentAnalytics';
 
@@ -76,6 +80,22 @@ interface BrowseResponse {
   current_path: string;
   parent_path?: string | null;
   entries: DirEntry[];
+}
+
+export interface WatcherStatus {
+  workspace: string;
+  path: string;
+  status: string;
+  started_at: string;
+  files_tracked: number;
+  last_sync: string | null;
+  events_processed: number;
+  files_reindexed: number;
+  files_deleted: number;
+  avg_sync_ms: number;
+  cluster_status: string;
+  last_cluster_at: string | null;
+  debounce_ms: number;
 }
 
 const GALAXY_COLORS = [
@@ -140,9 +160,77 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [condensedText, setCondensedText] = useState<string | null>(null);
 
+  // Live Watch state
+  const [activeWatchers, setActiveWatchers] = useState<WatcherStatus[]>([]);
+  const [isWatchModalOpen, setIsWatchModalOpen] = useState(false);
+  const [isWatchBarMinimized, setIsWatchBarMinimized] = useState(false);
+  const [watchToast, setWatchToast] = useState<string | null>(null);
+  const [watchTargetFolder, setWatchTargetFolder] = useState<string>('/workspace');
+  const [watchCustomProject, setWatchCustomProject] = useState<string>('');
+  const [watchDebounceMs, setWatchDebounceMs] = useState<number>(500);
+  const [isStartingWatch, setIsStartingWatch] = useState<boolean>(false);
+
   const cosmographRef = useRef<any>(null);
 
   // ─── 1. Data Fetching ──────────────────────────────────────────────────────
+  const fetchWatchers = async () => {
+    try {
+      const res = await fetch('/api/watch/status');
+      if (res.ok) {
+        const list: WatcherStatus[] = await res.json();
+        setActiveWatchers(list || []);
+      }
+    } catch (err) {
+      console.warn('Failed to load watchers status', err);
+    }
+  };
+
+  const handleStartWatch = async (path: string, project?: string, debounceMs: number = 500) => {
+    setIsStartingWatch(true);
+    try {
+      const res = await fetch('/api/watch/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path,
+          project: project || undefined,
+          debounce_ms: debounceMs,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setWatchToast(`🟢 Watching ${data.workspace} (${data.files_tracked} files)`);
+        setTimeout(() => setWatchToast(null), 4000);
+        await fetchWatchers();
+        setIsWatchModalOpen(false);
+      } else {
+        const errJson = await res.json();
+        alert(`Failed to start watch: ${errJson.error || res.statusText}`);
+      }
+    } catch (err: any) {
+      alert(`Error starting watch: ${err.message}`);
+    } finally {
+      setIsStartingWatch(false);
+    }
+  };
+
+  const handleStopWatch = async (workspace: string) => {
+    try {
+      const res = await fetch('/api/watch/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace }),
+      });
+      if (res.ok) {
+        setWatchToast(`🛑 Stopped watching ${workspace}`);
+        setTimeout(() => setWatchToast(null), 3500);
+        await fetchWatchers();
+      }
+    } catch (err) {
+      console.warn('Failed to stop watch', err);
+    }
+  };
+
   const loadWorkspaces = async () => {
     try {
       const res = await fetch('/api/workspaces');
@@ -191,8 +279,36 @@ export default function App() {
     loadHealth();
     loadWorkspaces();
     loadGraph(selectedWorkspace);
-    const interval = setInterval(loadHealth, 12000);
-    return () => clearInterval(interval);
+    fetchWatchers();
+
+    const interval = setInterval(() => {
+      loadHealth();
+      fetchWatchers();
+    }, 4000);
+
+    // Real-time SSE Delta stream connection
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource('/api/watch/events');
+      es.addEventListener('delta', (e: MessageEvent) => {
+        try {
+          const evt = JSON.parse(e.data);
+          setWatchToast(`⚡ Live Delta: [${evt.workspace}] ${evt.kind} ${evt.file_path} (${evt.sync_ms || 0}ms)`);
+          setTimeout(() => setWatchToast(null), 3500);
+          fetchWatchers();
+          loadWorkspaces();
+        } catch (err) {
+          console.warn('SSE parse error', err);
+        }
+      });
+    } catch (err) {
+      console.warn('SSE connection error', err);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (es) es.close();
+    };
   }, []);
 
   const handleSelectWorkspace = (ws: string | null) => {
@@ -742,6 +858,77 @@ export default function App() {
             </span>
           </button>
         </div>
+
+        {/* Live Watch Status Button in Header */}
+        <button
+          type="button"
+          onClick={() => setIsWatchModalOpen(true)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 7,
+            padding: '5px 12px',
+            borderRadius: 8,
+            border: activeWatchers.length > 0 
+              ? '1px solid rgba(239, 68, 68, 0.45)' 
+              : '1px solid rgba(255, 255, 255, 0.1)',
+            background: activeWatchers.length > 0 
+              ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(244, 63, 94, 0.15))' 
+              : 'rgba(0, 0, 0, 0.45)',
+            color: activeWatchers.length > 0 ? '#fca5a5' : 'var(--text-secondary)',
+            fontSize: '0.76rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            boxShadow: activeWatchers.length > 0 ? '0 0 12px rgba(239, 68, 68, 0.25)' : 'none',
+          }}
+          title="Manage Live Watchers: auto-sync AST and vectors as code changes"
+        >
+          {activeWatchers.length > 0 ? (
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: '#ef4444',
+                boxShadow: '0 0 8px #ef4444',
+                display: 'inline-block',
+              }}
+              className="pulsing-dot"
+            />
+          ) : (
+            <Radio size={14} color="var(--text-muted)" />
+          )}
+          <span>
+            {activeWatchers.length > 0 ? `LIVE WATCH (${activeWatchers.length} Active)` : 'Live Watch'}
+          </span>
+          {activeWatchers.length > 0 ? (
+            <span
+              style={{
+                background: 'rgba(239, 68, 68, 0.3)',
+                color: '#f87171',
+                borderRadius: 10,
+                padding: '1px 6px',
+                fontSize: '0.62rem',
+                fontWeight: 700,
+              }}
+            >
+              RECORDING
+            </span>
+          ) : (
+            <span
+              style={{
+                background: 'rgba(255, 255, 255, 0.08)',
+                color: 'var(--text-muted)',
+                borderRadius: 10,
+                padding: '1px 6px',
+                fontSize: '0.62rem',
+              }}
+            >
+              Idle
+            </span>
+          )}
+        </button>
 
         {/* Semantic Search Bar (Graph Mode Only) */}
         {viewMode === 'graph' && (
@@ -1923,6 +2110,519 @@ export default function App() {
                   {isIngesting ? <RefreshCw size={15} className="pulsing-dot" /> : <Sparkles size={15} />}
                   <span>{isIngesting ? 'Ingesting Codebase...' : 'Start Ingestion'}</span>
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── LIVE DELTA SYNC TOAST NOTIFICATION ────────────────────────── */}
+      {watchToast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: activeWatchers.length > 0 ? 80 : 24,
+            right: 24,
+            zIndex: 10000,
+            background: 'rgba(15, 23, 42, 0.94)',
+            backdropFilter: 'blur(16px)',
+            border: '1px solid rgba(56, 189, 248, 0.45)',
+            borderRadius: 10,
+            padding: '10px 16px',
+            color: '#38bdf8',
+            fontSize: '0.78rem',
+            fontWeight: 600,
+            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.7), 0 0 16px rgba(56, 189, 248, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            animation: 'fadeIn 0.2s ease-out',
+          }}
+        >
+          <Activity size={16} className="pulsing-dot" color="#38bdf8" />
+          <span>{watchToast}</span>
+        </div>
+      )}
+
+      {/* ─── GLOBAL PERSISTENT LIVE WATCH HUD ───────────────────────────── */}
+      {/* Appears across ALL pages (Graph Studio and Agent Analytics) */}
+      {activeWatchers.length > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 18,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9998,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            background: 'rgba(10, 15, 30, 0.92)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(239, 68, 68, 0.4)',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 20px rgba(239, 68, 68, 0.2)',
+            borderRadius: 30,
+            padding: isWatchBarMinimized ? '6px 14px' : '6px 18px',
+            transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+        >
+          {/* Live Recording Badge */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span
+              style={{
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                background: '#ef4444',
+                boxShadow: '0 0 10px #ef4444',
+                display: 'inline-block',
+              }}
+              className="pulsing-dot"
+            />
+            <span
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 800,
+                letterSpacing: '0.08em',
+                color: '#f87171',
+                textTransform: 'uppercase',
+              }}
+            >
+              Live Recording
+            </span>
+          </div>
+
+          {!isWatchBarMinimized ? (
+            <>
+              {/* Active Workspace Chips */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  maxWidth: 500,
+                  overflowX: 'auto',
+                  padding: '2px 0',
+                }}
+              >
+                {activeWatchers.map((w) => (
+                  <div
+                    key={w.workspace}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      background: 'rgba(255, 255, 255, 0.07)',
+                      border: '1px solid rgba(255, 255, 255, 0.12)',
+                      borderRadius: 16,
+                      padding: '3px 10px',
+                      fontSize: '0.72rem',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    <Radio size={12} color="#34d399" />
+                    <span style={{ fontWeight: 600, color: '#f1f5f9' }}>{w.workspace}</span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '0.66rem' }}>
+                      {w.files_tracked} files • {w.events_processed} evts • {w.avg_sync_ms}ms
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleStopWatch(w.workspace)}
+                      title={`Stop watching ${w.workspace}`}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: 'var(--text-muted)',
+                        cursor: 'pointer',
+                        padding: 0,
+                        marginLeft: 2,
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* Actions */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, borderLeft: '1px solid rgba(255, 255, 255, 0.15)', paddingLeft: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => setIsWatchModalOpen(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    background: 'rgba(56, 189, 248, 0.15)',
+                    border: '1px solid rgba(56, 189, 248, 0.35)',
+                    borderRadius: 12,
+                    padding: '3px 9px',
+                    color: '#38bdf8',
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span>+ Watch More</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsWatchBarMinimized(true)}
+                  title="Minimize live watch HUD"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    padding: '2px 4px',
+                  }}
+                >
+                  ─
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsWatchBarMinimized(false)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#38bdf8',
+                fontSize: '0.72rem',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {activeWatchers.length} Active ↗
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ─── WATCH MANAGER MODAL ────────────────────────────────────────── */}
+      {isWatchModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: 'blur(10px)',
+            zIndex: 10001,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsWatchModalOpen(false);
+          }}
+        >
+          <div
+            className="glass-panel"
+            style={{
+              width: '100%',
+              maxWidth: 720,
+              maxHeight: '85vh',
+              background: 'var(--bg-panel)',
+              border: '1px solid rgba(56, 189, 248, 0.35)',
+              borderRadius: 14,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 60px rgba(0, 0, 0, 0.9), 0 0 30px rgba(56, 189, 248, 0.15)',
+            }}
+          >
+            {/* Modal Header */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '16px 20px',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                background: 'rgba(0, 0, 0, 0.4)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 8,
+                    background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.3), rgba(244, 63, 94, 0.3))',
+                    border: '1px solid rgba(239, 68, 68, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Radio size={18} color="#f87171" />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '1rem', color: '#f8fafc', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span>Dynamic Live Delta Watch Manager</span>
+                    {activeWatchers.length > 0 && (
+                      <span
+                        style={{
+                          background: 'rgba(239, 68, 68, 0.25)',
+                          color: '#f87171',
+                          borderRadius: 12,
+                          padding: '2px 8px',
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {activeWatchers.length} ACTIVE
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                    Real-time FSEvents & inotify daemon: updates AST graphs and vectors on file save
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWatchModalOpen(false)}
+                className="icon-button"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ padding: 20, overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Section 1: Active Watchers */}
+              <div>
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Activity size={14} color="#34d399" />
+                  <span>Currently Watched Codebases ({activeWatchers.length})</span>
+                </div>
+
+                {activeWatchers.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {activeWatchers.map((w) => (
+                      <div
+                        key={w.workspace}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.04)',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          borderRadius: 10,
+                          padding: '12px 16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 16,
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f1f5f9' }}>
+                              📁 {w.workspace}
+                            </span>
+                            <span
+                              style={{
+                                background: w.status === 'syncing' ? 'rgba(251, 191, 36, 0.2)' : 'rgba(52, 211, 153, 0.2)',
+                                color: w.status === 'syncing' ? '#fbbf24' : '#34d399',
+                                border: `1px solid ${w.status === 'syncing' ? 'rgba(251, 191, 36, 0.4)' : 'rgba(52, 211, 153, 0.4)'}`,
+                                borderRadius: 10,
+                                padding: '1px 7px',
+                                fontSize: '0.64rem',
+                                fontWeight: 700,
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              {w.status}
+                            </span>
+                            {w.cluster_status === 'stale' && (
+                              <span
+                                style={{
+                                  background: 'rgba(244, 63, 94, 0.2)',
+                                  color: '#fb7185',
+                                  borderRadius: 10,
+                                  padding: '1px 6px',
+                                  fontSize: '0.62rem',
+                                }}
+                              >
+                                Clusters Stale
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'monospace', marginBottom: 6, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                            {w.path}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                            <span>📁 Tracked: <strong style={{ color: '#38bdf8' }}>{w.files_tracked}</strong></span>
+                            <span>⚡ Events: <strong style={{ color: '#a855f7' }}>{w.events_processed}</strong></span>
+                            <span>✨ Reindexed: <strong style={{ color: '#34d399' }}>{w.files_reindexed}</strong></span>
+                            <span>🗑 Deleted: <strong style={{ color: '#f87171' }}>{w.files_deleted}</strong></span>
+                            <span>⏱ Latency: <strong style={{ color: '#f59e0b' }}>{w.avg_sync_ms}ms</strong></span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleStopWatch(w.workspace)}
+                          className="cyber-button-secondary"
+                          style={{
+                            padding: '6px 12px',
+                            color: '#f87171',
+                            borderColor: 'rgba(239, 68, 68, 0.3)',
+                            fontSize: '0.75rem',
+                          }}
+                        >
+                          <Square size={13} color="#f87171" />
+                          <span>Stop Watch</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.02)',
+                      border: '1px dashed rgba(255, 255, 255, 0.1)',
+                      borderRadius: 10,
+                      padding: 24,
+                      textAlign: 'center',
+                      color: 'var(--text-muted)',
+                      fontSize: '0.8rem',
+                    }}
+                  >
+                    No codebases are currently being live-watched. Start one below to stream live AST changes!
+                  </div>
+                )}
+              </div>
+
+              {/* Section 2: Start New Live Watcher */}
+              <div
+                style={{
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: 10,
+                  padding: 16,
+                }}
+              >
+                <div style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Play size={14} color="#38bdf8" />
+                  <span>Start Live Watcher</span>
+                </div>
+
+                {/* Quick Select from Ingested Workspaces */}
+                {workspaces.length > 0 && (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 6 }}>
+                      Quick Select from Ingested Codebases:
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {workspaces.map((ws) => {
+                        const isAlreadyWatched = activeWatchers.some((w) => w.workspace === ws.workspace);
+                        return (
+                          <button
+                            key={ws.workspace}
+                            type="button"
+                            disabled={isAlreadyWatched || isStartingWatch}
+                            onClick={() => {
+                              // If workspace matches known paths, derive path
+                              const targetP = `/workspace/tools/${ws.workspace}`;
+                              handleStartWatch(targetP, ws.workspace, watchDebounceMs);
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 6,
+                              padding: '5px 10px',
+                              borderRadius: 8,
+                              border: isAlreadyWatched
+                                ? '1px solid rgba(52, 211, 153, 0.4)'
+                                : '1px solid rgba(255, 255, 255, 0.1)',
+                              background: isAlreadyWatched
+                                ? 'rgba(52, 211, 153, 0.12)'
+                                : 'rgba(255, 255, 255, 0.04)',
+                              color: isAlreadyWatched ? '#34d399' : '#e2e8f0',
+                              fontSize: '0.74rem',
+                              cursor: isAlreadyWatched ? 'default' : 'pointer',
+                            }}
+                          >
+                            <span>📁 {ws.workspace}</span>
+                            {isAlreadyWatched ? (
+                              <span style={{ fontSize: '0.62rem', color: '#34d399', fontWeight: 700 }}>WATCHING</span>
+                            ) : (
+                              <span style={{ fontSize: '0.62rem', color: '#38bdf8' }}>+ Watch</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom Folder Path Input */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                      Directory Path to Watch (Absolute or Container Path):
+                    </label>
+                    <input
+                      type="text"
+                      value={watchTargetFolder}
+                      onChange={(e) => setWatchTargetFolder(e.target.value)}
+                      placeholder="/workspace/path/to/repo"
+                      className="cyber-input"
+                      style={{ width: '100%', fontSize: '0.8rem' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                        Workspace Alias (Optional):
+                      </label>
+                      <input
+                        type="text"
+                        value={watchCustomProject}
+                        onChange={(e) => setWatchCustomProject(e.target.value)}
+                        placeholder="e.g. my-app"
+                        className="cyber-input"
+                        style={{ width: '100%', fontSize: '0.8rem' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                        Debounce Window:
+                      </label>
+                      <select
+                        value={watchDebounceMs}
+                        onChange={(e) => setWatchDebounceMs(Number(e.target.value))}
+                        className="cyber-input"
+                        style={{ width: '100%', fontSize: '0.8rem', background: '#0b1120' }}
+                      >
+                        <option value={200}>200ms (Ultra-fast)</option>
+                        <option value={500}>500ms (Recommended)</option>
+                        <option value={1000}>1000ms (1 second)</option>
+                        <option value={2000}>2000ms (2 seconds)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                    <button
+                      type="button"
+                      disabled={isStartingWatch || !watchTargetFolder.trim()}
+                      onClick={() => handleStartWatch(watchTargetFolder, watchCustomProject, watchDebounceMs)}
+                      className="cyber-button"
+                      style={{ padding: '8px 18px' }}
+                    >
+                      {isStartingWatch ? <RefreshCw size={14} className="pulsing-dot" /> : <Radio size={14} />}
+                      <span>{isStartingWatch ? 'Starting Watcher...' : 'Start Live Watch'}</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

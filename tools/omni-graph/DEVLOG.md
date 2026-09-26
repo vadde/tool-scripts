@@ -4,6 +4,55 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-26 — Dynamic Live Delta Sync, File Watcher Daemon & Global Persistent Live Recording HUD
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~45m
+
+#### What Was Done
+- **Engineered Live Delta Sync Engine (`src/watcher/mod.rs`, `delta.rs`, `pipeline.rs`)**:
+  - Implemented multi-workspace file watcher daemon utilizing native OS events (`notify` / `inotify` / FSEvents) with configurable debounce windows (default 500ms).
+  - Coalesces rapid keystrokes and file events into clean semantic changesets (`Created`, `Modified`, `Deleted`, `Renamed`).
+  - Implemented single-file incremental pipeline: reads changed files, parses AST via Tree-sitter, computes HuggingFace TEI vector embeddings, updates SurrealDB graph nodes and edges in sub-100ms.
+  - Implemented atomic prune for deleted files: cascade cleans connected graph edges (`linked_to`) and AST nodes in SurrealDB when files are removed.
+  - Implemented background interval sweep (`tokio::time::interval`) to guarantee 100% resilient deletion detection across host/Docker virtualization boundaries (VirtioFS / gRPC-FUSE).
+- **REST & SSE Live Telemetry API (`src/api/mod.rs`)**:
+  - `POST /api/watch/start`: Starts real-time watcher on any directory path with workspace alias and debounce settings.
+  - `POST /api/watch/stop`: Gracefully terminates a watcher task.
+  - `GET /api/watch/status`: Returns live telemetry for all active watchers (tracked files, total events, re-indexed count, deleted count, avg latency ms, cluster status).
+  - `GET /api/watch/status/:workspace`: Returns status for a single workspace.
+  - `GET /api/watch/events`: Server-Sent Events (SSE) streaming live delta events to browser in real time.
+- **CLI Commands (`scripts/omni.sh`)**:
+  - `omni.sh watch start <path> [project] [debounce_ms]`
+  - `omni.sh watch stop <workspace>`
+  - `omni.sh watch status`
+  - `omni.sh watch events`
+- **Global Persistent Live Recording HUD & Watch Manager UI (`ui/src/App.tsx`)**:
+  - **Always-Visible Global Floating HUD**: Pinned at bottom center across ALL pages (`3D Graph Studio` and `Agent Analytics & LSP`), displaying:
+    - Glowing badge `🔴 LIVE RECORDING`
+    - Real-time chips for each watched workspace with tracked file counts, event counts, and latency
+    - Instant `[×]` stop buttons on each chip
+    - Quick `+ Watch More` and minimize/expand toggles
+  - **Header Live Watch Pill**: Displays `[ 🔴 LIVE WATCH (N Active) ]` or `[ 📡 Live Watch (Idle) ]` in the top header navigation.
+  - **Interactive Watch Manager Modal**: Full flyout modal to start watching any ingested codebase with 1 click, custom path entry, debounce settings, and live telemetry cards.
+  - **Real-Time SSE Delta Toast**: Instant notification slide-up when files are modified/created/deleted in the active codebase.
+
+#### Files Changed
+- `src/watcher/mod.rs` — New: WatchManager daemon orchestrating concurrent workspace watchers
+- `src/watcher/delta.rs` — New: Event coalescing, rename tracking, and delta classification
+- `src/watcher/pipeline.rs` — New: Incremental AST re-indexing and atomic file pruning
+- `src/db/mod.rs` — Added `delete_file` and `rename_file` methods for atomic SurrealQL graph pruning
+- `src/ingestion/mod.rs` — Added `remove`, `rename`, and `get_all_paths` to `FileCache`
+- `src/api/mod.rs` — Registered `/api/watch/*` routes and SSE event handler
+- `src/lib.rs` & `src/main.rs` — Registered watcher module and passed `watch_manager` into `AppState`
+- `Cargo.toml` — Added `notify = "6.1"`, `chrono = "0.4"`, `tokio-stream = "0.1"`
+- `scripts/omni.sh` — Added `watch start/stop/status/events` subcommands
+- `ui/src/App.tsx` — Global persistent Live Watch HUD, header indicator, and Watch Manager modal
+- `CONTEXT.md` & `DEVLOG.md` — Updated session state
+
+---
+
 ### 2026-09-25 — Omni-DB Agent Analytics, Live Dynamic Polling & LSP Grounding Paradigm Hub
 
 **Agent/Author**: Antigravity

@@ -10,3 +10,4 @@ pub mod db;
 pub mod embedder;
 pub mod ingestion;
 pub mod parser;
+pub mod watcher;

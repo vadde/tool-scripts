@@ -547,5 +547,32 @@ impl DbClient {
         }
         Ok(map)
     }
+
+    /// Atomic prune of file nodes and connected edges (R-011 / Delta Sync)
+    pub async fn delete_file(&self, workspace: &str, file_path: &str) -> Result<(), String> {
+        let esc_ws = surql_escape(workspace);
+        let esc_path = surql_escape(file_path);
+        let q = format!(
+            "LET $nodes = (SELECT VALUE id FROM node WHERE workspace = '{}' AND file_path = '{}');\n\
+             DELETE linked_to WHERE in IN $nodes OR out IN $nodes;\n\
+             DELETE node WHERE workspace = '{}' AND file_path = '{}';",
+            esc_ws, esc_path, esc_ws, esc_path
+        );
+        self.query_sql(&q).await?;
+        Ok(())
+    }
+
+    /// Rename file path on nodes across workspace
+    pub async fn rename_file(&self, workspace: &str, old_path: &str, new_path: &str) -> Result<(), String> {
+        let esc_ws = surql_escape(workspace);
+        let esc_old = surql_escape(old_path);
+        let esc_new = surql_escape(new_path);
+        let q = format!(
+            "UPDATE node SET file_path = '{}' WHERE workspace = '{}' AND file_path = '{}';",
+            esc_new, esc_ws, esc_old
+        );
+        self.query_sql(&q).await?;
+        Ok(())
+    }
 }
 

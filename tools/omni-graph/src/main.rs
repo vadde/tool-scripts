@@ -11,6 +11,7 @@ mod db;
 mod embedder;
 mod ingestion;
 mod parser;
+mod watcher;
 
 use api::{create_router, AppState};
 use config::Config;
@@ -23,6 +24,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use watcher::WatchManager;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -71,10 +73,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         warn!("SurrealDB connectivity check timed out; continuing startup in degraded mode.");
     }
 
+    let watch_manager = Arc::new(WatchManager::new(
+        db_client.clone(),
+        embedder_client.clone(),
+    ));
+
     let state = AppState {
         db: db_client,
         embedder: embedder_client,
         pipeline,
+        watcher: watch_manager,
     };
 
     let router = create_router(state);

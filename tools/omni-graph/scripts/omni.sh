@@ -27,6 +27,7 @@ Commands:
   cluster [workspace]        Run Louvain/Leiden community detection clustering
   galaxies [workspace]       Inspect architectural galaxy subsystems
   ingest <path> [project]    Index a codebase/directory into SurrealDB
+  watch <start|stop|status>  Dynamic live delta sync and file watching
   stats                      Show aggregated graph stats
 EOF
   exit 1
@@ -311,6 +312,87 @@ except Exception as e:
     print(f'❌ Ingestion failed: {e}')
     sys.exit(1)
 " "${RESOLVED_PATH}" "${PROJECT}"
+    ;;
+
+  watch)
+    SUB="${1:-}"
+    shift || true
+    case "${SUB}" in
+      start)
+        DIR="${1:-}"
+        PROJ="${2:-}"
+        DEBOUNCE="${3:-500}"
+        if [ -z "${DIR}" ]; then echo "❌ Missing directory path. Usage: omni.sh watch start <path> [project] [debounce_ms]"; exit 1; fi
+        if [ -d "${DIR}" ]; then
+          RESOLVED="$(cd "${DIR}" && pwd)"
+        else
+          RESOLVED="${DIR}"
+        fi
+        python3 -c "
+import urllib.request, json, sys
+data = json.dumps({'path': sys.argv[1], 'project': sys.argv[2] or None, 'debounce_ms': int(sys.argv[3])}).encode()
+req = urllib.request.Request('${ENDPOINT}/api/watch/start', data=data, headers={'Content-Type': 'application/json'})
+try:
+    with urllib.request.urlopen(req) as resp:
+        res = json.loads(resp.read().decode())
+        print('🟢 Live Watch Started!')
+        print(f\"  • Workspace:     {res.get('workspace')}\")
+        print(f\"  • Path:          {res.get('path')}\")
+        print(f\"  • Files Tracked: {res.get('files_tracked')}\")
+        print(f\"  • Debounce:      {res.get('debounce_ms')}ms\")
+except urllib.error.HTTPError as e:
+    print(f'❌ Failed to start watch ({e.code}): {e.read().decode()}')
+except Exception as e:
+    print(f'❌ Error: {e}')
+" "${RESOLVED}" "${PROJ}" "${DEBOUNCE}"
+        ;;
+      stop)
+        WS="$(norm_ws "${1:-}")"
+        if [ -z "${WS}" ]; then echo "❌ Missing workspace name. Usage: omni.sh watch stop <workspace>"; exit 1; fi
+        python3 -c "
+import urllib.request, json, sys
+data = json.dumps({'workspace': sys.argv[1]}).encode()
+req = urllib.request.Request('${ENDPOINT}/api/watch/stop', data=data, headers={'Content-Type': 'application/json'})
+try:
+    with urllib.request.urlopen(req) as resp:
+        res = json.loads(resp.read().decode())
+        print(f\"🛑 Live Watch Stopped for workspace '{res.get('workspace')}':\")
+        print(f\"  • Events Processed: {res.get('events_processed')}\")
+        print(f\"  • Files Re-indexed: {res.get('files_reindexed')}\")
+        print(f\"  • Files Deleted:    {res.get('files_deleted')}\")
+except urllib.error.HTTPError as e:
+    print(f'❌ Failed to stop watch ({e.code}): {e.read().decode()}')
+except Exception as e:
+    print(f'❌ Error: {e}')
+" "${WS}"
+        ;;
+      status)
+        python3 -c "
+import urllib.request, json
+req = urllib.request.Request('${ENDPOINT}/api/watch/status')
+try:
+    with urllib.request.urlopen(req) as resp:
+        watchers = json.loads(resp.read().decode())
+        if not watchers:
+            print('No active live watchers. Run: ./scripts/omni.sh watch start <path> [project]')
+            exit(0)
+        print(f'{\"WORKSPACE\":<20} {\"STATUS\":<12} {\"FILES\":<8} {\"EVENTS\":<8} {\"REINDEX\":<8} {\"AVG(ms)\":<8} {\"PATH\"}')
+        print('='*80)
+        for w in watchers:
+            print(f\"{w.get('workspace'):<20} {w.get('status'):<12} {w.get('files_tracked',0):<8} {w.get('events_processed',0):<8} {w.get('files_reindexed',0):<8} {w.get('avg_sync_ms',0):<8} {w.get('path')}\")
+except Exception as e:
+    print(f'❌ Error: {e}')
+"
+        ;;
+      events)
+        echo "📡 Streaming live delta events from ${ENDPOINT}/api/watch/events (Ctrl+C to stop)..."
+        curl -N -s "${ENDPOINT}/api/watch/events"
+        ;;
+      *)
+        echo "Usage: omni.sh watch <start|stop|status|events>"
+        exit 1
+        ;;
+    esac
     ;;
 
   stats)

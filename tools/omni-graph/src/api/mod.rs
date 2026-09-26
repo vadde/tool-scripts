@@ -7,16 +7,23 @@ use crate::condenser::ContextCondenser;
 use crate::db::DbClient;
 use crate::embedder::EmbedderClient;
 use crate::ingestion::IngestionPipeline;
+use crate::watcher::WatchManager;
 use axum::{
     extract::{Path as AxumPath, Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{
+        sse::{Event as SseEvent, KeepAlive, Sse},
+        IntoResponse,
+    },
     routing::{get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::convert::Infallible;
 use std::sync::Arc;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing::info;
@@ -26,6 +33,7 @@ pub struct AppState {
     pub db: DbClient,
     pub embedder: EmbedderClient,
     pub pipeline: Arc<IngestionPipeline>,
+    pub watcher: Arc<WatchManager>,
 }
 
 #[derive(Deserialize, Default)]
@@ -71,6 +79,18 @@ pub struct CondenseParams {
 pub struct IngestPayload {
     pub path: String,
     pub project: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct WatchStartPayload {
+    pub path: String,
+    pub project: Option<String>,
+    pub debounce_ms: Option<u64>,
+}
+
+#[derive(Deserialize)]
+pub struct WatchStopPayload {
+    pub workspace: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -155,6 +175,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/ingest", post(ingest_handler))
         .route("/api/analytics", get(analytics_handler))
         .route("/api/analytics/session/:id", get(session_detail_handler))
+        .route("/api/watch/start", post(watch_start_handler))
+        .route("/api/watch/stop", post(watch_stop_handler))
+        .route("/api/watch/status", get(watch_status_handler))
+        .route("/api/watch/status/:workspace", get(watch_workspace_status_handler))
+        .route("/api/watch/events", get(watch_events_sse_handler))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -812,6 +837,97 @@ async fn session_detail_handler(
         )
             .into_response(),
     }
+}
+
+/// POST /api/watch/start
+async fn watch_start_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<WatchStartPayload>,
+) -> impl IntoResponse {
+    let ws_name = match payload.project {
+        Some(p) if !p.trim().is_empty() => p.trim().to_string(),
+        _ => {
+            let p = std::path::Path::new(&payload.path);
+            let abs_path = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+            abs_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "default".to_string())
+        }
+    };
+
+    match state.watcher.start_watch(&payload.path, &ws_name, payload.debounce_ms).await {
+        Ok(status) => (StatusCode::OK, Json(serde_json::to_value(status).unwrap_or_default())).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": e
+            })),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /api/watch/stop
+async fn watch_stop_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<WatchStopPayload>,
+) -> impl IntoResponse {
+    let ws = normalize_workspace(Some(&payload.workspace)).unwrap_or(payload.workspace);
+    match state.watcher.stop_watch(&ws).await {
+        Ok(status) => (StatusCode::OK, Json(serde_json::to_value(status).unwrap_or_default())).into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": e
+            })),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /api/watch/status
+async fn watch_status_handler(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let statuses = state.watcher.get_status().await;
+    Json(statuses).into_response()
+}
+
+/// GET /api/watch/status/:workspace
+async fn watch_workspace_status_handler(
+    State(state): State<AppState>,
+    AxumPath(workspace): AxumPath<String>,
+) -> impl IntoResponse {
+    let ws = normalize_workspace(Some(&workspace)).unwrap_or(workspace);
+    match state.watcher.get_workspace_status(&ws).await {
+        Some(status) => Json(status).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!("No watcher found for workspace '{}'", ws)
+            })),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /api/watch/events (Server-Sent Events)
+async fn watch_events_sse_handler(
+    State(state): State<AppState>,
+) -> Sse<impl tokio_stream::Stream<Item = Result<SseEvent, Infallible>>> {
+    let rx = state.watcher.subscribe();
+    let stream = BroadcastStream::new(rx).filter_map(|res| {
+        match res {
+            Ok(evt) => {
+                let json = serde_json::to_string(&evt).unwrap_or_default();
+                Some(Ok(SseEvent::default().event("delta").data(json)))
+            }
+            Err(_) => None,
+        }
+    });
+
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 
