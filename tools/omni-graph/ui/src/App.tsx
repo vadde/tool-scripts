@@ -2389,10 +2389,10 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsWatchModalOpen(false)}
-                className="icon-button"
-                style={{ color: 'var(--text-muted)' }}
+                className="modal-close-button"
+                title="Close Watch Manager"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
             </div>
 
@@ -2664,21 +2664,13 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
-                    <button
-                      type="button"
-                      onClick={() => setIsWatchModalOpen(false)}
-                      className="cyber-button-secondary"
-                      style={{ padding: '8px 16px', fontSize: '0.78rem' }}
-                    >
-                      Done / Close
-                    </button>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
                     <button
                       type="button"
                       disabled={isStartingWatch || !watchTargetFolder.trim()}
                       onClick={() => handleStartWatch(watchTargetFolder, watchCustomProject, watchDebounceMs)}
                       className="cyber-button"
-                      style={{ padding: '8px 18px' }}
+                      style={{ padding: '8px 20px', fontSize: '0.82rem' }}
                     >
                       {isStartingWatch ? <RefreshCw size={14} className="pulsing-dot" /> : <Radio size={14} />}
                       <span>{isStartingWatch ? 'Starting Watcher...' : 'Start Live Watch'}</span>
@@ -2686,6 +2678,51 @@ export default function App() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Modal Footer Bar */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 20px',
+                borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                background: 'rgba(0, 0, 0, 0.45)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    background: activeWatchers.length > 0 ? '#34d399' : '#64748b',
+                    boxShadow: activeWatchers.length > 0 ? '0 0 8px #34d399' : 'none',
+                  }}
+                />
+                <span>
+                  {activeWatchers.length > 0
+                    ? `${activeWatchers.length} active watcher${activeWatchers.length === 1 ? '' : 's'} registered in daemon`
+                    : 'File watcher daemon idle'}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsWatchModalOpen(false)}
+                className="cyber-button-secondary"
+                style={{
+                  padding: '7px 20px',
+                  fontSize: '0.8rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <span>Done</span>
+              </button>
             </div>
           </div>
         </div>
