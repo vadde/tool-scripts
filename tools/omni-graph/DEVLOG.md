@@ -4,6 +4,31 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-26 — Watch Modal Persistence & High-Contrast Debounce UX Polish
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~15m
+
+#### Problem & User Feedback
+1. **Modal Prematurely Closing**: Clicking "+ Watch" on a codebase in the Quick Select palette immediately dismissed the Watch Manager modal and sent the user back to the home page, preventing them from watching multiple codebases or checking telemetry.
+2. **Debounce Window Contrast Issue**: In the modal, default browser select styles caused dark text to render on a dark background (`#0b1120`), making the selected 500ms recommended debounce window illegible unless actively clicked.
+
+#### What Was Done
+- **Modal Persistence & Explicit User Dismissal (`ui/src/App.tsx`)**:
+  - Removed automatic modal dismissal (`setIsWatchModalOpen(false)`) from `handleStartWatch`.
+  - The modal now remains open so users can watch multiple codebases sequentially, observe real-time telemetry card updates, and inspect status.
+  - Added a dedicated "Done / Close" button in the modal footer alongside the top-right `[✕]` button.
+- **High-Contrast Form Inputs & Debounce Dropdown (`ui/src/index.css`, `ui/src/App.tsx`)**:
+  - Defined explicit `.cyber-input` and `.cyber-select` CSS rules with `#0f172a` dark background, `#f8fafc` crisp white text, and `color-scheme: dark` to prevent OS/browser inversion bugs.
+  - Added real-time badge in the label: `Debounce Window: <span color="#38bdf8">{watchDebounceMs}ms selected</span>`.
+  - Added styled options with clear icons and highlighted `⭐ 500ms (Recommended)`.
+- **Build & Verification**:
+  - Built production bundle (`npm run build`) in `ui/` cleanly in 2.85s.
+  - Rebuilt and restarted `omni-graph-graph-ui` Docker container on port 3000.
+
+---
+
 ### 2026-09-26 — Workspace Root Path Resolution & Robust Multi-Repository Live Watch Fix
 
 **Agent/Author**: Antigravity

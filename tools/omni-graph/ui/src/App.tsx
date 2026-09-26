@@ -203,7 +203,7 @@ export default function App() {
         setWatchToast(`🟢 Watching ${data.workspace} (${data.files_tracked} files)`);
         setTimeout(() => setWatchToast(null), 4000);
         await fetchWatchers();
-        setIsWatchModalOpen(false);
+        // Modal stays open so user can watch multiple or inspect telemetry until clicking close
       } else {
         const errJson = await res.json();
         alert(`Failed to start watch: ${errJson.error || res.statusText}`);
@@ -2578,7 +2578,7 @@ export default function App() {
                 {/* Custom Folder Path Input */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                    <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: 4, fontWeight: 600 }}>
                       Directory Path to Watch (Absolute or Container Path):
                     </label>
                     <input
@@ -2587,13 +2587,22 @@ export default function App() {
                       onChange={(e) => setWatchTargetFolder(e.target.value)}
                       placeholder="/workspace/path/to/repo"
                       className="cyber-input"
-                      style={{ width: '100%', fontSize: '0.8rem' }}
+                      style={{
+                        width: '100%',
+                        fontSize: '0.82rem',
+                        background: '#0f172a',
+                        color: '#f8fafc',
+                        border: '1px solid rgba(255, 255, 255, 0.25)',
+                        borderRadius: 8,
+                        padding: '8px 12px',
+                        colorScheme: 'dark',
+                      }}
                     />
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>
+                      <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: 4, fontWeight: 600 }}>
                         Workspace Alias (Optional):
                       </label>
                       <input
@@ -2602,28 +2611,68 @@ export default function App() {
                         onChange={(e) => setWatchCustomProject(e.target.value)}
                         placeholder="e.g. my-app"
                         className="cyber-input"
-                        style={{ width: '100%', fontSize: '0.8rem' }}
+                        style={{
+                          width: '100%',
+                          fontSize: '0.82rem',
+                          background: '#0f172a',
+                          color: '#f8fafc',
+                          border: '1px solid rgba(255, 255, 255, 0.25)',
+                          borderRadius: 8,
+                          padding: '8px 12px',
+                          colorScheme: 'dark',
+                        }}
                       />
                     </div>
                     <div>
-                      <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: 4 }}>
-                        Debounce Window:
-                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <label style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600 }}>
+                          Debounce Window:
+                        </label>
+                        <span style={{ fontSize: '0.68rem', color: '#38bdf8', fontWeight: 600 }}>
+                          {watchDebounceMs}ms selected
+                        </span>
+                      </div>
                       <select
                         value={watchDebounceMs}
                         onChange={(e) => setWatchDebounceMs(Number(e.target.value))}
-                        className="cyber-input"
-                        style={{ width: '100%', fontSize: '0.8rem', background: '#0b1120' }}
+                        className="cyber-select"
+                        style={{
+                          width: '100%',
+                          fontSize: '0.82rem',
+                          background: '#0f172a',
+                          color: '#f8fafc',
+                          border: '1px solid rgba(255, 255, 255, 0.25)',
+                          borderRadius: 8,
+                          padding: '8px 12px',
+                          colorScheme: 'dark',
+                          cursor: 'pointer',
+                        }}
                       >
-                        <option value={200}>200ms (Ultra-fast)</option>
-                        <option value={500}>500ms (Recommended)</option>
-                        <option value={1000}>1000ms (1 second)</option>
-                        <option value={2000}>2000ms (2 seconds)</option>
+                        <option value={200} style={{ background: '#0f172a', color: '#f8fafc' }}>
+                          ⚡ 200ms (Ultra-fast)
+                        </option>
+                        <option value={500} style={{ background: '#0f172a', color: '#38bdf8', fontWeight: 700 }}>
+                          ⭐ 500ms (Recommended)
+                        </option>
+                        <option value={1000} style={{ background: '#0f172a', color: '#f8fafc' }}>
+                          ⏱ 1000ms (1 second)
+                        </option>
+                        <option value={2000} style={{ background: '#0f172a', color: '#f8fafc' }}>
+                          ⏱ 2000ms (2 seconds)
+                        </option>
                       </select>
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
+                    <button
+                      type="button"
+                      onClick={() => setIsWatchModalOpen(false)}
+                      className="cyber-button-secondary"
+                      style={{ padding: '8px 16px', fontSize: '0.78rem' }}
+                    >
+                      Done / Close
+                    </button>
                     <button
                       type="button"
                       disabled={isStartingWatch || !watchTargetFolder.trim()}
