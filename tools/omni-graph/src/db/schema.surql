@@ -52,3 +52,10 @@ DEFINE FIELD IF NOT EXISTS created_at ON TABLE linked_to TYPE datetime DEFAULT t
 -- Indexes on relation endpoints for rapid traversal
 DEFINE INDEX IF NOT EXISTS idx_edge_workspace ON TABLE linked_to FIELDS workspace;
 DEFINE INDEX IF NOT EXISTS idx_edge_type      ON TABLE linked_to FIELDS type;
+
+-- ─── 5. Workspace Root Path Metadata ──────────────────────────────────────────
+DEFINE TABLE IF NOT EXISTS workspace_meta SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS workspace  ON TABLE workspace_meta TYPE string;
+DEFINE FIELD IF NOT EXISTS root_path  ON TABLE workspace_meta TYPE string;
+DEFINE FIELD IF NOT EXISTS updated_at ON TABLE workspace_meta TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_workspace_meta_name ON TABLE workspace_meta FIELDS workspace;

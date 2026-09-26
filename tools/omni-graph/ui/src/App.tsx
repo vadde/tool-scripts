@@ -57,6 +57,7 @@ interface WorkspaceInfo {
   total_nodes: number;
   languages: string[];
   files: string[];
+  root_path?: string;
 }
 
 interface HealthResponse {
@@ -2528,15 +2529,22 @@ export default function App() {
                             type="button"
                             disabled={isAlreadyWatched || isStartingWatch}
                             onClick={() => {
-                              // If workspace matches known paths, derive path
-                              const targetP = `/workspace/tools/${ws.workspace}`;
+                              const targetP =
+                                ws.root_path ||
+                                (ws.workspace === 'tool-scripts' || ws.workspace === 'workspace'
+                                  ? '/workspace'
+                                  : ws.workspace === 'session-explorer' || ws.workspace === 'omni-graph'
+                                  ? `/workspace/tools/${ws.workspace}`
+                                  : `/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/${ws.workspace}`);
+                              setWatchTargetFolder(targetP);
+                              setWatchCustomProject(ws.workspace);
                               handleStartWatch(targetP, ws.workspace, watchDebounceMs);
                             }}
                             style={{
                               display: 'flex',
                               alignItems: 'center',
-                              gap: 6,
-                              padding: '5px 10px',
+                              gap: 8,
+                              padding: '6px 12px',
                               borderRadius: 8,
                               border: isAlreadyWatched
                                 ? '1px solid rgba(52, 211, 153, 0.4)'
@@ -2549,7 +2557,12 @@ export default function App() {
                               cursor: isAlreadyWatched ? 'default' : 'pointer',
                             }}
                           >
-                            <span>📁 {ws.workspace}</span>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                              <span style={{ fontWeight: 600 }}>📁 {ws.workspace}</span>
+                              <span style={{ fontSize: '0.62rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                                {ws.root_path || (ws.workspace === 'tool-scripts' ? '/workspace' : `.../${ws.workspace}`)}
+                              </span>
+                            </div>
                             {isAlreadyWatched ? (
                               <span style={{ fontSize: '0.62rem', color: '#34d399', fontWeight: 700 }}>WATCHING</span>
                             ) : (

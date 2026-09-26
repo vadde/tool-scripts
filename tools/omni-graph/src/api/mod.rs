@@ -85,6 +85,7 @@ pub struct IngestPayload {
 pub struct WatchStartPayload {
     pub path: String,
     pub project: Option<String>,
+    pub workspace: Option<String>,
     pub debounce_ms: Option<u64>,
 }
 
@@ -844,7 +845,7 @@ async fn watch_start_handler(
     State(state): State<AppState>,
     Json(payload): Json<WatchStartPayload>,
 ) -> impl IntoResponse {
-    let ws_name = match payload.project {
+    let ws_name = match payload.workspace.or(payload.project) {
         Some(p) if !p.trim().is_empty() => p.trim().to_string(),
         _ => {
             let p = std::path::Path::new(&payload.path);
@@ -856,8 +857,32 @@ async fn watch_start_handler(
         }
     };
 
-    match state.watcher.start_watch(&payload.path, &ws_name, payload.debounce_ms).await {
-        Ok(status) => (StatusCode::OK, Json(serde_json::to_value(status).unwrap_or_default())).into_response(),
+    // Auto-resolve path if it doesn't exist on disk
+    let mut target_path = payload.path;
+    let trimmed = target_path.trim_end_matches('/');
+    if trimmed.ends_with("/tools/tool-scripts") || trimmed.ends_with("/tools/workspace") {
+        if let Some(prefix) = trimmed.strip_suffix("/tools/tool-scripts").or_else(|| trimmed.strip_suffix("/tools/workspace")) {
+            let candidate = if prefix.is_empty() { "/workspace".to_string() } else { prefix.to_string() };
+            if std::path::Path::new(&candidate).exists() {
+                target_path = candidate;
+            }
+        }
+    }
+
+    let path_obj = std::path::Path::new(&target_path);
+    if !path_obj.exists() || !path_obj.is_dir() {
+        if let Ok(Some(resolved)) = state.db.get_workspace_root(&ws_name).await {
+            target_path = resolved;
+        } else if let Some(resolved) = crate::db::resolve_disk_path(&ws_name, &[]) {
+            target_path = resolved;
+        }
+    }
+
+    match state.watcher.start_watch(&target_path, &ws_name, payload.debounce_ms).await {
+        Ok(status) => {
+            let _ = state.db.record_workspace_root(&ws_name, &target_path).await;
+            (StatusCode::OK, Json(serde_json::to_value(status).unwrap_or_default())).into_response()
+        },
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({

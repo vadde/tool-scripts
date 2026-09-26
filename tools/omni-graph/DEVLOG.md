@@ -4,6 +4,37 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-26 — Workspace Root Path Resolution & Robust Multi-Repository Live Watch Fix
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~20m
+
+#### Problem & Root Cause
+- When selecting `tool-scripts` from the "Quick select from Ingested Codebases" palette in the Watch Manager modal, the system failed with:
+  `Failed to start watch: Path does not exist or is not a directory: /workspace/tools/tool-scripts`.
+- **Root Cause**:
+  1. The monorepo root is mounted into Docker at `/workspace`, while internal tools reside in `/workspace/tools/<tool>`, and sister codebases (`DSA`, `k8s-eks`, `tutor-intelligence`) reside at their host directory paths (`/Users/.../knowledge/<name>`). The UI initially used an ad-hoc fallback `/workspace/tools/${ws.workspace}`.
+  2. The database schema previously grouped nodes by workspace alias without persisting the canonical filesystem root directory that was ingested.
+
+#### What Was Done
+- **Engineered Workspace Root Metadata Engine (`src/db/schema.surql`, `src/db/mod.rs`)**:
+  - Defined `workspace_meta` table in SurrealDB schema to store `(workspace, root_path, updated_at)`.
+  - Added `record_workspace_root` and `get_workspace_root` methods in `DbClient`.
+  - Updated `IngestionPipeline` to automatically record the canonical root directory on every ingestion run.
+  - Implemented `resolve_disk_path` heuristic testing candidate mounts (`/workspace`, `/workspace/tools/*`, `/Users/.../knowledge/*`) against actual files present in the database.
+  - Updated `get_workspaces()` API to enrich every workspace with its exact, verified `root_path`.
+- **Auto-Resolution & Path Guardrails (`src/api/mod.rs`)**:
+  - Enhanced `POST /api/watch/start` handler to detect non-existent directory requests, automatically strip rogue suffixes (e.g. `/tools/tool-scripts` -> `/workspace`), query `workspace_meta`, and auto-resolve the directory on disk before launching the watch daemon.
+- **Frontend Palette & Quick-Select Update (`ui/src/App.tsx`)**:
+  - Updated quick-select buttons in Watch Manager to utilize verified `ws.root_path` from `/api/workspaces`, rendering the exact resolved path under each workspace button.
+- **Verification & Deployment**:
+  - Rebuilt and deployed `omni-graph-rust-app` and `omni-graph-graph-ui` containers.
+  - Verified `POST /api/watch/start` with `/workspace/tools/tool-scripts` now seamlessly auto-resolves to `/workspace` and starts watching 160 files without error.
+  - Verified `GET /api/workspaces` returns verified `root_path` for all 10 ingested codebases (`tool-scripts`, `DSA`, `k8s-eks`, `session-explorer`, `python`, etc.).
+
+---
+
 ### 2026-09-26 — Dynamic Live Delta Sync, File Watcher Daemon & Global Persistent Live Recording HUD
 
 **Agent/Author**: Antigravity

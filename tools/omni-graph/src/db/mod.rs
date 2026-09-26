@@ -397,14 +397,61 @@ impl DbClient {
         }))
     }
 
-    /// List all distinct workspaces with metadata
+    /// Record the root filesystem path for a workspace
+    pub async fn record_workspace_root(&self, workspace: &str, root_path: &str) -> Result<(), String> {
+        let esc_ws = surql_escape(workspace);
+        let esc_path = surql_escape(root_path);
+        let q = format!(
+            "UPSERT type::thing('workspace_meta', '{}') CONTENT {{ workspace: '{}', root_path: '{}', updated_at: time::now() }};",
+            esc_ws, esc_ws, esc_path
+        );
+        self.query_sql(&q).await?;
+        Ok(())
+    }
+
+    /// Retrieve the root filesystem path for a workspace
+    pub async fn get_workspace_root(&self, workspace: &str) -> Result<Option<String>, String> {
+        let esc_ws = surql_escape(workspace);
+        let q = format!(
+            "SELECT VALUE root_path FROM type::thing('workspace_meta', '{}') LIMIT 1;",
+            esc_ws
+        );
+        let resp = self.query_sql(&q).await?;
+        if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            if let Some(val) = arr.first().and_then(|v| v.as_str()) {
+                return Ok(Some(val.to_string()));
+            }
+        }
+        Ok(None)
+    }
+
+    /// List all distinct workspaces with metadata (including root_path)
     pub async fn get_workspaces(&self) -> Result<Vec<serde_json::Value>, String> {
         let q = "SELECT workspace, count() AS total_nodes, array::distinct(language) AS languages, array::distinct(file_path) AS files FROM node GROUP BY workspace;";
         let resp = self.query_sql(q).await?;
         let mut list = Vec::new();
         if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
             for item in arr {
-                list.push(item.clone());
+                let mut obj = item.clone();
+                if let Some(ws) = item.get("workspace").and_then(|v| v.as_str()) {
+                    let mut resolved_root: Option<String> = self.get_workspace_root(ws).await.unwrap_or(None);
+                    
+                    if resolved_root.is_none() {
+                        let sample_files: Vec<String> = item.get("files")
+                            .and_then(|f| f.as_array())
+                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).take(5).collect())
+                            .unwrap_or_default();
+                        if let Some(auto_p) = resolve_disk_path(ws, &sample_files) {
+                            let _ = self.record_workspace_root(ws, &auto_p).await;
+                            resolved_root = Some(auto_p);
+                        }
+                    }
+
+                    if let Some(rp) = resolved_root {
+                        obj["root_path"] = serde_json::Value::String(rp);
+                    }
+                }
+                list.push(obj);
             }
         }
         Ok(list)
@@ -574,5 +621,49 @@ impl DbClient {
         self.query_sql(&q).await?;
         Ok(())
     }
+}
+
+/// Smart heuristic to find where a workspace root directory lives on disk
+pub fn resolve_disk_path(workspace: &str, sample_files: &[String]) -> Option<String> {
+    if workspace == "tool-scripts" || workspace == "workspace" || workspace == "default" {
+        if std::path::Path::new("/workspace").exists() {
+            return Some("/workspace".to_string());
+        }
+        let host_p = "/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/tool-scripts";
+        if std::path::Path::new(host_p).exists() {
+            return Some(host_p.to_string());
+        }
+    }
+
+    let candidates = vec![
+        format!("/workspace/tools/{}", workspace),
+        format!("/workspace/{}", workspace),
+        format!("/workspace/../{}", workspace),
+        format!("/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/{}", workspace),
+        format!("/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/tool-scripts/tools/{}", workspace),
+    ];
+
+    for candidate in &candidates {
+        let p = std::path::Path::new(candidate);
+        if p.exists() && p.is_dir() {
+            if sample_files.is_empty() {
+                return Some(candidate.clone());
+            }
+            for sf in sample_files {
+                if p.join(sf).exists() {
+                    return Some(candidate.clone());
+                }
+            }
+        }
+    }
+
+    for candidate in &candidates {
+        let p = std::path::Path::new(candidate);
+        if p.exists() && p.is_dir() {
+            return Some(candidate.clone());
+        }
+    }
+
+    None
 }
 

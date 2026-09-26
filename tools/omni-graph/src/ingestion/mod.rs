@@ -117,6 +117,11 @@ impl IngestionPipeline {
 
         info!("Ingestion assigned workspace namespace: '{}'", workspace_name);
 
+        let abs_root = fs::canonicalize(root)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| root_dir.to_string());
+        let _ = self.db.record_workspace_root(&workspace_name, &abs_root).await;
+
         // Restore staleness cache from persisted database file hashes (Finding #4)
         if let Ok(persisted_hashes) = self.db.get_file_hashes(&workspace_name).await {
             if !persisted_hashes.is_empty() {
