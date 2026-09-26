@@ -172,6 +172,7 @@ export default function App() {
   const [isStartingWatch, setIsStartingWatch] = useState<boolean>(false);
 
   const cosmographRef = useRef<any>(null);
+  const workspaceDropdownRef = useRef<HTMLDivElement>(null);
 
   // ─── 1. Data Fetching ──────────────────────────────────────────────────────
   const fetchWatchers = async () => {
@@ -311,6 +312,36 @@ export default function App() {
       if (es) es.close();
     };
   }, []);
+
+  // Dismiss workspace dropdown on outside click or Escape key
+  useEffect(() => {
+    if (!isWorkspaceDropdownOpen) return;
+
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (
+        workspaceDropdownRef.current &&
+        !workspaceDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsWorkspaceDropdownOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsWorkspaceDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside, true);
+    document.addEventListener('touchstart', handleClickOutside, true);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside, true);
+      document.removeEventListener('touchstart', handleClickOutside, true);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isWorkspaceDropdownOpen]);
 
   const handleSelectWorkspace = (ws: string | null) => {
     setSelectedWorkspace(ws);
@@ -689,8 +720,9 @@ export default function App() {
           </div>
 
           {/* Workspace Filter Dropdown */}
-          <div style={{ position: 'relative', marginLeft: 8 }}>
+          <div ref={workspaceDropdownRef} style={{ position: 'relative', marginLeft: 8 }}>
             <button
+              type="button"
               onClick={() => setIsWorkspaceDropdownOpen(!isWorkspaceDropdownOpen)}
               className="cyber-button-secondary"
               style={{
@@ -704,7 +736,14 @@ export default function App() {
               <span style={{ fontWeight: 600, fontSize: '0.78rem' }}>
                 {selectedWorkspace ? `📁 ${selectedWorkspace}` : '🌐 All Workspaces (Omniverse)'}
               </span>
-              <ChevronDown size={14} color="var(--text-muted)" />
+              <ChevronDown
+                size={14}
+                color="var(--text-muted)"
+                style={{
+                  transform: isWorkspaceDropdownOpen ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 0.2s ease',
+                }}
+              />
             </button>
 
             {isWorkspaceDropdownOpen && (
@@ -712,21 +751,25 @@ export default function App() {
                 className="glass-panel"
                 style={{
                   position: 'absolute',
-                  top: '120%',
+                  top: 'calc(100% + 8px)',
                   left: 0,
-                  width: 280,
+                  width: 290,
+                  maxHeight: '70vh',
+                  overflowY: 'auto',
                   zIndex: 110,
                   padding: 8,
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 4,
-                  boxShadow: '0 20px 30px rgba(0, 0, 0, 0.8)',
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                  boxShadow: '0 20px 40px rgba(0, 0, 0, 0.85), 0 0 20px rgba(56, 189, 248, 0.12)',
                 }}
               >
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', padding: '4px 8px', fontWeight: 600 }}>
                   SELECT ACTIVE CODEBASE
                 </div>
                 <button
+                  type="button"
                   onClick={() => handleSelectWorkspace(null)}
                   style={{
                     display: 'flex',
@@ -734,12 +777,19 @@ export default function App() {
                     justifyContent: 'space-between',
                     padding: '8px 10px',
                     borderRadius: 6,
-                    background: selectedWorkspace === null ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                    background: selectedWorkspace === null ? 'rgba(56, 189, 248, 0.18)' : 'transparent',
                     border: 'none',
                     color: selectedWorkspace === null ? 'var(--accent-cyan)' : 'var(--text-primary)',
                     cursor: 'pointer',
                     fontSize: '0.8rem',
                     textAlign: 'left',
+                    transition: 'all 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (selectedWorkspace !== null) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
+                  }}
+                  onMouseLeave={(e) => {
+                    if (selectedWorkspace !== null) e.currentTarget.style.background = 'transparent';
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -752,6 +802,7 @@ export default function App() {
                 {workspaces.map((ws) => (
                   <button
                     key={ws.workspace}
+                    type="button"
                     onClick={() => handleSelectWorkspace(ws.workspace)}
                     style={{
                       display: 'flex',
@@ -759,12 +810,19 @@ export default function App() {
                       justifyContent: 'space-between',
                       padding: '8px 10px',
                       borderRadius: 6,
-                      background: selectedWorkspace === ws.workspace ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                      background: selectedWorkspace === ws.workspace ? 'rgba(56, 189, 248, 0.18)' : 'transparent',
                       border: 'none',
                       color: selectedWorkspace === ws.workspace ? 'var(--accent-cyan)' : 'var(--text-primary)',
                       cursor: 'pointer',
                       fontSize: '0.8rem',
                       textAlign: 'left',
+                      transition: 'all 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (selectedWorkspace !== ws.workspace) e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (selectedWorkspace !== ws.workspace) e.currentTarget.style.background = 'transparent';
                     }}
                   >
                     <div>

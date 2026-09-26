@@ -4,6 +4,28 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-26 — Workspace Navbar Dropdown Outside-Click & Escape Dismissal UX
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~10m
+
+#### Problem & User Feedback
+- When clicking the "Workspaces" filter button in the top navigation bar to open the dropdown menu, clicking outside the dropdown or interacting with the canvas did not close the dropdown. The user had to specifically re-click the trigger button to dismiss it, violating standard desktop UX expectations.
+
+#### What Was Done
+- **Outside-Click & Escape Key Dismissal (`ui/src/App.tsx`)**:
+  - Attached a container `useRef<HTMLDivElement>(null)` to the workspace dropdown parent wrapper.
+  - Implemented an active `useEffect` listener registering `mousedown`, `touchstart` (with event capture to reliably capture clicks over the 3D WebGL canvas or drawers), and `keydown` for `Escape`.
+  - Automatically dismisses the dropdown when clicks occur outside the component or when `Escape` is pressed.
+  - Added smooth chevron rotation (`transform: rotate(180deg)`) on toggle.
+  - Enhanced item hover states with micro-transitions and bounded dropdown height (`maxHeight: 70vh`, `overflowY: auto`).
+- **Build & Verification**:
+  - Built production bundle (`npm run build`) in `ui/` cleanly in 2.80s.
+  - Rebuilt and restarted `omni-graph-graph-ui` Docker container on port 3000.
+
+---
+
 ### 2026-09-26 — Watch Modal Persistence & High-Contrast Debounce UX Polish
 
 **Agent/Author**: Antigravity
