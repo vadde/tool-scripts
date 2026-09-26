@@ -211,6 +211,23 @@ make query Q="How does the AST ingestion pipeline work?" [PROJECT=my-service]
 ./scripts/omni.sh query "How is authentication handled?" [workspace] [k]
 ```
 
+### Agent Enforcement Shield Setup
+
+Install Omni-Graph rules (`08-omni-graph-enforcement.md`), skill (`skills/omni-graph/`), and lifecycle hooks (`hooks.json`):
+
+```bash
+# 1. Install to ANY user-specified folder or external codebase:
+make setup-agent /path/to/any/codebase
+# or
+make setup-agent DIR=/path/to/any/codebase
+
+# 2. Install GLOBALLY across all workspaces on machine (~/.gemini/config):
+make setup-agent global
+
+# 3. Install to current repository (.agents):
+make setup-agent
+```
+
 ### HTTP Endpoints (Port 8080)
 
 | Method | Endpoint | Description |

@@ -37,6 +37,10 @@ ifeq (cluster,$(firstword $(MAKECMDGOALS)))
   CLUSTER_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 endif
 
+ifeq (setup-agent,$(firstword $(MAKECMDGOALS)))
+  SETUP_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+endif
+
 $(filter-out $(firstword $(MAKECMDGOALS)),$(MAKECMDGOALS)):
 	@true
 
@@ -167,6 +171,9 @@ graph-galaxies: ## Inspect architectural subsystems: make graph-galaxies [PROJEC
 
 graph-health health: ## Check health of Omni-Graph services
 	@$(MAKE) -C $(TOOLS_DIR)/omni-graph health
+
+setup-agent: ## Configure agent enforcement shield: make setup-agent [<dir>|DIR=<dir>|TARGET=<dir>|global]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph setup-agent $(if $(SETUP_ARGS),$(SETUP_ARGS),) DIR="$(DIR)" TARGET="$(TARGET)"
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Build & Packaging
@@ -305,9 +312,6 @@ setup: ## Install pre-commit hooks and repo dependencies
 		printf "$(YELLOW)⚠️  pre-commit not found. Install with: pip install pre-commit$(NC)\n"; \
 	fi
 	@printf "$(GREEN)✅ Setup complete!$(NC)\n"
-
-setup-agent: ## Configure Omni-Graph agent enforcement shield (TARGET=workspace|global)
-	@$(MAKE) -C $(TOOLS_DIR)/omni-graph setup-agent TARGET=$(if $(TARGET),$(TARGET),workspace)
 
 clean: ## Clean all build artifacts across all tools
 	@printf "$(YELLOW)🧹 Cleaning all tools...$(NC)\n"

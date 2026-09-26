@@ -29,6 +29,10 @@ ifeq (cluster,$(firstword $(MAKECMDGOALS)))
   CLUSTER_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
 endif
 
+ifeq (setup-agent,$(firstword $(MAKECMDGOALS)))
+  SETUP_ARGS := $(wordlist 2,$(words $(MAKECMDGOALS)),$(MAKECMDGOALS))
+endif
+
 $(filter-out $(firstword $(MAKECMDGOALS)),$(MAKECMDGOALS)):
 	@true
 
@@ -63,8 +67,8 @@ setup: ## Install dependencies for all services
 	@if [ -d ui ]; then cd ui && npm install; fi
 	@echo "✅ Setup complete."
 
-setup-agent: ## Configure workspace or global agent enforcement shield (TARGET=workspace|global)
-	@./scripts/setup-agent.sh $(if $(TARGET),$(TARGET),workspace)
+setup-agent: ## Configure agent shield: make setup-agent [<dir>|DIR=<dir>|TARGET=<dir>|global]
+	@./scripts/setup-agent.sh $(if $(SETUP_ARGS),$(SETUP_ARGS),$(if $(DIR),$(DIR),$(if $(TARGET),$(TARGET),workspace)))
 
 # ─── Docker Compose ────────────────────────────────────────────────────────
 up: ## Start the full stack (4 containers)

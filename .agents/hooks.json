@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "./tools/omni-graph/scripts/hook_pre_tool.sh",
+            "command": "/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/tool-scripts/.agents/scripts/hook_pre_tool.sh",
             "timeout": 5
           }
         ]
@@ -16,14 +16,14 @@
     "PreInvocation": [
       {
         "type": "command",
-        "command": "./tools/omni-graph/scripts/hook_pre_invocation.sh",
+        "command": "/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/tool-scripts/.agents/scripts/hook_pre_invocation.sh",
         "timeout": 5
       }
     ],
     "Stop": [
       {
         "type": "command",
-        "command": "./tools/omni-graph/scripts/hook_stop.sh",
+        "command": "/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/tool-scripts/.agents/scripts/hook_stop.sh",
         "timeout": 5
       }
     ]

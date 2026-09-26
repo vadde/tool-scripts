@@ -806,3 +806,35 @@
 - `tools/omni-graph/DEVLOG.md` — This entry
 
 ---
+
+### 2026-09-26 — Multi-Target Agent Enforcement Shield (`make setup-agent`)
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~15m
+
+#### What Was Done
+- **Universal Multi-Target Agent Shield Bootstrapper (`scripts/setup-agent.sh`)**:
+  - Enhanced `setup-agent.sh` to accept:
+    1. **Any user-specified folder/codebase** (e.g. `make setup-agent /path/to/codebase` or `DIR=/path/to/codebase`): Resolves absolute paths, installs `.agents/rules/08-omni-graph-enforcement.md`, `.agents/skills/omni-graph/`, `.agents/scripts/` (executable hook scripts), writes `.agents/hooks.json` configured with absolute script paths, and creates/updates `AGENTS.md`.
+    2. **Global system-level profile** (`make setup-agent global`): Deploys rules, skills, hook scripts, and `hooks.json` to `~/.gemini/config/` with global-safe paths.
+    3. **Current workspace** (`make setup-agent`): Deploys to repo-level `.agents/`.
+- **Generalized PreToolUse Guardrail Hook (`hook_pre_tool.sh`)**:
+  - Removed hardcoded workspace string checks so broad blanket grep searches are intercepted across any directory/codebase.
+- **Unified Makefile Interfaces**:
+  - Updated both root `Makefile` and `tools/omni-graph/Makefile` with trailing argument absorption for `setup-agent`.
+  - Documented setup commands in `tools/omni-graph/README.md`.
+- **Verification**:
+  - Tested on `tool-scripts` workspace: verified `.agents/hooks.json`.
+  - Tested on external sibling codebase `/Users/aparv/.../DSA`: verified `.agents/` and `AGENTS.md` creation.
+  - Tested on global profile `~/.gemini/config/`: verified rules, skills, scripts, and `hooks.json`.
+
+#### Files Changed
+- `tools/omni-graph/scripts/setup-agent.sh` — Multi-target installer supporting arbitrary paths, global, and workspace
+- `tools/omni-graph/scripts/hook_pre_tool.sh` — Generalized guardrail hook for all workspaces
+- `tools/omni-graph/Makefile` — Trailing argument absorption and target parameters
+- `Makefile` — Added `setup-agent` target with trailing argument absorption
+- `tools/omni-graph/README.md` — Documented `make setup-agent` usage
+- `tools/omni-graph/DEVLOG.md` — This entry
+
+---
