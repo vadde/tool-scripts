@@ -101,6 +101,15 @@ pub struct SessionDetailResponse {
     pub messages: Vec<SessionStepDisplay>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParsedOmniTool {
+    pub canonical_name: String,
+    pub category: String,
+    pub description: String,
+    pub is_lsp: bool,
+    pub workspace: Option<String>,
+}
+
 pub struct AnalyticsEngine;
 
 impl AnalyticsEngine {
@@ -128,108 +137,289 @@ impl AnalyticsEngine {
 
     /// Resolve clean canonical workspace/codebase repository name from paths
     pub fn resolve_canonical_workspace(path_or_str: &str) -> Option<String> {
-        let s = path_or_str.trim().trim_matches(|c| c == '\'' || c == '"');
+        let s = path_or_str.trim().trim_matches(|c| c == '\'' || c == '"' || c == '\\' || c == '/' || c == ' ' || c == ';' || c == ',');
         if s.is_empty() {
             return None;
         }
 
         let lower = s.to_lowercase();
 
+        // Filter out common shell commands, cli keywords, flags, and HTTP tokens
+        let blacklist = [
+            "curl", "make", "bash", "sh", "zsh", "python", "python3", "node", "cargo",
+            "git", "cat", "sleep", "which", "chmod", "cp", "mv", "rm", "echo", "jq",
+            "symbol", "references", "condense", "search", "query", "galaxies", "cluster",
+            "watch", "start", "stop", "status", "events", "ingest", "browse", "health",
+            "stats", "analytics", "time", "file", "head", "tail", "grep", "docker",
+            "sudo", "export", "find", "true", "false", "default", "none", "null", "undefined",
+        ];
+        if blacklist.contains(&lower.as_str()) {
+            return None;
+        }
+
         // 1. Direct known repository roots
-        if lower.contains("tool-scripts") {
+        if lower == "tool-scripts" || lower.contains("tool-scripts") {
             return Some("tool-scripts".to_string());
         }
-        if lower.contains("tutor-intelligence") {
+        if lower == "tutor-intelligence" || lower.contains("tutor-intelligence") {
             return Some("tutor-intelligence".to_string());
         }
-        if lower.contains("session-explorer") {
+        if lower == "session-explorer" || lower.contains("session-explorer") {
             return Some("session-explorer".to_string());
         }
-        if lower.contains("designpatterns") {
+        if lower == "designpatterns" || lower.contains("designpatterns") {
             return Some("DesignPatterns".to_string());
         }
-        if lower.contains("k8s-eks") {
+        if lower == "k8s-eks" || lower.contains("k8s-eks") {
             return Some("k8s-eks".to_string());
         }
-        if lower.contains("golang") {
+        if lower == "golang" || lower.contains("golang") {
             return Some("GoLang".to_string());
         }
-        if lower.contains("genai") {
+        if lower == "genai" || lower.contains("genai") {
             return Some("GenAI".to_string());
         }
-        if lower.contains("/dsa") || s == "DSA" || s.starts_with("DSA/") || s.starts_with("DSA:") {
+        if lower == "dsa" || lower.starts_with("dsa") || lower.contains("/dsa") {
             return Some("DSA".to_string());
         }
 
         // 2. Parent repository extraction from /knowledge/<repo>/ or /Interviews/<repo>/
         if let Some(sub) = s.split("/knowledge/").nth(1) {
-            let seg = sub.split('/').next().unwrap_or("").trim();
-            if !seg.is_empty() && !seg.contains('.') {
+            let seg = sub.split('/').next().unwrap_or("").trim().trim_matches(|c| c == '\\' || c == '/');
+            if !seg.is_empty() && !seg.contains('.') && !blacklist.contains(&seg.to_lowercase().as_str()) {
                 return Some(seg.to_string());
             }
         }
         if let Some(sub) = s.split("/Interviews/").nth(1) {
-            let seg = sub.split('/').next().unwrap_or("").trim();
-            if !seg.is_empty() && !seg.contains('.') && seg != "knowledge" {
+            let seg = sub.split('/').next().unwrap_or("").trim().trim_matches(|c| c == '\\' || c == '/');
+            if !seg.is_empty() && !seg.contains('.') && seg != "knowledge" && !blacklist.contains(&seg.to_lowercase().as_str()) {
                 return Some(seg.to_string());
             }
         }
 
-        // 3. Reject any string that is clearly a filename (has dot/extension) or internal directory
-        let path = Path::new(s);
-        let cand = if s.contains('.') {
-            path.parent().and_then(|p| p.file_name())
-        } else {
-            path.file_name()
-        };
+        // 3. Only extract directory leaf if the input actually represents a filesystem path
+        if s.contains('/') || s.starts_with('~') {
+            let path = Path::new(s);
+            let cand = if s.contains('.') {
+                path.parent().and_then(|p| p.file_name())
+            } else {
+                path.file_name()
+            };
 
-        if let Some(leaf_os) = cand {
-            let leaf = leaf_os.to_string_lossy().to_string();
-            let leaf_lower = leaf.to_lowercase();
-            if leaf_lower.is_empty()
-                || leaf.contains('.')
-                || leaf_lower == "ui"
-                || leaf_lower == "src"
-                || leaf_lower == "target"
-                || leaf_lower == "dist"
-                || leaf_lower == "build"
-                || leaf_lower == "scratch"
-                || leaf_lower == "tests"
-                || leaf_lower == "examples"
-                || leaf_lower == "bin"
-                || leaf_lower == "scripts"
-                || leaf_lower == "tools"
-                || leaf_lower == "tasks"
-                || leaf_lower == "logs"
-                || leaf_lower == ".system_generated"
-                || leaf_lower.starts_with("00")
-                || leaf_lower.starts_with("01")
-                || leaf_lower.starts_with("02")
-                || leaf_lower.starts_with("03")
-                || leaf_lower.starts_with("04")
-                || leaf_lower.starts_with("task-")
-                || leaf_lower.starts_with('.')
-            {
-                return None;
+            if let Some(leaf_os) = cand {
+                let leaf = leaf_os.to_string_lossy().to_string();
+                let leaf_lower = leaf.to_lowercase();
+                if !leaf_lower.is_empty()
+                    && !leaf.contains('.')
+                    && !blacklist.contains(&leaf_lower.as_str())
+                    && leaf_lower != "ui"
+                    && leaf_lower != "src"
+                    && leaf_lower != "target"
+                    && leaf_lower != "dist"
+                    && leaf_lower != "build"
+                    && leaf_lower != "scratch"
+                    && leaf_lower != "tests"
+                    && leaf_lower != "examples"
+                    && leaf_lower != "bin"
+                    && leaf_lower != "scripts"
+                    && leaf_lower != "tools"
+                    && leaf_lower != "tasks"
+                    && leaf_lower != "logs"
+                    && leaf_lower != ".system_generated"
+                    && !leaf_lower.starts_with("00")
+                    && !leaf_lower.starts_with("01")
+                    && !leaf_lower.starts_with("02")
+                    && !leaf_lower.starts_with("03")
+                    && !leaf_lower.starts_with("04")
+                    && !leaf_lower.starts_with("task-")
+                    && !leaf_lower.starts_with('.')
+                {
+                    return Some(leaf);
+                }
             }
-            return Some(leaf);
         }
 
         None
     }
 
-    /// Scan all sessions and aggregate comprehensive tool, LSP, and workspace telemetry
+    /// Parse any command line invocation to detect Omni-Graph capabilities and workspace target
+    pub fn parse_omni_command(cmd: &str) -> Option<ParsedOmniTool> {
+        let clean = cmd.trim();
+        if clean.is_empty() {
+            return None;
+        }
+        let lower = clean.to_lowercase();
+
+        // Check if command invokes Omni-Graph either via Makefile, omni.sh CLI, or HTTP API (:8080)
+        let is_omni = lower.contains("graph-symbol")
+            || lower.contains("graph-references")
+            || lower.contains("graph-condense")
+            || lower.contains("query-graph")
+            || lower.contains("search-graph")
+            || lower.contains("graph-galaxies")
+            || lower.contains("omni.sh")
+            || lower.contains("/omni ")
+            || lower.contains("./scripts/omni")
+            || lower.contains("8080/api/")
+            || ((lower.contains("make") || lower.contains("cargo")) && (lower.contains("cluster") || lower.contains("ingest")));
+
+        if !is_omni {
+            return None;
+        }
+
+        // Determine capability, category, description, and LSP classification
+        let (canonical_name, category, description, is_lsp) = if lower.contains("graph-symbol")
+            || ((lower.contains("omni") || lower.contains("8080")) && (lower.contains("symbol") || lower.contains("/api/symbol")))
+        {
+            (
+                "Omni-Graph: AST Definition (LSP)".to_string(),
+                "omni_lsp".to_string(),
+                "Precise AST definition lookup (<50 tokens)".to_string(),
+                true,
+            )
+        } else if lower.contains("graph-references")
+            || ((lower.contains("omni") || lower.contains("8080")) && (lower.contains("references") || lower.contains("/api/references")))
+        {
+            (
+                "Omni-Graph: Call Graph References (LSP)".to_string(),
+                "omni_lsp".to_string(),
+                "LSP call hierarchy & reference graph trace".to_string(),
+                true,
+            )
+        } else if lower.contains("graph-condense")
+            || ((lower.contains("omni") || lower.contains("8080")) && (lower.contains("condense") || lower.contains("/api/condense")))
+        {
+            (
+                "Omni-Graph: Multi-Hop Subgraph Condenser".to_string(),
+                "omni_condenser".to_string(),
+                "Topological AST subgraph slice (<1500 tokens)".to_string(),
+                true,
+            )
+        } else if lower.contains("query-graph")
+            || ((lower.contains("omni") || lower.contains("8080")) && (lower.contains("query") || lower.contains("/api/query")))
+        {
+            (
+                "Omni-Graph: Hybrid Graph-RAG".to_string(),
+                "omni_rag".to_string(),
+                "Hybrid Graph-RAG macroscopic + microscopic synthesis".to_string(),
+                false,
+            )
+        } else if lower.contains("search-graph")
+            || ((lower.contains("omni") || lower.contains("8080")) && (lower.contains("search") || lower.contains("/api/search")))
+        {
+            (
+                "Omni-Graph: Vector Semantic Search".to_string(),
+                "omni_vector".to_string(),
+                "384-dimensional cosine ANN vector code search".to_string(),
+                false,
+            )
+        } else if lower.contains("graph-galaxies")
+            || ((lower.contains("omni") || lower.contains("8080")) && (lower.contains("galaxies") || lower.contains("/api/galaxies")))
+        {
+            (
+                "Omni-Graph: Architectural Galaxy Subsystems".to_string(),
+                "omni_subsystem".to_string(),
+                "Architectural galaxy cluster decomposition".to_string(),
+                false,
+            )
+        } else if (lower.contains("omni") || lower.contains("8080")) && (lower.contains("watch") || lower.contains("/api/watch")) {
+            (
+                "Omni-Graph: Live Delta Watch Daemon".to_string(),
+                "omni_watch".to_string(),
+                "Real-time multi-workspace file watcher with debounced graph sync".to_string(),
+                false,
+            )
+        } else if (lower.contains("make") || lower.contains("omni") || lower.contains("8080")) && (lower.contains("cluster") || lower.contains("/api/cluster")) {
+            (
+                "Omni-Graph: Modularity Community Clustering".to_string(),
+                "omni_cluster".to_string(),
+                "Louvain/Leiden modularity community detection".to_string(),
+                false,
+            )
+        } else if (lower.contains("make") || lower.contains("omni") || lower.contains("8080")) && (lower.contains("ingest") || lower.contains("/api/ingest")) {
+            (
+                "Omni-Graph: Codebase AST Ingestion".to_string(),
+                "omni_ingest".to_string(),
+                "Semantic AST + vector embedding indexing".to_string(),
+                false,
+            )
+        } else {
+            (
+                "Omni-Graph: Codebase AST Intelligence".to_string(),
+                "omni_general".to_string(),
+                "Deterministic structural graph operations".to_string(),
+                false,
+            )
+        };
+
+        // Extract workspace attribution from command arguments, query parameters, or token words
+        let mut detected_ws = None;
+
+        // 1. Explicit PROJECT= argument
+        if let Some(pos) = clean.find("PROJECT=") {
+            let val = clean[pos + 8..].split_whitespace().next().unwrap_or("").trim_matches(|c| c == '\'' || c == '"');
+            detected_ws = Self::resolve_canonical_workspace(val);
+        }
+
+        // 2. Explicit workspace= query param or payload field
+        if detected_ws.is_none() {
+            if let Some(pos) = clean.find("workspace=") {
+                let rest = &clean[pos + 10..];
+                let val = rest.split(|c| c == '&' || c == '"' || c == '\'' || c == ' ' || c == '}').next().unwrap_or("").trim();
+                detected_ws = Self::resolve_canonical_workspace(val);
+            }
+        }
+
+        // 3. Positional argument token inspection (e.g. omni.sh symbol AStar tutor-intelligence)
+        if detected_ws.is_none() {
+            for token in clean.split_whitespace() {
+                let clean_token = token.trim_matches(|c| c == '\'' || c == '"' || c == ',' || c == '\\' || c == '/' || c == ';');
+                if clean_token.is_empty() || clean_token.starts_with('-') || clean_token.contains(':') {
+                    continue;
+                }
+                let lower_tok = clean_token.to_lowercase();
+                if matches!(
+                    lower_tok.as_str(),
+                    "tool-scripts" | "tutor-intelligence" | "dsa" | "designpatterns" | "genai" | "golang" | "k8s-eks" | "session-explorer"
+                ) {
+                    if let Some(canonical) = Self::resolve_canonical_workspace(clean_token) {
+                        detected_ws = Some(canonical);
+                        break;
+                    }
+                }
+            }
+        }
+
+        Some(ParsedOmniTool {
+            canonical_name,
+            category,
+            description,
+            is_lsp,
+            workspace: detected_ws,
+        })
+    }
+
+    /// Synchronous scan of transcripts (backward-compatible)
     pub fn scan_analytics() -> AnalyticsResponse {
+        Self::scan_analytics_internal(None)
+    }
+
+    /// Async scan of transcripts blended with live SurrealDB telemetry
+    pub async fn scan_analytics_with_db(db: &crate::db::DbClient) -> AnalyticsResponse {
+        let summary_opt = db.get_api_calls_summary().await.ok();
+        Self::scan_analytics_internal(summary_opt)
+    }
+
+    /// Scan all sessions and aggregate comprehensive tool, LSP, and workspace telemetry
+    pub fn scan_analytics_internal(db_summary: Option<Vec<serde_json::Value>>) -> AnalyticsResponse {
         let brain_dir = Self::resolve_brain_dir();
         debug!("Scanning brain logs from {:?}", brain_dir);
 
         let mut total_steps = 0;
         let mut total_tool_calls = 0;
-        let mut total_omni_calls = 0;
-        let mut total_lsp_lookups = 0;
 
         let mut tools_map: HashMap<String, usize> = HashMap::new();
-        let mut omni_map: HashMap<String, usize> = HashMap::new();
+        let mut transcript_omni_counts: HashMap<(String, String), usize> = HashMap::new();
         let mut lang_map: HashMap<String, usize> = HashMap::new();
         let mut workspace_sessions: HashMap<String, HashSet<String>> = HashMap::new();
         let mut workspace_tools: HashMap<String, usize> = HashMap::new();
@@ -327,37 +517,20 @@ impl AnalyticsEngine {
 
                             // Check run_command for Omni-Graph & LSP targets
                             if tool_name == "run_command" {
-                                if let Some(cmd_val) = args.and_then(|a| a.get("CommandLine")) {
-                                    let cmd = cmd_val.as_str().unwrap_or("");
-                                    if cmd.contains("graph-symbol") {
+                                if let Some(cmd_val) = args.and_then(|a| a.get("CommandLine")).and_then(|v| v.as_str()) {
+                                    if let Some(parsed) = Self::parse_omni_command(cmd_val) {
                                         sess_omni += 1;
-                                        total_lsp_lookups += 1;
-                                        *omni_map.entry("make graph-symbol (LSP Def)".to_string()).or_insert(0) += 1;
-                                    } else if cmd.contains("graph-references") {
-                                        sess_omni += 1;
-                                        total_lsp_lookups += 1;
-                                        *omni_map.entry("make graph-references (LSP Ref)".to_string()).or_insert(0) += 1;
-                                    } else if cmd.contains("graph-condense") {
-                                        sess_omni += 1;
-                                        total_lsp_lookups += 1;
-                                        *omni_map.entry("make graph-condense (AST Slice)".to_string()).or_insert(0) += 1;
-                                    } else if cmd.contains("query-graph") {
-                                        sess_omni += 1;
-                                        *omni_map.entry("make query-graph (GraphRAG)".to_string()).or_insert(0) += 1;
-                                    } else if cmd.contains("graph-galaxies") {
-                                        sess_omni += 1;
-                                        *omni_map.entry("make graph-galaxies".to_string()).or_insert(0) += 1;
-                                    } else if cmd.contains("cluster") && (cmd.contains("make") || cmd.contains("omni")) {
-                                        sess_omni += 1;
-                                        *omni_map.entry("make cluster (LPA)".to_string()).or_insert(0) += 1;
-                                    } else if cmd.contains("ingest") && (cmd.contains("make") || cmd.contains("omni")) {
-                                        sess_omni += 1;
-                                        *omni_map.entry("make ingest".to_string()).or_insert(0) += 1;
+                                        let ws_key = parsed.workspace.clone().unwrap_or_else(|| "default".to_string());
+                                        *transcript_omni_counts.entry((parsed.canonical_name.clone(), ws_key)).or_insert(0) += 1;
+
+                                        if let Some(ws) = &parsed.workspace {
+                                            sess_workspaces.insert(ws.clone());
+                                        }
                                     }
 
                                     // Extract PROJECT argument if present (e.g. PROJECT=DSA)
-                                    if let Some(pos) = cmd.find("PROJECT=") {
-                                        let proj = cmd[pos + 8..].split_whitespace().next().unwrap_or("").trim();
+                                    if let Some(pos) = cmd_val.find("PROJECT=") {
+                                        let proj = cmd_val[pos + 8..].split_whitespace().next().unwrap_or("").trim();
                                         if let Some(canonical) = Self::resolve_canonical_workspace(proj) {
                                             sess_workspaces.insert(canonical);
                                         }
@@ -407,18 +580,17 @@ impl AnalyticsEngine {
 
                 total_steps += sess_steps;
                 total_tool_calls += sess_tools;
-                total_omni_calls += sess_omni;
 
                 // Deterministic primary workspace selection (never oscillates or picks internal folders)
                 let primary_ws = {
                     let priority = [
                         "tool-scripts",
+                        "tutor-intelligence",
                         "DSA",
                         "DesignPatterns",
                         "GenAI",
                         "GoLang",
                         "k8s-eks",
-                        "tutor-intelligence",
                         "session-explorer",
                         "python",
                         "workspace",
@@ -473,6 +645,54 @@ impl AnalyticsEngine {
 
         session_summaries.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
+        // Ingest SurrealDB Live Telemetry Summary
+        let mut db_omni_counts: HashMap<(String, String), usize> = HashMap::new();
+        if let Some(rows) = db_summary {
+            for row in rows {
+                let cap = row.get("capability").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let ws = row.get("workspace").and_then(|v| v.as_str()).unwrap_or("default").to_string();
+                let count = row.get("total_calls").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                if !cap.is_empty() && count > 0 {
+                    db_omni_counts.insert((cap, ws), count);
+                }
+            }
+        }
+
+        // Dual-source union with max-attribution to prevent double counting
+        let mut all_omni_keys: HashSet<(String, String)> = HashSet::new();
+        for k in transcript_omni_counts.keys() {
+            all_omni_keys.insert(k.clone());
+        }
+        for k in db_omni_counts.keys() {
+            all_omni_keys.insert(k.clone());
+        }
+
+        let mut final_omni_map: HashMap<String, usize> = HashMap::new();
+        let mut direct_db_extra_calls = 0;
+        for (cap, ws) in all_omni_keys {
+            let t_count = transcript_omni_counts.get(&(cap.clone(), ws.clone())).copied().unwrap_or(0);
+            let d_count = db_omni_counts.get(&(cap.clone(), ws.clone())).copied().unwrap_or(0);
+            let blended = std::cmp::max(t_count, d_count);
+            *final_omni_map.entry(cap.clone()).or_insert(0) += blended;
+
+            let extra = blended.saturating_sub(t_count);
+            direct_db_extra_calls += extra;
+
+            if ws != "default" && ws != "global" && extra > 0 {
+                *workspace_tools.entry(ws.clone()).or_insert(0) += extra;
+                workspace_sessions.entry(ws.clone()).or_default();
+            }
+        }
+
+        total_tool_calls += direct_db_extra_calls;
+
+        let total_omni_calls: usize = final_omni_map.values().sum();
+        let total_lsp_lookups: usize = final_omni_map
+            .iter()
+            .filter(|(k, _)| k.contains("LSP") || k.contains("Condenser"))
+            .map(|(_, v)| *v)
+            .sum();
+
         // Format tools breakdown
         let mut tools_breakdown = Vec::new();
         for (name, count) in &tools_map {
@@ -495,22 +715,19 @@ impl AnalyticsEngine {
             });
         }
 
-        // Add Omni-Graph specific breakdown
-        for (name, count) in &omni_map {
-            let (cat, desc) = if name.contains("graph-symbol") {
-                ("omni_lsp", "Precise AST definition lookup (<50 tokens)")
-            } else if name.contains("graph-references") {
-                ("omni_lsp", "LSP call hierarchy & reference graph trace")
-            } else if name.contains("graph-condense") {
-                ("omni_condenser", "Topological AST subgraph slice (<1500 tokens)")
-            } else if name.contains("query-graph") {
-                ("omni_rag", "Hybrid Graph-RAG macroscopic + microscopic synthesis")
-            } else if name.contains("graph-galaxies") {
-                ("omni_subsystem", "Architectural galaxy cluster decomposition")
-            } else if name.contains("cluster") {
-                ("omni_cluster", "Louvain/Leiden modularity community detection")
-            } else {
-                ("omni_ingest", "Semantic AST + vector embedding indexing")
+        // Add Omni-Graph specific breakdown with normalized high-density labels
+        for (name, count) in &final_omni_map {
+            let (cat, desc) = match name.as_str() {
+                "Omni-Graph: AST Definition (LSP)" => ("omni_lsp", "Precise AST definition lookup (<50 tokens)"),
+                "Omni-Graph: Call Graph References (LSP)" => ("omni_lsp", "LSP call hierarchy & reference graph trace"),
+                "Omni-Graph: Multi-Hop Subgraph Condenser" => ("omni_condenser", "Topological AST subgraph slice (<1500 tokens)"),
+                "Omni-Graph: Hybrid Graph-RAG" => ("omni_rag", "Hybrid Graph-RAG macroscopic + microscopic synthesis"),
+                "Omni-Graph: Vector Semantic Search" => ("omni_vector", "384-dimensional cosine ANN vector code search"),
+                "Omni-Graph: Architectural Galaxy Subsystems" => ("omni_subsystem", "Architectural galaxy cluster decomposition"),
+                "Omni-Graph: Live Delta Watch Daemon" => ("omni_watch", "Real-time multi-workspace file watcher with debounced graph sync"),
+                "Omni-Graph: Modularity Community Clustering" => ("omni_cluster", "Louvain/Leiden modularity community detection"),
+                "Omni-Graph: Codebase AST Ingestion" => ("omni_ingest", "Semantic AST + vector embedding indexing"),
+                _ => ("omni_general", "Deterministic structural graph operations"),
             };
 
             tools_breakdown.push(ToolBreakdown {
@@ -553,6 +770,9 @@ impl AnalyticsEngine {
         // Format workspaces breakdown
         let mut workspaces_breakdown = Vec::new();
         for (ws, sess_set) in &workspace_sessions {
+            if ws == "default" || ws == "global" || ws.trim().is_empty() {
+                continue;
+            }
             let tools_count = workspace_tools.get(ws).copied().unwrap_or(0);
             let langs: Vec<String> = workspace_langs
                 .get(ws)
@@ -565,7 +785,7 @@ impl AnalyticsEngine {
                 languages: langs,
             });
         }
-        workspaces_breakdown.sort_by(|a, b| b.sessions_count.cmp(&a.sessions_count));
+        workspaces_breakdown.sort_by(|a, b| b.sessions_count.cmp(&a.sessions_count).then_with(|| b.tools_count.cmp(&a.tools_count)));
 
         // Scientific Token Savings Calculation:
         // Each Omni-Graph call (~1,200 tokens) saves an agent reading an entire file or running grep (~14,500 tokens).
@@ -649,18 +869,13 @@ impl AnalyticsEngine {
 
                     if name == "run_command" {
                         if let Some(cmd) = args.and_then(|a| a.get("CommandLine")).and_then(|v| v.as_str()) {
-                            if cmd.contains("graph-symbol") || cmd.contains("graph-references") || cmd.contains("graph-condense") {
+                            if let Some(parsed) = Self::parse_omni_command(cmd) {
                                 is_omni = true;
                                 omni_tools += 1;
-                                omni_cat = Some("Omni-Graph LSP Engine".to_string());
-                            } else if cmd.contains("query-graph") {
-                                is_omni = true;
-                                omni_tools += 1;
-                                omni_cat = Some("Omni-Graph Hybrid GraphRAG".to_string());
-                            } else if cmd.contains("graph-galaxies") || cmd.contains("cluster") {
-                                is_omni = true;
-                                omni_tools += 1;
-                                omni_cat = Some("Omni-Graph Modularity Clustering".to_string());
+                                omni_cat = Some(parsed.canonical_name);
+                                if let Some(ws) = parsed.workspace {
+                                    detail_workspaces.insert(ws);
+                                }
                             }
 
                             if let Some(pos) = cmd.find("PROJECT=") {

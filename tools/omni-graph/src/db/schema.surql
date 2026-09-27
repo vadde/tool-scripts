@@ -59,3 +59,17 @@ DEFINE FIELD IF NOT EXISTS workspace  ON TABLE workspace_meta TYPE string;
 DEFINE FIELD IF NOT EXISTS root_path  ON TABLE workspace_meta TYPE string;
 DEFINE FIELD IF NOT EXISTS updated_at ON TABLE workspace_meta TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS idx_workspace_meta_name ON TABLE workspace_meta FIELDS workspace;
+
+-- ─── 6. Live Agent API Telemetry ──────────────────────────────────────────────
+DEFINE TABLE IF NOT EXISTS agent_api_call SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS endpoint    ON TABLE agent_api_call TYPE string;
+DEFINE FIELD IF NOT EXISTS workspace   ON TABLE agent_api_call TYPE string;
+DEFINE FIELD IF NOT EXISTS capability  ON TABLE agent_api_call TYPE string;
+DEFINE FIELD IF NOT EXISTS query_param ON TABLE agent_api_call TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS caller      ON TABLE agent_api_call TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS duration_ms ON TABLE agent_api_call TYPE int DEFAULT 0;
+DEFINE FIELD IF NOT EXISTS created_at  ON TABLE agent_api_call TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_api_call_ws   ON TABLE agent_api_call FIELDS workspace;
+DEFINE INDEX IF NOT EXISTS idx_api_call_cap  ON TABLE agent_api_call FIELDS capability;
+DEFINE INDEX IF NOT EXISTS idx_api_call_time ON TABLE agent_api_call FIELDS created_at;
+

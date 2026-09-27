@@ -887,7 +887,7 @@ mod analytics_tests {
         assert!(d.messages[1].tool_calls[0].is_omni);
         assert_eq!(
             d.messages[1].tool_calls[0].omni_category,
-            Some("Omni-Graph LSP Engine".to_string())
+            Some("Omni-Graph: AST Definition (LSP)".to_string())
         );
 
         // Non-existent session returns None

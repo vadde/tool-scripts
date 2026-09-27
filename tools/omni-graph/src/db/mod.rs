@@ -621,6 +621,61 @@ impl DbClient {
         self.query_sql(&q).await?;
         Ok(())
     }
+
+    /// Record a live agent API call for real-time telemetry
+    pub async fn record_agent_api_call(
+        &self,
+        endpoint: &str,
+        workspace: &str,
+        capability: &str,
+        query_param: Option<&str>,
+        caller: Option<&str>,
+        duration_ms: i64,
+    ) -> Result<(), String> {
+        let esc_ep = surql_escape(endpoint);
+        let esc_ws = surql_escape(workspace);
+        let esc_cap = surql_escape(capability);
+        let q_part = match query_param {
+            Some(q) => format!("'{}'", surql_escape(q)),
+            None => "NONE".to_string(),
+        };
+        let caller_part = match caller {
+            Some(c) => format!("'{}'", surql_escape(c)),
+            None => "NONE".to_string(),
+        };
+        let q = format!(
+            "CREATE agent_api_call CONTENT {{ endpoint: '{}', workspace: '{}', capability: '{}', query_param: {}, caller: {}, duration_ms: {}, created_at: time::now() }};",
+            esc_ep, esc_ws, esc_cap, q_part, caller_part, duration_ms
+        );
+        match self.query_sql(&q).await {
+            Ok(_) => tracing::info!("Recorded agent_api_call for endpoint {}", endpoint),
+            Err(e) => tracing::error!("Failed to record agent_api_call: {}", e),
+        }
+        Ok(())
+    }
+
+    /// Retrieve live agent API telemetry summary
+    pub async fn get_api_calls_summary(&self) -> Result<Vec<serde_json::Value>, String> {
+        let q = "SELECT capability, workspace, count() as total_calls, math::mean(duration_ms) as avg_duration_ms FROM agent_api_call GROUP BY capability, workspace;";
+        let resp = self.query_sql(q).await?;
+        if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            return Ok(arr.clone());
+        }
+        Ok(Vec::new())
+    }
+
+    /// Retrieve recent live agent API telemetry records
+    pub async fn get_api_recent_calls(&self, limit: usize) -> Result<Vec<serde_json::Value>, String> {
+        let q = format!(
+            "SELECT endpoint, workspace, capability, query_param, caller, duration_ms, created_at FROM agent_api_call ORDER BY created_at DESC LIMIT {};",
+            limit
+        );
+        let resp = self.query_sql(&q).await?;
+        if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            return Ok(arr.clone());
+        }
+        Ok(Vec::new())
+    }
 }
 
 /// Smart heuristic to find where a workspace root directory lives on disk

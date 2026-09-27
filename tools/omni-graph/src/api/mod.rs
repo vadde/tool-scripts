@@ -271,8 +271,24 @@ async fn galaxies_handler(
     State(state): State<AppState>,
     Query(params): Query<GraphParams>,
 ) -> impl IntoResponse {
+    let start = std::time::Instant::now();
     let ws = normalize_workspace(params.workspace.as_deref());
     let min_size = params.min_size.unwrap_or(1);
+
+    // Record telemetry asynchronously
+    let db = state.db.clone();
+    let ws_log = ws.clone().unwrap_or_else(|| "default".to_string());
+    tokio::spawn(async move {
+        let duration_ms = start.elapsed().as_millis() as i64;
+        let _ = db.record_agent_api_call(
+            "/api/galaxies",
+            &ws_log,
+            "Omni-Graph: Architectural Galaxy Subsystems",
+            None,
+            None,
+            duration_ms,
+        ).await;
+    });
 
     // Try server-side aggregation first for instant response without loading full topology (Finding #7)
     if let Ok(agg_rows) = state.db.get_galaxy_aggregation(ws.as_deref()).await {
@@ -472,7 +488,25 @@ async fn search_handler(
 
     // 2. Perform HNSW cosine similarity search
     let ws = normalize_workspace(params.workspace.as_deref());
-    match state.db.search_vector(&query_vec, k, ws.as_deref()).await {
+    let res = state.db.search_vector(&query_vec, k, ws.as_deref()).await;
+    let duration_ms = start.elapsed().as_millis() as i64;
+
+    // Record telemetry asynchronously
+    let db = state.db.clone();
+    let ws_log = ws.clone().unwrap_or_else(|| "default".to_string());
+    let q_str = params.q.clone();
+    tokio::spawn(async move {
+        let _ = db.record_agent_api_call(
+            "/api/search",
+            &ws_log,
+            "Omni-Graph: Vector Semantic Search",
+            Some(&q_str),
+            None,
+            duration_ms,
+        ).await;
+    });
+
+    match res {
         Ok(results) => {
             let latency_ms = start.elapsed().as_millis() as u64;
             Json(serde_json::json!({
@@ -497,9 +531,28 @@ async fn condense_handler(
     State(state): State<AppState>,
     Query(params): Query<CondenseParams>,
 ) -> impl IntoResponse {
+    let start = std::time::Instant::now();
     let hops = params.hops.unwrap_or(2);
     let ws = normalize_workspace(params.workspace.as_deref());
-    match state.db.get_graph(ws.as_deref()).await {
+    let res = state.db.get_graph(ws.as_deref()).await;
+    let duration_ms = start.elapsed().as_millis() as i64;
+
+    // Record telemetry asynchronously
+    let db = state.db.clone();
+    let ws_log = ws.clone().unwrap_or_else(|| "default".to_string());
+    let sym_str = params.symbol.clone();
+    tokio::spawn(async move {
+        let _ = db.record_agent_api_call(
+            "/api/condense",
+            &ws_log,
+            "Omni-Graph: Multi-Hop Subgraph Condenser",
+            Some(&sym_str),
+            None,
+            duration_ms,
+        ).await;
+    });
+
+    match res {
         Ok((nodes, links)) => {
             let condensed = ContextCondenser::condense(&params.symbol, &nodes, &links, hops);
             Json(condensed).into_response()
@@ -517,11 +570,30 @@ async fn ingest_handler(
     State(state): State<AppState>,
     Json(payload): Json<IngestPayload>,
 ) -> impl IntoResponse {
+    let start = std::time::Instant::now();
     let path = payload.path;
     let project = payload.project;
     info!("Ingest request received for path: {}, project: {:?}", path, project);
 
-    match state.pipeline.ingest_directory(&path, project.as_deref()).await {
+    let res = state.pipeline.ingest_directory(&path, project.as_deref()).await;
+    let duration_ms = start.elapsed().as_millis() as i64;
+
+    // Record telemetry asynchronously
+    let db = state.db.clone();
+    let ws_log = project.clone().unwrap_or_else(|| "default".to_string());
+    let path_str = path.clone();
+    tokio::spawn(async move {
+        let _ = db.record_agent_api_call(
+            "/api/ingest",
+            &ws_log,
+            "Omni-Graph: Codebase AST Ingestion",
+            Some(&path_str),
+            None,
+            duration_ms,
+        ).await;
+    });
+
+    match res {
         Ok(res) => (
             StatusCode::OK,
             Json(serde_json::json!({
@@ -546,8 +618,27 @@ async fn symbol_handler(
     State(state): State<AppState>,
     Query(params): Query<SymbolParams>,
 ) -> impl IntoResponse {
+    let start = std::time::Instant::now();
     let ws = normalize_workspace(params.workspace.as_deref());
-    match state.db.find_symbols(&params.name, ws.as_deref()).await {
+    let res = state.db.find_symbols(&params.name, ws.as_deref()).await;
+    let duration_ms = start.elapsed().as_millis() as i64;
+
+    // Record telemetry asynchronously
+    let db = state.db.clone();
+    let ws_log = ws.clone().unwrap_or_else(|| "default".to_string());
+    let sym_name = params.name.clone();
+    tokio::spawn(async move {
+        let _ = db.record_agent_api_call(
+            "/api/symbol",
+            &ws_log,
+            "Omni-Graph: AST Definition (LSP)",
+            Some(&sym_name),
+            None,
+            duration_ms,
+        ).await;
+    });
+
+    match res {
         Ok(symbols) => (
             StatusCode::OK,
             Json(serde_json::json!({
@@ -571,8 +662,27 @@ async fn references_handler(
     State(state): State<AppState>,
     Query(params): Query<ReferenceParams>,
 ) -> impl IntoResponse {
+    let start = std::time::Instant::now();
     let ws = normalize_workspace(params.workspace.as_deref());
-    match state.db.find_references(&params.symbol, ws.as_deref()).await {
+    let res = state.db.find_references(&params.symbol, ws.as_deref()).await;
+    let duration_ms = start.elapsed().as_millis() as i64;
+
+    // Record telemetry asynchronously
+    let db = state.db.clone();
+    let ws_log = ws.clone().unwrap_or_else(|| "default".to_string());
+    let sym_name = params.symbol.clone();
+    tokio::spawn(async move {
+        let _ = db.record_agent_api_call(
+            "/api/references",
+            &ws_log,
+            "Omni-Graph: Call Graph References (LSP)",
+            Some(&sym_name),
+            None,
+            duration_ms,
+        ).await;
+    });
+
+    match res {
         Ok(callers) => (
             StatusCode::OK,
             Json(serde_json::json!({
@@ -596,17 +706,35 @@ async fn query_handler(
     State(state): State<AppState>,
     Json(payload): Json<GraphRagPayload>,
 ) -> impl IntoResponse {
+    let start = std::time::Instant::now();
     let top_k = payload.top_k.unwrap_or(5);
     let ws = normalize_workspace(payload.workspace.as_deref());
-    match GraphRagEngine::query(
+    let res = GraphRagEngine::query(
         &state.db,
         &state.embedder,
         &payload.prompt,
         top_k,
         ws.as_deref(),
     )
-    .await
-    {
+    .await;
+    let duration_ms = start.elapsed().as_millis() as i64;
+
+    // Record telemetry asynchronously
+    let db = state.db.clone();
+    let ws_log = ws.clone().unwrap_or_else(|| "default".to_string());
+    let prompt_preview = payload.prompt.chars().take(80).collect::<String>();
+    tokio::spawn(async move {
+        let _ = db.record_agent_api_call(
+            "/api/query",
+            &ws_log,
+            "Omni-Graph: Hybrid Graph-RAG",
+            Some(&prompt_preview),
+            None,
+            duration_ms,
+        ).await;
+    });
+
+    match res {
         Ok(rag_res) => (StatusCode::OK, Json(rag_res)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -621,9 +749,26 @@ async fn cluster_handler(
     State(state): State<AppState>,
     payload_opt: Option<Json<ClusterPayload>>,
 ) -> impl IntoResponse {
+    let start = std::time::Instant::now();
     let raw_ws = payload_opt.as_ref().and_then(|p| p.workspace.clone());
     let min_size = payload_opt.as_ref().and_then(|p| p.min_size).unwrap_or(1);
     let workspace = normalize_workspace(raw_ws.as_deref());
+
+    // Record telemetry asynchronously
+    let db = state.db.clone();
+    let ws_log = workspace.clone().unwrap_or_else(|| "default".to_string());
+    tokio::spawn(async move {
+        let duration_ms = start.elapsed().as_millis() as i64;
+        let _ = db.record_agent_api_call(
+            "/api/cluster",
+            &ws_log,
+            "Omni-Graph: Modularity Community Clustering",
+            None,
+            None,
+            duration_ms,
+        ).await;
+    });
+
     match state.db.get_graph(workspace.as_deref()).await {
         Ok((nodes, links)) => {
             let assignments = CommunityDetector::detect(&nodes, &links, 15);
@@ -819,8 +964,8 @@ async fn browse_handler(
 }
 
 /// GET /api/analytics
-async fn analytics_handler() -> impl IntoResponse {
-    let resp = AnalyticsEngine::scan_analytics();
+async fn analytics_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let resp = AnalyticsEngine::scan_analytics_with_db(&state.db).await;
     Json(resp).into_response()
 }
 
@@ -881,6 +1026,19 @@ async fn watch_start_handler(
     match state.watcher.start_watch(&target_path, &ws_name, payload.debounce_ms).await {
         Ok(status) => {
             let _ = state.db.record_workspace_root(&ws_name, &target_path).await;
+            let db = state.db.clone();
+            let ws_log = ws_name.clone();
+            let target_log = target_path.clone();
+            tokio::spawn(async move {
+                let _ = db.record_agent_api_call(
+                    "/api/watch/start",
+                    &ws_log,
+                    "Omni-Graph: Live Delta Watch Daemon",
+                    Some(&target_log),
+                    None,
+                    1,
+                ).await;
+            });
             (StatusCode::OK, Json(serde_json::to_value(status).unwrap_or_default())).into_response()
         },
         Err(e) => (

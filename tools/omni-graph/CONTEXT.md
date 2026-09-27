@@ -30,7 +30,7 @@ blockers: []
 | Acceptance Criteria (AC-XXX) | 18 | 18 | 🟢 100% Complete |
 | Non-Functional (NF-XXX) | 11 | 11 | 🟢 100% Complete |
 | Test Coverage | 49/49 Unit & Integration Tests | 49 | 🟢 100% Verified in Docker |
-| Agent Analytics & LSP Telemetry | Complete | — | 🟢 Live on Port 3000 & 8080 |
+| Agent Analytics & LSP Telemetry | Complete | — | 🟢 Live on Port 3000 & 8080 (Dual-Source Telemetry) |
 | Dynamic Live Delta Sync & Watch HUD | Complete | — | 🟢 Live on Port 3000 & 8080 |
 | Workspace Meta & Path Auto-Resolution | Complete | — | 🟢 Verified & Live in Docker |
 | Documentation | Complete | — | ✅ Complete |
@@ -56,16 +56,17 @@ blockers: []
 
 ```
 4 Docker containers on omni-net:
-├── rust-app (Axum + tree-sitter)     → Port 8080 — Graph API + ingestion
-├── graph-db (SurrealDB v2)           → Port 8000 — Multi-model DB + HNSW vector
+├── rust-app (Axum + tree-sitter)     → Port 8080 — Graph API + telemetry ingestion
+├── graph-db (SurrealDB v2)           → Port 8000 — Multi-model DB + HNSW vector + agent telemetry
 ├── embedding-engine (HuggingFace TEI) → Port 8081 — bge-small-en-v1.5 (384-dim)
-└── graph-ui (React + Cosmograph)     → Port 3000 — WebGL force-directed visualization
+└── graph-ui (React + Cosmograph)     → Port 3000 — WebGL force-directed visualization + Analytics
 ```
 
 ### Key Technical Decisions
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-09-26 | Dual-Source Telemetry (SurrealDB + Transcripts) | Blends real-time SurrealDB `agent_api_call` events with IDE session logs using `max(t, db)` per capability/workspace |
 | 2026-09-24 | HNSW index (not MTREE) for vector similarity | SurrealDB v2 production-ready ANN index; MTREE deprecated/experimental |
 | 2026-09-24 | TEI CPU-only in Docker (not Metal) | macOS Docker doesn't support GPU passthrough; Metal only via native Homebrew |
 | 2026-09-24 | `BAAI/bge-small-en-v1.5` (384-dim) | Lightweight, high-quality BERT-based embeddings, ARM64 SIMD optimized |
@@ -79,9 +80,10 @@ blockers: []
 > _What to do when you pick this tool up. Updated at the end of every session._
 
 1. Multi-container stack (SurrealDB, TEI, Rust API, React UI) active and healthy
-2. Dynamic Live Sync (6s) & Grounding Paradigm Hub deployed to UI at `http://localhost:3000`
-3. 49/49 unit tests verified in Docker
-4. Ready for human review and transition to `review` phase
+2. Dual-source live agent telemetry and dynamic workspace capability attribution live on ports 3000 & 8080
+3. Dynamic Live Sync (6s) & Grounding Paradigm Hub active in UI
+4. 49/49 unit tests passing and verified in Docker
+5. Ready for human review and transition to `review` phase
 
 ---
 

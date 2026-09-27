@@ -4,6 +4,40 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-26 — Dual-Source Live Agent Telemetry & Dynamic Workspace Capability Attribution
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~35m
+
+#### Problem & User Feedback
+- The Agent Analytics & LSP telemetry dashboard was originally relying on manual `make` invocations run within `tool-scripts` or basic regex transcript parsing.
+- Omni-Graph tool calls made by coding agents working in other active workspaces/codebases (such as `tutor-intelligence`, `DSA`, `GenAI`, `GoLang`, `session-explorer`, `k8s-eks`) were not dynamically accounted for in real time if called directly via HTTP or outside repository-local transcripts.
+- Heuristic leaf extraction occasionally caught bare shell command tokens (`curl`, `make`, `cat`), contaminating `workspaces_breakdown` with pseudo-workspaces.
+
+#### What Was Done
+- **SurrealDB Telemetry Schema (`src/db/schema.surql`)**:
+  - Defined the `agent_api_call` table to record every agent API invocation with fields: `endpoint`, `workspace`, `capability`, `query_param`, `caller`, `duration_ms`, `created_at`.
+  - Added performance indexes on `workspace`, `capability`, and `created_at`.
+- **Database Client Telemetry Engine (`src/db/mod.rs`)**:
+  - Implemented `record_agent_api_call` for non-blocking telemetry logging.
+  - Implemented `get_api_calls_summary` aggregating calls by `(capability, workspace)` using SurrealDB `GROUP BY capability, workspace`.
+  - Implemented `get_api_recent_calls` for real-time audit tracing.
+- **REST Endpoints Instrumentation (`src/api/mod.rs`)**:
+  - Instrumented all primary Omni-Graph endpoints (`/api/symbol`, `/api/references`, `/api/condense`, `/api/search`, `/api/query`, `/api/galaxies`, `/api/cluster`, `/api/watch/start`, `/api/ingest`).
+  - Wrapped recording in non-blocking `tokio::spawn` with duration timing, guaranteeing sub-millisecond response overhead.
+  - Passed `State(state)` into `/api/analytics` to invoke `AnalyticsEngine::scan_analytics_with_db(&state.db).await`.
+- **Dual-Source Aggregation & Noise Filtering (`src/analytics/mod.rs`)**:
+  - Implemented `ParsedOmniTool` and `parse_omni_command` with canonical capability classification and strict noise blacklisting.
+  - Implemented dual-source union taking `max(transcript_count, db_count)` per `(capability, workspace)` to seamlessly blend IDE session history with live SurrealDB events while strictly preventing double counting.
+  - Preserved traditional tool tracking (`view_file`, `run_command`, `replace_file_content`, etc.) while cleanly isolating `Omni AST` high-density tools.
+- **Verification & Test Suite**:
+  - Updated unit test assertions in `tests/unit_tests.rs` to reflect the enhanced canonical capability naming.
+  - Verified 49/49 unit tests passing in Docker (`test result: ok. 49 passed; 0 failed`).
+  - Verified live analytics endpoint (`GET /api/analytics`): 14 sessions, 53,400+ steps, 20,700+ tool calls, 169 omni calls, 37 LSP lookups, 2.74M+ estimated tokens saved across 5 active workspaces with zero dirty artifacts.
+
+---
+
 ### 2026-09-26 — Workspace Navbar Dropdown Outside-Click & Escape Dismissal UX
 
 **Agent/Author**: Antigravity
