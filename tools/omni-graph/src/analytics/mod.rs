@@ -158,6 +158,9 @@ impl AnalyticsEngine {
         }
 
         // 1. Direct known repository roots
+        if lower == "quarkdock" || lower.contains("quarkdock") {
+            return Some("QuarkDock".to_string());
+        }
         if lower == "tool-scripts" || lower.contains("tool-scripts") {
             return Some("tool-scripts".to_string());
         }
@@ -181,6 +184,9 @@ impl AnalyticsEngine {
         }
         if lower == "dsa" || lower.starts_with("dsa") || lower.contains("/dsa") {
             return Some("DSA".to_string());
+        }
+        if lower == "python" || lower.contains("/python") {
+            return Some("python".to_string());
         }
 
         // 2. Parent repository extraction from /knowledge/<repo>/ or /Interviews/<repo>/
@@ -240,6 +246,50 @@ impl AnalyticsEngine {
         }
 
         None
+    }
+
+    /// Dynamically determine dominant primary workspace based on activity counts, with prompt and lexical fallback
+    pub fn select_primary_workspace(
+        activity_counts: &HashMap<String, usize>,
+        prompt: &str,
+    ) -> String {
+        // 1. Pick the workspace with the highest recorded activity count
+        if let Some((best_ws, &count)) = activity_counts.iter().max_by_key(|(_, &c)| c) {
+            if count > 0 {
+                return best_ws.clone();
+            }
+        }
+
+        // 2. Fallback: check if prompt mentions any known workspace
+        let prompt_lower = prompt.to_lowercase();
+        let candidates = [
+            "quarkdock",
+            "tool-scripts",
+            "tutor-intelligence",
+            "dsa",
+            "designpatterns",
+            "genai",
+            "golang",
+            "k8s-eks",
+            "session-explorer",
+            "python",
+        ];
+        for cand in &candidates {
+            if prompt_lower.contains(cand) {
+                if let Some(canonical) = Self::resolve_canonical_workspace(cand) {
+                    return canonical;
+                }
+            }
+        }
+
+        // 3. Fallback: if activity_counts has any keys, pick sorted first
+        if !activity_counts.is_empty() {
+            let mut keys: Vec<String> = activity_counts.keys().cloned().collect();
+            keys.sort();
+            return keys.remove(0);
+        }
+
+        "tool-scripts".to_string()
     }
 
     /// Parse any command line invocation to detect Omni-Graph capabilities and workspace target
@@ -465,6 +515,7 @@ impl AnalyticsEngine {
                 let mut sess_created_at = String::new();
                 let mut sess_prompt = String::new();
                 let mut sess_workspaces = HashSet::new();
+                let mut sess_workspace_counts: HashMap<String, usize> = HashMap::new();
                 let mut sess_langs = HashSet::new();
                 let mut sess_tool_freq: HashMap<String, usize> = HashMap::new();
 
@@ -525,6 +576,7 @@ impl AnalyticsEngine {
 
                                         if let Some(ws) = &parsed.workspace {
                                             sess_workspaces.insert(ws.clone());
+                                            *sess_workspace_counts.entry(ws.clone()).or_insert(0) += 2;
                                         }
                                     }
 
@@ -532,7 +584,8 @@ impl AnalyticsEngine {
                                     if let Some(pos) = cmd_val.find("PROJECT=") {
                                         let proj = cmd_val[pos + 8..].split_whitespace().next().unwrap_or("").trim();
                                         if let Some(canonical) = Self::resolve_canonical_workspace(proj) {
-                                            sess_workspaces.insert(canonical);
+                                            sess_workspaces.insert(canonical.clone());
+                                            *sess_workspace_counts.entry(canonical).or_insert(0) += 2;
                                         }
                                     }
                                 }
@@ -541,14 +594,15 @@ impl AnalyticsEngine {
                                 if let Some(cwd_val) = args.and_then(|a| a.get("Cwd")) {
                                     let cwd = cwd_val.as_str().unwrap_or("").trim_matches(|c| c == '\'' || c == '"');
                                     if let Some(canonical) = Self::resolve_canonical_workspace(cwd) {
-                                        sess_workspaces.insert(canonical);
+                                        sess_workspaces.insert(canonical.clone());
+                                        *sess_workspace_counts.entry(canonical).or_insert(0) += 1;
                                     }
                                 }
                             }
 
                             // Detect language telemetry and workspace from file-touching tools
                             let raw_file = args
-                                .and_then(|a| a.get("AbsolutePath").or_else(|| a.get("TargetFile")))
+                                .and_then(|a| a.get("AbsolutePath").or_else(|| a.get("TargetFile")).or_else(|| a.get("SearchPath")).or_else(|| a.get("DirectoryPath")))
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .trim_matches(|c| c == '\'' || c == '"');
@@ -571,7 +625,8 @@ impl AnalyticsEngine {
 
                                 // Correlate canonical workspace from file path
                                 if let Some(canonical) = Self::resolve_canonical_workspace(raw_file) {
-                                    sess_workspaces.insert(canonical);
+                                    sess_workspaces.insert(canonical.clone());
+                                    *sess_workspace_counts.entry(canonical).or_insert(0) += 1;
                                 }
                             }
                         }
@@ -581,33 +636,8 @@ impl AnalyticsEngine {
                 total_steps += sess_steps;
                 total_tool_calls += sess_tools;
 
-                // Deterministic primary workspace selection (never oscillates or picks internal folders)
-                let primary_ws = {
-                    let priority = [
-                        "tool-scripts",
-                        "tutor-intelligence",
-                        "DSA",
-                        "DesignPatterns",
-                        "GenAI",
-                        "GoLang",
-                        "k8s-eks",
-                        "session-explorer",
-                        "python",
-                        "workspace",
-                    ];
-                    let mut found = None;
-                    for p in &priority {
-                        if sess_workspaces.contains(*p) {
-                            found = Some(p.to_string());
-                            break;
-                        }
-                    }
-                    found.unwrap_or_else(|| {
-                        let mut sorted: Vec<String> = sess_workspaces.iter().cloned().collect();
-                        sorted.sort();
-                        sorted.into_iter().next().unwrap_or_else(|| "tool-scripts".to_string())
-                    })
-                };
+                // Dynamic primary workspace selection based on recorded activity frequency
+                let primary_ws = Self::select_primary_workspace(&sess_workspace_counts, &sess_prompt);
 
                 let mut top_tools: Vec<String> = sess_tool_freq.into_iter().map(|(t, _)| t).collect();
                 top_tools.sort();
@@ -835,8 +865,9 @@ impl AnalyticsEngine {
         let mut messages = Vec::new();
         let mut total_tools = 0;
         let mut omni_tools = 0;
-        let mut detail_workspaces = HashSet::new();
+        let mut detail_workspace_counts: HashMap<String, usize> = HashMap::new();
         let mut created_at = String::new();
+        let mut first_prompt = String::new();
 
         for (idx, line) in reader.lines().filter_map(|l| l.ok()).enumerate() {
             let entry: serde_json::Value = match serde_json::from_str(&line) {
@@ -857,6 +888,10 @@ impl AnalyticsEngine {
             let content = entry.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
             let thinking = entry.get("thinking").and_then(|v| v.as_str()).map(|s| s.to_string());
 
+            if step_type == "USER_INPUT" && first_prompt.is_empty() {
+                first_prompt = content.replace("<USER_REQUEST>", "").replace("</USER_REQUEST>", "").trim().to_string();
+            }
+
             let mut tool_calls_list = Vec::new();
             if let Some(tcs) = entry.get("tool_calls").and_then(|v| v.as_array()) {
                 for tc in tcs {
@@ -874,14 +909,14 @@ impl AnalyticsEngine {
                                 omni_tools += 1;
                                 omni_cat = Some(parsed.canonical_name);
                                 if let Some(ws) = parsed.workspace {
-                                    detail_workspaces.insert(ws);
+                                    *detail_workspace_counts.entry(ws).or_insert(0) += 2;
                                 }
                             }
 
                             if let Some(pos) = cmd.find("PROJECT=") {
                                 let proj = cmd[pos + 8..].split_whitespace().next().unwrap_or("").trim();
                                 if let Some(canonical) = Self::resolve_canonical_workspace(proj) {
-                                    detail_workspaces.insert(canonical);
+                                    *detail_workspace_counts.entry(canonical).or_insert(0) += 2;
                                 }
                             }
                         }
@@ -890,12 +925,12 @@ impl AnalyticsEngine {
                     if let Some(a) = args {
                         if let Some(cwd) = a.get("Cwd").and_then(|v| v.as_str()) {
                             if let Some(canonical) = Self::resolve_canonical_workspace(cwd) {
-                                detail_workspaces.insert(canonical);
+                                *detail_workspace_counts.entry(canonical).or_insert(0) += 1;
                             }
                         }
-                        if let Some(raw) = a.get("AbsolutePath").or_else(|| a.get("TargetFile")).and_then(|v| v.as_str()) {
+                        if let Some(raw) = a.get("AbsolutePath").or_else(|| a.get("TargetFile")).or_else(|| a.get("SearchPath")).or_else(|| a.get("DirectoryPath")).and_then(|v| v.as_str()) {
                             if let Some(canonical) = Self::resolve_canonical_workspace(raw) {
-                                detail_workspaces.insert(canonical);
+                                *detail_workspace_counts.entry(canonical).or_insert(0) += 1;
                             }
                         }
                     }
@@ -932,33 +967,7 @@ impl AnalyticsEngine {
         }
 
         let total_steps = messages.len();
-
-        let session_workspace = {
-            let priority = [
-                "tool-scripts",
-                "DSA",
-                "DesignPatterns",
-                "GenAI",
-                "GoLang",
-                "k8s-eks",
-                "tutor-intelligence",
-                "session-explorer",
-                "python",
-                "workspace",
-            ];
-            let mut found = None;
-            for p in &priority {
-                if detail_workspaces.contains(*p) {
-                    found = Some(p.to_string());
-                    break;
-                }
-            }
-            found.unwrap_or_else(|| {
-                let mut sorted: Vec<String> = detail_workspaces.iter().cloned().collect();
-                sorted.sort();
-                sorted.into_iter().next().unwrap_or_else(|| "tool-scripts".to_string())
-            })
-        };
+        let session_workspace = Self::select_primary_workspace(&detail_workspace_counts, &first_prompt);
 
         Some(SessionDetailResponse {
             session_id: session_id.to_string(),

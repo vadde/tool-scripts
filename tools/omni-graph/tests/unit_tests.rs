@@ -897,4 +897,100 @@ mod analytics_tests {
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::remove_var("BRAIN_DIR");
     }
+
+    #[test]
+    fn test_dynamic_workspace_selection_dominance() {
+        let temp_dir = std::env::temp_dir().join(format!("omni_test_dominance_{}", std::process::id()));
+        let session_id = "test-session-quarkdock-dom";
+        let session_dir = temp_dir.join(session_id).join(".system_generated").join("logs");
+        fs::create_dir_all(&session_dir).expect("create temp session dir");
+
+        let transcript_path = session_dir.join("transcript.jsonl");
+        let mut file = File::create(&transcript_path).expect("create transcript");
+
+        // Initial prompt mentions QuarkDock
+        let step0 = serde_json::json!({
+            "step_index": 0,
+            "source": "USER_INPUT",
+            "type": "USER_INPUT",
+            "status": "DONE",
+            "created_at": "2026-09-29T12:00:00Z",
+            "content": "welcome to QuarkDock code repo. we will be building frontend and backend",
+        });
+
+        // Step 1 touches tool-scripts once (e.g. reading rules)
+        let step1 = serde_json::json!({
+            "step_index": 1,
+            "source": "MODEL",
+            "type": "PLANNER_RESPONSE",
+            "status": "DONE",
+            "created_at": "2026-09-29T12:00:05Z",
+            "tool_calls": [
+                {
+                    "name": "view_file",
+                    "args": {
+                        "AbsolutePath": "/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/tool-scripts/.agents/AGENTS.md"
+                    }
+                }
+            ]
+        });
+
+        // Step 2 touches QuarkDock multiple times
+        let step2 = serde_json::json!({
+            "step_index": 2,
+            "source": "MODEL",
+            "type": "PLANNER_RESPONSE",
+            "status": "DONE",
+            "created_at": "2026-09-29T12:00:10Z",
+            "tool_calls": [
+                {
+                    "name": "run_command",
+                    "args": {
+                        "Cwd": "/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/QuarkDock",
+                        "CommandLine": "docker compose up -d"
+                    }
+                },
+                {
+                    "name": "view_file",
+                    "args": {
+                        "AbsolutePath": "/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/QuarkDock/services/ui/src/App.tsx"
+                    }
+                },
+                {
+                    "name": "write_to_file",
+                    "args": {
+                        "TargetFile": "/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/QuarkDock/services/api/main.py"
+                    }
+                }
+            ]
+        });
+
+        writeln!(file, "{}", step0).unwrap();
+        writeln!(file, "{}", step1).unwrap();
+        writeln!(file, "{}", step2).unwrap();
+        drop(file);
+
+        std::env::set_var("BRAIN_DIR", &temp_dir);
+
+        let analytics = AnalyticsEngine::scan_analytics();
+        assert_eq!(analytics.summary.total_sessions, 1);
+        let sess = &analytics.sessions[0];
+        assert_eq!(
+            sess.workspace,
+            "QuarkDock",
+            "QuarkDock must dominate over tool-scripts because it has 3 tool operations vs 1"
+        );
+
+        let detail = AnalyticsEngine::get_session_detail(session_id).expect("must find session detail");
+        assert_eq!(
+            detail.workspace,
+            "QuarkDock",
+            "Session detail must also resolve to QuarkDock"
+        );
+
+        // Cleanup
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::remove_var("BRAIN_DIR");
+    }
 }
+
