@@ -49,7 +49,7 @@ To prevent LLM agents from reverting to primitive string searches when under hea
 │                        AGENT RUNTIME LOOP                              │
 │                                                                        │
 │  [Tier 1: Cognitive Steering Rule]                                     │
-│  .agents/rules/08-omni-graph-enforcement.md                            │
+│  .agents/rules/00-omni-graph-mandatory-retrieval.md                    │
 │  Mandates semantic AST lookup before inspecting raw files              │
 │                                                                        │
 │  [Tier 2: Pre-Invocation Injection]                                    │
@@ -57,7 +57,7 @@ To prevent LLM agents from reverting to primitive string searches when under hea
 │  Injects dynamic active graph endpoints before model output            │
 │                                                                        │
 │  [Tier 3: Pre-Tool Deterministic Interceptor]                          │
-│  .agents/hooks.json: PreToolUse Hook (matcher: run_command|grep_search) │
+│  .agents/hooks.json: PreToolUse Hook (matcher: run_command|grep_search|view_file) │
 │  Hard-blocks blind grep/cat; rewrites command with Omni-Graph guidance  │
 │                                                                        │
 │  [Tier 4: Native Symbolic Tooling & Skill]                             │
@@ -213,7 +213,7 @@ make query Q="How does the AST ingestion pipeline work?" [PROJECT=my-service]
 
 ### Agent Enforcement Shield Setup
 
-Install Omni-Graph rules (`08-omni-graph-enforcement.md`), skill (`skills/omni-graph/`), and lifecycle hooks (`hooks.json`):
+Install Omni-Graph rules (`00-omni-graph-mandatory-retrieval.md`), skill (`skills/omni-graph/`), and lifecycle hooks (`hooks.json`):
 
 ```bash
 # 1. Install to ANY user-specified folder or external codebase:

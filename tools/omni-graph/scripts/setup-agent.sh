@@ -64,7 +64,7 @@ guardrail_config = {
     'enabled': True,
     'PreToolUse': [
         {
-            'matcher': 'run_command|grep_search',
+            'matcher': 'run_command|grep_search|view_file',
             'hooks': [
                 {
                     'type': 'command',
@@ -116,8 +116,9 @@ if [[ "${TARGET}" == "global" || "${TARGET}" == "--global" ]]; then
   mkdir -p "${DEST_DIR}/scripts"
 
   # 1. Install Global Rule
-  cp "${TOOL_DIR}/rules/08-omni-graph-enforcement.md" "${DEST_DIR}/rules/08-omni-graph-enforcement.md"
-  echo "  ✅ Installed global rule: ~/.gemini/config/rules/08-omni-graph-enforcement.md"
+  rm -f "${DEST_DIR}/rules/08-omni-graph-enforcement.md"
+  cp "${TOOL_DIR}/rules/00-omni-graph-mandatory-retrieval.md" "${DEST_DIR}/rules/00-omni-graph-mandatory-retrieval.md"
+  echo "  ✅ Installed global rule: ~/.gemini/config/rules/00-omni-graph-mandatory-retrieval.md"
 
   # 2. Install Global Skill
   cp -r "${TOOL_DIR}/skills/omni-graph/"* "${DEST_DIR}/skills/omni-graph/"
@@ -143,8 +144,9 @@ elif [[ "${TARGET}" == "workspace" || "${TARGET}" == "." ]]; then
   mkdir -p "${DEST_DIR}/scripts"
 
   # 1. Install Workspace Rule
-  cp "${TOOL_DIR}/rules/08-omni-graph-enforcement.md" "${DEST_DIR}/rules/08-omni-graph-enforcement.md"
-  echo "  ✅ Installed rule: .agents/rules/08-omni-graph-enforcement.md"
+  rm -f "${DEST_DIR}/rules/08-omni-graph-enforcement.md"
+  cp "${TOOL_DIR}/rules/00-omni-graph-mandatory-retrieval.md" "${DEST_DIR}/rules/00-omni-graph-mandatory-retrieval.md"
+  echo "  ✅ Installed rule: .agents/rules/00-omni-graph-mandatory-retrieval.md"
 
   # 2. Install Workspace Skill
   cp -r "${TOOL_DIR}/skills/omni-graph/"* "${DEST_DIR}/skills/omni-graph/"
@@ -244,8 +246,9 @@ else
   mkdir -p "${DEST_DIR}/scripts"
 
   # 1. Install Rule
-  cp "${TOOL_DIR}/rules/08-omni-graph-enforcement.md" "${DEST_DIR}/rules/08-omni-graph-enforcement.md"
-  echo "  ✅ Installed rule: ${TARGET_ABS}/.agents/rules/08-omni-graph-enforcement.md"
+  rm -f "${DEST_DIR}/rules/08-omni-graph-enforcement.md"
+  cp "${TOOL_DIR}/rules/00-omni-graph-mandatory-retrieval.md" "${DEST_DIR}/rules/00-omni-graph-mandatory-retrieval.md"
+  echo "  ✅ Installed rule: ${TARGET_ABS}/.agents/rules/00-omni-graph-mandatory-retrieval.md"
 
   # 2. Install Skill
   cp -r "${TOOL_DIR}/skills/omni-graph/"* "${DEST_DIR}/skills/omni-graph/"
@@ -277,12 +280,12 @@ else
 1. **AST & Call Graph Lookup**: Use the \`omni-graph\` skill or query \`http://localhost:8080/api/symbol\`
 2. **Context Condensation**: Retrieve 2-hop topological call chains (<1500 tokens) instead of reading multiple raw files.
 3. **Semantic Search**: Use \`http://localhost:8080/api/search?q=...\` for vector similarity lookup across functions, classes, and types.
-4. **Enforced Rules**: Read [\`.agents/rules/08-omni-graph-enforcement.md\`](.agents/rules/08-omni-graph-enforcement.md).
+4. **Enforced Rules**: Read [\`.agents/rules/00-omni-graph-mandatory-retrieval.md\`](.agents/rules/00-omni-graph-mandatory-retrieval.md).
 EOF
     echo "  ✅ Created: ${TARGET_ABS}/AGENTS.md"
   else
     # If AGENTS.md exists, verify if Rule 08 is already referenced
-    if ! grep -q "08-omni-graph-enforcement" "${TARGET_ABS}/AGENTS.md"; then
+    if ! grep -q "00-omni-graph-mandatory-retrieval" "${TARGET_ABS}/AGENTS.md"; then
       cat << 'EOF' >> "${TARGET_ABS}/AGENTS.md"
 
 ---
@@ -291,7 +294,7 @@ EOF
 This workspace is monitored and enforced by Omni-Graph.
 - Query AST definitions: `http://localhost:8080/api/symbol?name=<sym>`
 - Trace references & callers: `http://localhost:8080/api/references?symbol=<sym>`
-- Enforced Rule: Read [`.agents/rules/08-omni-graph-enforcement.md`](.agents/rules/08-omni-graph-enforcement.md)
+- Enforced Rule: Read [`.agents/rules/00-omni-graph-mandatory-retrieval.md`](.agents/rules/00-omni-graph-mandatory-retrieval.md)
 EOF
       echo "  ✅ Appended Omni-Graph guidance to existing: ${TARGET_ABS}/AGENTS.md"
     else

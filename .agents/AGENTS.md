@@ -47,7 +47,7 @@ Before ANY action, complete this checklist:
 - [ ] Verify the tool's `STATUS.md` to confirm SDLC phase
 - [ ] Read the tool's spec in `specs/catalog/<name>.md` (if implementing)
 - [ ] Check if target codebase is indexed in Omni-Graph (`make workspaces`)
-- [ ] If exploring architecture, inspect subsystems (`make graph-galaxies`) and query AST before reading files (Rule 08)
+- [ ] Query AST and check blast radius before reading files (Rule 00 — Mandatory Retrieval)
 - [ ] Read relevant rules in `.agents/rules/`
 - [ ] Check `sdlc/ROADMAP.md` for context on priorities
 
@@ -60,6 +60,7 @@ All rules are in `.agents/rules/`. Read them in order:
 
 | Rule File | Domain | Priority |
 |-----------|--------|----------|
+| [`00-omni-graph-mandatory-retrieval.md`](rules/00-omni-graph-mandatory-retrieval.md) | Mandatory AST retrieval, 150-line gate, blast radius | 🔴 Critical |
 | [`01-core-principles.md`](rules/01-core-principles.md) | ReAct, Reflexion, divide-and-conquer | 🔴 Critical |
 | [`02-code-standards.md`](rules/02-code-standards.md) | Coding conventions (polyglot) | 🔴 Critical |
 | [`03-commit-conventions.md`](rules/03-commit-conventions.md) | Git workflow, branches, commits | 🔴 Critical |
@@ -67,7 +68,6 @@ All rules are in `.agents/rules/`. Read them in order:
 | [`05-testing-strategy.md`](rules/05-testing-strategy.md) | Testing pyramid, coverage | 🟡 Important |
 | [`06-documentation.md`](rules/06-documentation.md) | Documentation standards | 🟡 Important |
 | [`07-iterative-development.md`](rules/07-iterative-development.md) | Session continuity, CONTEXT.md, DEVLOG.md | 🔴 Critical |
-| [`08-omni-graph-enforcement.md`](rules/08-omni-graph-enforcement.md) | Structure-first navigation & AST search | 🔴 Critical |
 
 ### 3. Available Skills
 

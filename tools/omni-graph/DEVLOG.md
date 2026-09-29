@@ -4,6 +4,46 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-29 — Unbypassable Polyglot Guardrails, 150-Line Source Gate & Top-Tier Rule 00
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~25m
+
+#### Problem & Agent Feedback
+- Feedback from coding agents operating across sister workspaces (e.g. `tutor-intelligence`) revealed guardrail bypass paths:
+  1. `PreToolUse` matcher only intercepted `run_command|grep_search`. Agents could freely bypass it by calling `view_file` on large source files (>500 lines) or dumping full files into context.
+  2. `PreInvocation` emitted passive text rather than dynamic, workspace-scoped actionable commands.
+  3. `08-omni-graph-enforcement.md` was susceptible to rule shadowing when downstream repositories defined their own `08-*` rules.
+  4. Rules hardcoding language extensions failed across polyglot ecosystems (10–30 programming languages).
+
+#### What Was Done
+- **Expanded PreToolUse Interception (`hooks.json`)**:
+  - Updated matcher to `"run_command|grep_search|view_file"` across `~/.gemini/config/hooks.json`, `tools/omni-graph/hooks.json`, and `.agents/hooks.json`.
+- **Language-Agnostic 150-Line Source Gate (`hook_pre_tool.sh`)**:
+  - Implemented fail-open safeguard: if `http://localhost:8080/api/health` does not respond within 500ms, immediately allows all tools to guarantee agents are never blocked when the daemon is offline.
+  - Implemented negative exclusion list for non-code files (`.md`, `.json`, `.yaml`, `.toml`, `.txt`, `.csv`, `.lock`, `.sum`, images, media, etc.).
+  - All source code files across Go, Rust, Python, TypeScript, JavaScript, C/C++, Java, Zig, Elixir, Scala, Swift, Kotlin, etc., are actively gated.
+  - Calls to `view_file` on source code without `EndLine` specified or spanning `> 150 lines` are automatically DENIED with clear guidance to query `/api/condense` or `/api/symbol`. Slices `<= 150 lines` and all non-code files are allowed.
+- **Dynamic PreInvocation Context Injector (`hook_pre_invocation.sh`)**:
+  - Dynamically determines the active repository/workspace from `git rev-parse --show-toplevel` or current working directory.
+  - Queries `GET http://localhost:8080/api/workspaces` and injects exact workspace-scoped commands with live AST node counts (e.g. `tutor-intelligence (8,239 AST nodes)` or `tool-scripts (1,397 AST nodes)`).
+- **Rule Renaming & Top-Tier Precedence (`00-omni-graph-mandatory-retrieval.md`)**:
+  - Renamed `08-omni-graph-enforcement.md` → `00-omni-graph-mandatory-retrieval.md` with priority `🔴 CRITICAL — NON-NEGOTIABLE GLOBAL INVARIANT`.
+  - Prefix `00-` ensures it is loaded first in system context and eliminates rule shadowing across all 100+ codebases.
+  - Mandated caller blast-radius verification via `/api/references` before modifying public signatures or deleting symbols.
+  - Synced across `~/.gemini/config/rules/`, `tools/omni-graph/rules/`, and `.agents/rules/`.
+- **Automated Bootstrapper (`setup-agent.sh`)**:
+  - Updated `setup-agent.sh` to install `00-omni-graph-mandatory-retrieval.md` and configure `run_command|grep_search|view_file`.
+- **Verification**:
+  - Tested `view_file` denials across `.go`, `.rs`, `.py`, `.ts`, `.cpp` (>150 lines) -> Verified DENIED.
+  - Tested `view_file` slices <= 150 lines -> Verified ALLOWED.
+  - Tested `view_file` on `.md`, `.json`, `.yaml`, `.txt` (unbounded / 500 lines) -> Verified ALLOWED.
+  - Tested daemon offline fail-open safeguard -> Verified ALLOWED.
+  - 49/49 unit tests passing, specs validated with 0 errors and 0 warnings.
+
+---
+
 ### 2026-09-26 — Dual-Source Live Agent Telemetry & Dynamic Workspace Capability Attribution
 
 **Agent/Author**: Antigravity

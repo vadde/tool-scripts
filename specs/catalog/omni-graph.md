@@ -503,7 +503,7 @@ To ensure deterministic compliance, Omni-Graph implements a **4-tier enforcement
 │                        AGENT EXECUTION LOOP                            │
 │                                                                        │
 │  [Tier 1: Cognitive Steering]                                          │
-│  .agents/rules/08-omni-graph-enforcement.md                            │
+│  .agents/rules/00-omni-graph-mandatory-retrieval.md                    │
 │  Mandates semantic AST lookup before any raw file inspection           │
 │                                                                        │
 │  [Tier 2: Pre-Invocation Context Injection]                            │
@@ -511,7 +511,7 @@ To ensure deterministic compliance, Omni-Graph implements a **4-tier enforcement
 │  Injects dynamic ephemeral hints with active graph endpoints & stats   │
 │                                                                        │
 │  [Tier 3: Pre-Tool Deterministic Guardrail]                            │
-│  hooks.json: PreToolUse Hook (matcher: run_command|grep_search)        │
+│  hooks.json: PreToolUse Hook (matcher: run_command|grep_search|view_file) │
 │  Detects brute-force grep/cat; rewrites or hard-blocks with guidance   │
 │                                                                        │
 │  [Tier 4: Native Symbolic Tooling]                                     │
