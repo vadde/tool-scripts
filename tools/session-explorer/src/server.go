@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"time"
 )
 
 //go:embed web/dist/*
@@ -35,6 +36,20 @@ func StartServer(cfg Config, index *SessionIndex) error {
 	mux.HandleFunc("/api/sessions/", api.HandleSessionDetail)
 	mux.HandleFunc("/api/search", api.HandleSearch)
 	mux.HandleFunc("/api/stats", api.HandleStats)
+	mux.HandleFunc("/api/refresh", api.HandleRefresh)
+
+	// Background Live Watcher (auto-rescan periodically)
+	if cfg.WatchInterval > 0 {
+		go func() {
+			ticker := time.NewTicker(time.Duration(cfg.WatchInterval) * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				if err := index.ScanAll(); err != nil && cfg.Verbose {
+					log.Printf("[watcher] background rescan error: %v", err)
+				}
+			}
+		}()
+	}
 
 	// Static files (embedded frontend with no-cache headers to avoid browser caching stale JS)
 	staticFS, err := fs.Sub(staticFiles, "web/dist")

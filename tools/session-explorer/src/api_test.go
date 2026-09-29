@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func setupTestIndex(t *testing.T) *SessionIndex {
@@ -201,3 +202,42 @@ func TestAPI_HandleSessions_SortDateAsc(t *testing.T) {
 		t.Errorf("expected oldest session-1 first with date_asc, got %s", resp.Sessions[0].ID)
 	}
 }
+
+func TestAPI_HandleRefresh(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	content1 := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-10T10:00:00Z","content":"<USER_REQUEST>Initial</USER_REQUEST>"}`
+	createMockSession(t, tmpDir, "session-1", content1)
+
+	idx := NewSessionIndex(tmpDir, false)
+	if err := idx.ScanAll(); err != nil {
+		t.Fatalf("failed to scan test index: %v", err)
+	}
+
+	handler := NewAPIHandler(idx, false)
+
+	// Verify initial count is 1
+	if len(idx.GetSessions("", "date", "desc", time.Time{}, time.Time{})) != 1 {
+		t.Fatalf("expected 1 session initially")
+	}
+
+	// Add second session to disk while server is running
+	content2 := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-18T10:00:00Z","content":"<USER_REQUEST>Added later</USER_REQUEST>"}`
+	createMockSession(t, tmpDir, "session-2", content2)
+
+	// Hit /api/refresh
+	req := httptest.NewRequest(http.MethodPost, "/api/refresh", nil)
+	rec := httptest.NewRecorder()
+	handler.HandleRefresh(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	// Verify index now contains both sessions
+	sessions := idx.GetSessions("", "date", "desc", time.Time{}, time.Time{})
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions after refresh, got %d", len(sessions))
+	}
+}
+

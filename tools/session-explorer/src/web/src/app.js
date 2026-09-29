@@ -44,7 +44,9 @@ const state = {
     dateFrom: '',
     dateTo: '',
     datePreset: 'all'
-  }
+  },
+  liveInterval: parseInt(localStorage.getItem('se_live_interval') || '10000', 10),
+  lastSynced: new Date()
 };
 
 // DOM Elements
@@ -52,6 +54,9 @@ const el = {
   themeToggleBtn: document.getElementById('themeToggleBtn'),
   insightsBtn: document.getElementById('insightsBtn'),
   refreshBtn: document.getElementById('refreshBtn'),
+  liveIntervalSelect: document.getElementById('liveIntervalSelect'),
+  liveDot: document.getElementById('liveDot'),
+  lastSyncLabel: document.getElementById('lastSyncLabel'),
   globalSearchInput: document.getElementById('globalSearchInput'),
   statsStrip: document.getElementById('statsStrip'),
   workspaceSelect: document.getElementById('workspaceSelect'),
@@ -96,6 +101,7 @@ const el = {
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initEventListeners();
+  initLiveWatch();
   loadSessions();
 });
 
@@ -131,9 +137,106 @@ function showToast(message) {
 // Event Listeners
 function initEventListeners() {
   if (el.themeToggleBtn) el.themeToggleBtn.addEventListener('click', toggleTheme);
-  if (el.refreshBtn) el.refreshBtn.addEventListener('click', () => loadSessions());
+  if (el.refreshBtn) el.refreshBtn.addEventListener('click', () => refreshData(false));
   if (el.insightsBtn) el.insightsBtn.addEventListener('click', openInsightsModal);
   if (el.closeInsightsModalBtn) el.closeInsightsModalBtn.addEventListener('click', closeInsightsModal);
+
+// Live Watch Management
+let liveTimer = null;
+let lastSyncTimer = null;
+
+function initLiveWatch() {
+  if (el.liveIntervalSelect) {
+    el.liveIntervalSelect.value = String(state.liveInterval);
+    el.liveIntervalSelect.addEventListener('change', (e) => {
+      setLiveInterval(parseInt(e.target.value, 10));
+    });
+  }
+  setLiveInterval(state.liveInterval);
+
+  if (lastSyncTimer) clearInterval(lastSyncTimer);
+  lastSyncTimer = setInterval(updateLastSyncLabel, 4000);
+}
+
+function setLiveInterval(ms) {
+  if (liveTimer) {
+    clearInterval(liveTimer);
+    liveTimer = null;
+  }
+  state.liveInterval = ms;
+  localStorage.setItem('se_live_interval', String(ms));
+
+  if (el.liveDot) {
+    if (ms > 0) {
+      el.liveDot.classList.add('active', 'pulsing');
+      el.liveDot.title = `Live Watch active (every ${ms / 1000}s)`;
+    } else {
+      el.liveDot.classList.remove('active', 'pulsing');
+      el.liveDot.title = 'Live Watch paused (Manual mode)';
+    }
+  }
+
+  if (ms > 0) {
+    liveTimer = setInterval(() => {
+      refreshData(true);
+    }, ms);
+  }
+}
+
+function updateLastSyncLabel() {
+  if (!el.lastSyncLabel) return;
+  const elapsedSec = Math.floor((Date.now() - state.lastSynced.getTime()) / 1000);
+  if (elapsedSec < 3) {
+    el.lastSyncLabel.textContent = 'Synced just now';
+  } else if (elapsedSec < 60) {
+    el.lastSyncLabel.textContent = `Synced ${elapsedSec}s ago`;
+  } else {
+    const mins = Math.floor(elapsedSec / 60);
+    el.lastSyncLabel.textContent = `Synced ${mins}m ago`;
+  }
+}
+
+async function refreshData(silent = false) {
+  if (!silent && el.refreshBtn) {
+    el.refreshBtn.classList.add('spinning');
+  }
+  try {
+    // 1. Trigger backend re-scan
+    await fetch('/api/refresh', { method: 'POST' }).catch(() => {});
+
+    // 2. Fetch fresh session listing
+    await loadSessions();
+
+    // 3. If currently inspecting an active session, refresh its steps too!
+    if (state.currentView === 'detail' && state.selectedSessionId) {
+      try {
+        const res = await fetch(`/api/sessions/${state.selectedSessionId}`);
+        if (res.ok) {
+          const detail = await res.json();
+          state.selectedSessionDetail = detail;
+          if (el.detailStepCountBadge && detail.session) {
+            el.detailStepCountBadge.textContent = `${detail.session.step_count} steps`;
+          }
+          renderTimelineMessages();
+        }
+      } catch (e) {
+        // silent detail refresh
+      }
+    }
+
+    state.lastSynced = new Date();
+    updateLastSyncLabel();
+    if (!silent) {
+      showToast('🔄 Sessions refreshed');
+    }
+  } catch (err) {
+    console.error('Refresh error:', err);
+  } finally {
+    if (!silent && el.refreshBtn) {
+      setTimeout(() => el.refreshBtn.classList.remove('spinning'), 500);
+    }
+  }
+}
 
   // Global search triggers
   if (el.globalSearchInput) {

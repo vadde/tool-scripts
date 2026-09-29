@@ -35,6 +35,8 @@ func main() {
 	flag.StringVar(&cfg.DataDir, "d", defaultDataDir, "Path to Antigravity brain directory (shorthand)")
 	flag.IntVar(&cfg.Port, "port", 9876, "Port to serve the web UI on")
 	flag.IntVar(&cfg.Port, "p", 9876, "Port to serve the web UI on (shorthand)")
+	flag.IntVar(&cfg.WatchInterval, "watch-interval", 10, "Seconds between background auto-rescans (0 = disabled)")
+	flag.IntVar(&cfg.WatchInterval, "w", 10, "Seconds between background auto-rescans (shorthand)")
 	flag.BoolVar(&cfg.NoOpen, "no-open", false, "Don't auto-open browser")
 	flag.BoolVar(&cfg.Verbose, "verbose", false, "Enable verbose logging")
 	flag.BoolVar(&cfg.Verbose, "v", false, "Enable verbose logging (shorthand)")

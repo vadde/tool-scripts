@@ -117,6 +117,7 @@ type Stats struct {
 	TopToolCalls        []ToolFreq       `json:"top_tool_calls"`
 	TopPrompts          []PromptFreq     `json:"top_prompts"`
 	MessagesByType      map[string]int   `json:"messages_by_type"`
+	LastScannedAt       time.Time        `json:"last_scanned_at"`
 }
 
 // DateRange represents a from/to date pair.
@@ -159,8 +160,9 @@ type SearchResponse struct {
 
 // Config holds the application configuration from CLI flags.
 type Config struct {
-	DataDir string
-	Port    int
-	NoOpen  bool
-	Verbose bool
+	DataDir       string
+	Port          int
+	NoOpen        bool
+	Verbose       bool
+	WatchInterval int // seconds between background auto-rescans (0 = disabled)
 }

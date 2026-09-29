@@ -136,12 +136,10 @@ func (idx *SessionIndex) ScanAll() error {
 		close(errChan)
 	}()
 
-	// Collect results
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-
+	// Collect results into fresh slice for atomic swap
+	newSessions := make([]Session, 0, len(sessionChan))
 	for session := range sessionChan {
-		idx.sessions = append(idx.sessions, session)
+		newSessions = append(newSessions, session)
 	}
 
 	// Log errors but don't fail
@@ -152,15 +150,20 @@ func (idx *SessionIndex) ScanAll() error {
 	}
 
 	// Sort sessions by creation date (newest first)
-	sort.Slice(idx.sessions, func(i, j int) bool {
-		return idx.sessions[i].CreatedAt.After(idx.sessions[j].CreatedAt)
+	sort.Slice(newSessions, func(i, j int) bool {
+		return newSessions[i].CreatedAt.After(newSessions[j].CreatedAt)
 	})
 
-	// Compute aggregate stats
+	// Atomically update index
+	idx.mu.Lock()
+	idx.sessions = newSessions
+	idx.entryCache = make(map[string][]TranscriptEntry) // clear detail cache on rescan
 	idx.computeStats()
+	idx.stats.LastScannedAt = time.Now()
+	idx.mu.Unlock()
 
 	elapsed := time.Since(start)
-	log.Printf("[scanner] indexed %d sessions in %v", len(idx.sessions), elapsed)
+	log.Printf("[scanner] indexed %d sessions in %v", len(newSessions), elapsed)
 
 	return nil
 }
@@ -243,10 +246,11 @@ func (idx *SessionIndex) scanSession(sessionID, transcriptPath string) (Session,
 					firstUserPromptFound = true
 				}
 
-				// Score repo/project mentions in prompt
+				// Score repo/project mentions in prompt (filtering out OneDrive-Personal path noise)
 				contentLower := strings.ToLower(entry.Content)
+				contentForScoring := strings.ReplaceAll(contentLower, "onedrive-personal", "")
 				for name := range idx.knownProjects {
-					if strings.Contains(contentLower, strings.ToLower(name)) {
+					if strings.Contains(contentForScoring, strings.ToLower(name)) {
 						projectScores[name] += 10
 					}
 				}
@@ -280,8 +284,11 @@ func (idx *SessionIndex) scanSession(sessionID, transcriptPath string) (Session,
 									!strings.HasPrefix(valStr, "/Untitled") {
 
 									matched := false
-									// Check against known projects
+									// Check against known projects (ignoring OneDrive-Personal path segment for Personal project)
 									for name, path := range idx.knownProjects {
+										if name == "Personal" && strings.Contains(valStr, "OneDrive-Personal") && !strings.Contains(valStr, "/knowledge/Personal") {
+											continue
+										}
 										if strings.Contains(valStr, "/"+name+"/") || strings.HasSuffix(valStr, "/"+name) || strings.Contains(valStr, "/knowledge/"+name) {
 											projectScores[name] += 20
 											matched = true

@@ -36,10 +36,24 @@
 
     <!-- Header Actions -->
     <div class="header-actions">
+      <!-- Live Watch Dynamic Refresh -->
+      <div class="live-watch-control" title="Live Watch auto-refresh interval">
+        <span class="live-dot pulsing active" id="liveDot"></span>
+        <span class="live-label">Live Watch:</span>
+        <select id="liveIntervalSelect" class="live-select" aria-label="Auto-refresh interval">
+          <option value="5000">5s (Fast)</option>
+          <option value="10000" selected>10s (Recommended)</option>
+          <option value="30000">30s (Relaxed)</option>
+          <option value="60000">1m (Slow)</option>
+          <option value="0">Off (Manual)</option>
+        </select>
+        <span class="last-sync-label" id="lastSyncLabel">Synced just now</span>
+      </div>
+
       <button class="btn-pill" id="insightsBtn" title="Prompt Frequency & Tool Call Analytics">
         <span>📊</span> Insights
       </button>
-      <button class="btn-icon" id="refreshBtn" title="Refresh Sessions">
+      <button class="btn-icon" id="refreshBtn" title="Force Refresh Now">
         🔄
       </button>
       <button class="btn-icon" id="themeToggleBtn" title="Toggle Dark/Light Mode">

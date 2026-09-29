@@ -204,6 +204,88 @@ body {
   gap: 0.65rem;
 }
 
+/* Live Watch Control */
+.live-watch-control {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.75rem;
+  background: var(--bg-glass-active);
+  border: 1px solid var(--border-glass);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  transition: all 0.2s ease;
+}
+
+.live-watch-control:hover {
+  border-color: var(--border-glass-hover);
+  background: var(--bg-glass);
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
+  display: inline-block;
+  transition: all 0.25s ease;
+}
+
+.live-dot.active {
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.live-dot.pulsing {
+  animation: pulse-live 2s infinite ease-in-out;
+}
+
+@keyframes pulse-live {
+  0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
+.live-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.live-select {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+}
+
+.live-select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.last-sync-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  border-left: 1px solid var(--border-glass);
+  padding-left: 0.45rem;
+  white-space: nowrap;
+}
+
+.btn-icon.spinning span,
+.spinning {
+  display: inline-block;
+  animation: spin-refresh 0.75s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes spin-refresh {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .btn-icon {
   background: var(--bg-glass-active);
   border: 1px solid var(--border-glass);

@@ -171,3 +171,21 @@ func parseDate(s string, isEnd bool) time.Time {
 	}
 	return time.Time{}
 }
+
+// HandleRefresh handles POST /api/refresh and GET /api/refresh to trigger an immediate re-scan.
+func (h *APIHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
+	if err := h.index.ScanAll(); err != nil {
+		http.Error(w, "Failed to refresh index: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	stats := h.index.GetStats()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-cache")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "success",
+		"message": "Index refreshed successfully",
+		"stats":   stats,
+	})
+}
+
