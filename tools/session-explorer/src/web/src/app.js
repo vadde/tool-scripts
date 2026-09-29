@@ -578,12 +578,35 @@ function renderStats() {
 // Workspace Filter & Strip (R-011, R-028)
 function renderWorkspaceOptions() {
   if (!state.stats || !state.stats.workspaces) return;
-  const workspaces = state.stats.workspaces;
+
+  // Strict client-side deduplication & validation (defense-in-depth)
+  const rawWorkspaces = state.stats.workspaces || [];
+  const seen = new Set();
+  const workspaces = [];
+  rawWorkspaces.forEach(ws => {
+    if (!ws) return;
+    const clean = String(ws).trim();
+    if (clean === '' || clean === 'Default' || clean === 'workspace' || clean === 'aparv') return;
+    if (clean.includes('.') || clean.includes('/') || clean.includes('\\')) return;
+    if (clean.startsWith('.') || clean.startsWith('_')) return;
+    const key = clean.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      workspaces.push(clean);
+    }
+  });
+
+  workspaces.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+
   const currentVal = state.filterWorkspace || (state.groupBy === 'project' && state.drilledProject ? state.drilledProject : '') || '';
 
-  // Populate Dropdown if empty
+  // Populate Dropdown
   if (el.workspaceSelect) {
-    if (el.workspaceSelect.options.length <= 1) {
+    const existingOptions = Array.from(el.workspaceSelect.options).map(o => o.value).filter(Boolean);
+    const optionsChanged = existingOptions.length !== workspaces.length ||
+      existingOptions.some((val, i) => val !== workspaces[i]);
+
+    if (optionsChanged || el.workspaceSelect.options.length <= 1) {
       let html = '<option value="">All Workspaces / Repositories</option>';
       workspaces.forEach(ws => {
         html += `<option value="${escapeHtml(ws)}">${escapeHtml(ws)}</option>`;
@@ -596,7 +619,7 @@ function renderWorkspaceOptions() {
   // Populate Strip Pills
   if (el.workspaceStrip) {
     let stripHtml = `<button class="chip ${currentVal === '' ? 'active' : ''}" data-ws="">All (${state.stats.total_sessions || 0})</button>`;
-    workspaces.slice(0, 10).forEach(ws => {
+    workspaces.slice(0, 12).forEach(ws => {
       const active = (currentVal === ws) ? 'active' : '';
       stripHtml += `<button class="chip ${active}" data-ws="${escapeHtml(ws)}">${escapeHtml(ws)}</button>`;
     });

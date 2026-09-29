@@ -304,3 +304,89 @@ func TestR028_ProjectClustering_PortableFallback(t *testing.T) {
 		t.Errorf("expected stats.Projects to contain awesome-service, got %+v", stats.Projects)
 	}
 }
+
+// TestRescanStatsDeduplication verifies that repeated scans do NOT accumulate workspaces or stats
+func TestRescanStatsDeduplication(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	s1 := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-18T10:00:00Z","content":"<USER_REQUEST>Build tool</USER_REQUEST>"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-18T10:01:00Z","content":"ok","tool_calls":[{"name":"view_file","args":{"AbsolutePath":"/Users/test/knowledge/QuarkDock/docs/sizing.md"}}]}`
+
+	s2 := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-18T11:00:00Z","content":"<USER_REQUEST>Do tests</USER_REQUEST>"}
+{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-18T11:01:00Z","content":"done","tool_calls":[{"name":"view_file","args":{"AbsolutePath":"/Users/test/knowledge/DSA/problem_1.py"}}]}`
+
+	createMockSession(t, tmpDir, "sess-1", s1)
+	createMockSession(t, tmpDir, "sess-2", s2)
+
+	idx := NewSessionIndex(tmpDir, false)
+	idx.knownProjects = map[string]string{
+		"QuarkDock": "/Users/test/knowledge/QuarkDock",
+		"DSA":       "/Users/test/knowledge/DSA",
+	}
+
+	// Scan 5 times in a row to simulate live watch rescans
+	for i := 0; i < 5; i++ {
+		if err := idx.ScanAll(); err != nil {
+			t.Fatalf("ScanAll failed on iteration %d: %v", i, err)
+		}
+	}
+
+	stats := idx.GetStats()
+
+	// 1. TotalSessions must remain exactly 2, NOT 10!
+	if stats.TotalSessions != 2 {
+		t.Fatalf("expected TotalSessions to be 2 after 5 rescans, got %d", stats.TotalSessions)
+	}
+
+	// 2. Workspaces slice must not have duplicates
+	seen := make(map[string]bool)
+	for _, ws := range stats.Workspaces {
+		if seen[ws] {
+			t.Fatalf("duplicate workspace %q detected in stats.Workspaces: %v", ws, stats.Workspaces)
+		}
+		seen[ws] = true
+	}
+
+	if len(stats.Workspaces) != 2 {
+		t.Fatalf("expected exactly 2 unique workspaces, got %d: %v", len(stats.Workspaces), stats.Workspaces)
+	}
+}
+
+// TestExtractProjectName_Sanitization verifies that files, usernames, and internal subdirs are rejected
+func TestExtractProjectName_Sanitization(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"/tmp/all_mermaids.txt", "Default"},
+		{"/Users/aparv/something.py", "Default"},
+		{"/workspace/specs/_templates/tool-spec.md", "tool-scripts"},
+		{"/workspace/tools/session-explorer/src/scanner.go", "tool-scripts"},
+		{"/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/QuarkDock/docs/sizing.md", "QuarkDock"},
+		{"/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/DSA/binary_search.py", "DSA"},
+		{"", "Default"},
+	}
+
+	for _, c := range cases {
+		actual := extractProjectName(c.input)
+		if actual != c.expected {
+			t.Errorf("extractProjectName(%q) = %q, expected %q", c.input, actual, c.expected)
+		}
+	}
+
+	// Test isValidWorkspaceName directly
+	invalidNames := []string{"all_mermaids.txt", "aparv", "_templates", "docs", "scripts", "rules", "analytics", "Default", "workspace", "src", ""}
+	for _, name := range invalidNames {
+		if isValidWorkspaceName(name) {
+			t.Errorf("expected isValidWorkspaceName(%q) to be false, got true", name)
+		}
+	}
+
+	validNames := []string{"QuarkDock", "tool-scripts", "tutor-intelligence", "DSA", "GoLang", "GenAI"}
+	for _, name := range validNames {
+		if !isValidWorkspaceName(name) {
+			t.Errorf("expected isValidWorkspaceName(%q) to be true, got false", name)
+		}
+	}
+}
+

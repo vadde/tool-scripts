@@ -76,7 +76,7 @@ func (idx *SessionIndex) discoverKnownProjects() {
 				continue
 			}
 			name := e.Name()
-			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || skipDirs[name] {
+			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || skipDirs[name] || !isValidWorkspaceName(name) {
 				continue
 			}
 			fullPath := filepath.Join(dir, name)
@@ -279,13 +279,17 @@ func (idx *SessionIndex) scanSession(sessionID, transcriptPath string) (Session,
 						if rawVal, exists := tc.Args[key]; exists {
 							if valStr, ok := rawVal.(string); ok && valStr != "" {
 								valStr = strings.Trim(valStr, `"'`)
-								if strings.HasPrefix(valStr, "/") &&
+								if (strings.HasPrefix(valStr, "/") || strings.HasPrefix(valStr, "~")) &&
 									!strings.Contains(valStr, ".gemini/antigravity-ide/brain") &&
+									!strings.Contains(valStr, "/.gemini/") &&
 									!strings.HasPrefix(valStr, "/Untitled") {
 
 									matched := false
 									// Check against known projects (ignoring OneDrive-Personal path segment for Personal project)
 									for name, path := range idx.knownProjects {
+										if !isValidWorkspaceName(name) {
+											continue
+										}
 										if name == "Personal" && strings.Contains(valStr, "OneDrive-Personal") && !strings.Contains(valStr, "/knowledge/Personal") {
 											continue
 										}
@@ -298,21 +302,29 @@ func (idx *SessionIndex) scanSession(sessionID, transcriptPath string) (Session,
 										}
 									}
 
-									// Extract repo name directly from /knowledge/<repo>
-									if kIdx := strings.Index(valStr, "/knowledge/"); kIdx != -1 {
-										sub := valStr[kIdx+len("/knowledge/"):]
-										parts := strings.Split(sub, "/")
-										if len(parts) > 0 && parts[0] != "" {
-											repoName := parts[0]
-											projectScores[repoName] += 25
-											matched = true
+									// Extract repo name directly from /knowledge/<repo> or /Interviews/<repo>
+									if !matched {
+										if kIdx := strings.Index(valStr, "/knowledge/"); kIdx != -1 {
+											sub := valStr[kIdx+len("/knowledge/"):]
+											parts := strings.Split(sub, "/")
+											if len(parts) > 0 && isValidWorkspaceName(parts[0]) {
+												projectScores[parts[0]] += 25
+												matched = true
+											}
+										} else if iIdx := strings.Index(valStr, "/Interviews/"); iIdx != -1 {
+											sub := valStr[iIdx+len("/Interviews/"):]
+											parts := strings.Split(sub, "/")
+											if len(parts) > 0 && isValidWorkspaceName(parts[0]) {
+												projectScores[parts[0]] += 25
+												matched = true
+											}
 										}
 									}
 
 									// Fallback: derive project name directly from path if no known project matched
 									if !matched {
 										derived := extractProjectName(valStr)
-										if derived != "" && derived != "Default" {
+										if isValidWorkspaceName(derived) {
 											projectScores[derived] += 15
 											if session.Workspace == "" || strings.HasPrefix(session.Workspace, "/Untitled") {
 												session.Workspace = filepath.Dir(valStr)
@@ -350,7 +362,7 @@ func (idx *SessionIndex) scanSession(sessionID, transcriptPath string) (Session,
 	}
 	var scoredList []pScore
 	for name, score := range projectScores {
-		if score > 0 {
+		if score > 0 && isValidWorkspaceName(name) {
 			scoredList = append(scoredList, pScore{name: name, score: score})
 			if score > maxScore {
 				maxScore = score
@@ -364,11 +376,15 @@ func (idx *SessionIndex) scanSession(sessionID, transcriptPath string) (Session,
 	})
 
 	session.ProjectsTouched = make([]string, 0, len(scoredList))
+	seenTouched := make(map[string]bool)
 	for _, ps := range scoredList {
-		session.ProjectsTouched = append(session.ProjectsTouched, ps.name)
+		if isValidWorkspaceName(ps.name) && !seenTouched[ps.name] {
+			seenTouched[ps.name] = true
+			session.ProjectsTouched = append(session.ProjectsTouched, ps.name)
+		}
 	}
 
-	if bestProject != "" {
+	if bestProject != "" && isValidWorkspaceName(bestProject) {
 		session.ProjectName = bestProject
 		if p, ok := idx.knownProjects[bestProject]; ok {
 			session.Workspace = p
@@ -381,9 +397,12 @@ func (idx *SessionIndex) scanSession(sessionID, transcriptPath string) (Session,
 			}
 		}
 	} else if session.Workspace != "" {
-		session.ProjectName = extractProjectName(session.Workspace)
-		if session.ProjectName != "" && session.ProjectName != "Default" {
-			session.ProjectsTouched = []string{session.ProjectName}
+		derived := extractProjectName(session.Workspace)
+		if isValidWorkspaceName(derived) {
+			session.ProjectName = derived
+			session.ProjectsTouched = []string{derived}
+		} else {
+			session.ProjectName = "Default"
 		}
 	} else {
 		session.ProjectName = "Default"
@@ -700,6 +719,15 @@ func (idx *SessionIndex) GetStats() Stats {
 
 // computeStats calculates aggregate statistics from all sessions.
 func (idx *SessionIndex) computeStats() {
+	// CRITICAL: Reinitialize stats on every computation to prevent cumulative leakage across rescans
+	idx.stats = Stats{
+		Workspaces:     make([]string, 0),
+		Projects:       make([]ProjectSummary, 0),
+		TopToolCalls:   make([]ToolFreq, 0),
+		TopPrompts:     make([]PromptFreq, 0),
+		MessagesByType: make(map[string]int),
+	}
+
 	workspaceSet := make(map[string]bool)
 	toolCallFreq := make(map[string]int)
 	promptFreqMap := make(map[string]int)
@@ -715,7 +743,7 @@ func (idx *SessionIndex) computeStats() {
 		idx.stats.TotalErrors += s.ErrorCount
 
 		proj := s.ProjectName
-		if proj != "" && proj != "Default" {
+		if isValidWorkspaceName(proj) {
 			workspaceSet[proj] = true
 
 			ps, exists := projectStatsMap[proj]
@@ -759,7 +787,7 @@ func (idx *SessionIndex) computeStats() {
 
 		// Record any touched projects in workspaceSet
 		for _, pt := range s.ProjectsTouched {
-			if pt != "" && pt != "Default" {
+			if isValidWorkspaceName(pt) {
 				workspaceSet[pt] = true
 			}
 		}
@@ -790,16 +818,18 @@ func (idx *SessionIndex) computeStats() {
 
 	// Also add any known projects from knowledge directory even if 0 sessions
 	for name, path := range idx.knownProjects {
-		if _, exists := projectStatsMap[name]; !exists {
-			isGit := false
-			if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
-				isGit = true
-			}
-			projectStatsMap[name] = &ProjectSummary{
-				Name:          name,
-				Path:          path,
-				IsGit:         isGit,
-				RecentPrompts: []string{},
+		if isValidWorkspaceName(name) {
+			if _, exists := projectStatsMap[name]; !exists {
+				isGit := false
+				if _, err := os.Stat(filepath.Join(path, ".git")); err == nil {
+					isGit = true
+				}
+				projectStatsMap[name] = &ProjectSummary{
+					Name:          name,
+					Path:          path,
+					IsGit:         isGit,
+					RecentPrompts: []string{},
+				}
 			}
 			workspaceSet[name] = true
 		}
@@ -821,9 +851,9 @@ func (idx *SessionIndex) computeStats() {
 	})
 	idx.stats.Projects = projects
 
-	// Collect unique workspaces
+	// Collect strictly unique, valid workspaces
 	for ws := range workspaceSet {
-		if ws != "" {
+		if isValidWorkspaceName(ws) {
 			idx.stats.Workspaces = append(idx.stats.Workspaces, ws)
 		}
 	}
@@ -897,30 +927,88 @@ func extractWorkspace(content string) string {
 	return ""
 }
 
-// extractProjectName derives a human-readable project name from a workspace path.
+// isValidWorkspaceName checks if a candidate string is a genuine repository or workspace name.
+func isValidWorkspaceName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" || name == "Default" || name == "workspace" || name == "aparv" {
+		return false
+	}
+	// No hidden files/folders, templates, or private paths
+	if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+		return false
+	}
+	// Workspaces cannot be files (e.g. all_mermaids.txt) or paths containing slashes
+	if strings.Contains(name, ".") || strings.Contains(name, "/") || strings.Contains(name, "\\") {
+		return false
+	}
+	// Lowercase check against system folders, repository subdirectories, and common keywords
+	lower := strings.ToLower(name)
+	blocked := map[string]bool{
+		"src": true, "tools": true, "specs": true, "sdlc": true, "docs": true,
+		"scripts": true, "rules": true, "analytics": true, "tests": true,
+		"examples": true, "internal": true, "pkg": true, "node_modules": true,
+		"dist": true, "build": true, "target": true, "config": true,
+		"builtin": true, "skills": true, "plugins": true, "hooks": true,
+		"book": true, "guides": true, "architecture": true, "scratch": true,
+		"logs": true, "brain": true, "users": true, "home": true, "tmp": true,
+		"var": true, "private": true, "knowledge": true, "interviews": true,
+		"cloudstorage": true, "onedrive-personal": true, "g-drive": true,
+		"default": true, "workspace": true, "aparv": true, "runner": true,
+		"work": true, "bin": true, "cmd": true, "lib": true,
+		"library": true, "applications": true, "system": true, "volumes": true,
+	}
+	if blocked[lower] {
+		return false
+	}
+	return len(name) >= 2
+}
+
+// extractProjectName derives a clean, human-readable project or repository name from a workspace or file path.
 func extractProjectName(workspace string) string {
 	if workspace == "" || workspace == "/Untitled-1" || strings.HasPrefix(workspace, "/Untitled") {
 		return "Default"
 	}
-	// Clean path
-	cleaned := filepath.Clean(workspace)
+
+	cleaned := filepath.Clean(strings.Trim(workspace, `"'`))
+
+	// 1. Direct match for knowledge or Interviews parent paths: /knowledge/<repo> or /Interviews/<repo>
+	if kIdx := strings.Index(cleaned, "/knowledge/"); kIdx != -1 {
+		sub := cleaned[kIdx+len("/knowledge/"):]
+		parts := strings.Split(sub, "/")
+		if len(parts) > 0 && isValidWorkspaceName(parts[0]) {
+			return parts[0]
+		}
+	}
+	if iIdx := strings.Index(cleaned, "/Interviews/"); iIdx != -1 {
+		sub := cleaned[iIdx+len("/Interviews/"):]
+		parts := strings.Split(sub, "/")
+		if len(parts) > 0 && isValidWorkspaceName(parts[0]) {
+			return parts[0]
+		}
+	}
+
+	// 2. If it contains tool-scripts or starts with /workspace, return tool-scripts
+	if strings.Contains(cleaned, "tool-scripts") || strings.HasPrefix(cleaned, "/workspace") {
+		return "tool-scripts"
+	}
+
+	// 3. Scan path components from right to left, skipping files and blocked directories
 	parts := strings.Split(cleaned, "/")
 	for i := len(parts) - 1; i >= 0; i-- {
 		part := parts[i]
-		if part == "" || part == "src" || part == "G-Drive" || part == "Library" ||
-			part == "CloudStorage" || part == "OneDrive-Personal" || part == "Users" ||
-			part == "knowledge" || part == "Interviews" || part == "home" ||
-			part == "runner" || part == "work" || part == "tmp" || part == "var" ||
-			part == "private" || part == "projects" {
+		if part == "" {
 			continue
 		}
-		ext := filepath.Ext(part)
-		if ext != "" && !strings.HasPrefix(part, ".") && i == len(parts)-1 {
-			continue // Skip trailing file at end of path
+		// If last segment has an extension or dot, it's a file - skip it
+		if i == len(parts)-1 && strings.Contains(part, ".") {
+			continue
 		}
-		return part
+		if isValidWorkspaceName(part) {
+			return part
+		}
 	}
-	return filepath.Base(cleaned)
+
+	return "Default"
 }
 
 // createSearchPreview creates a preview snippet around a search match.

@@ -6,6 +6,25 @@
 
 ---
 
+### 2026-09-29 — Holistic Workspace Deduplication, Re-scan Leakage Prevention & Canonical Sanitization
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `review` (Stability, Fundamental Invariant Enforcement & ReAct+Reflexion Audit)
+**Duration**: ~20m
+
+#### What Was Done
+- **Root-Cause Analysis of 1004+ Long Workspaces Dropdown**:
+  1. Identified critical rescan accumulation bug in `scanner.go` (`computeStats`): `idx.stats` was never reinitialized before computing aggregate stats across sessions. On every 10s Live Watch rescan (and on `/api/refresh`), `idx.stats.Workspaces = append(...)` kept appending another full copy of all workspaces. Over dozens of rescans, the list ballooned to 3,010 items with "AWS" and others duplicated 85+ times.
+  2. Identified path leakage & garbage naming in `extractProjectName`: Fallback returned `filepath.Base` for arbitrary files (e.g. `/tmp/all_mermaids.txt` returning `"all_mermaids.txt"`), username segments (`"aparv"`), and internal repository subdirectories (`_templates`, `docs`, `scripts`, `rules`, `analytics`).
+- **Comprehensive Solution Implemented**:
+  1. **Backend Reset Invariant**: `computeStats` now reinitializes `idx.stats = Stats{...}` freshly on every scan, preventing any accumulation across rescans.
+  2. **Strict Validation Engine**: Introduced `isValidWorkspaceName(name)` enforcing that genuine repository names cannot be files (no dots), cannot contain path separators, cannot start with dot/underscore, and cannot match system/subfolder blocklists (`library`, `applications`, `system`, `volumes`, `src`, `tools`, `specs`, `docs`, `scripts`, etc.).
+  3. **Robust Project Resolver**: Overhauled `extractProjectName` to map `/workspace` directly to `tool-scripts`, extract parent `/knowledge/<repo>` and `/Interviews/<repo>` accurately, and return `"Default"` rather than raw files.
+  4. **Frontend Defense-in-Depth (`app.js`)**: Updated `renderWorkspaceOptions` to deduplicate using `Set`, sanitize invalid entries, and only touch DOM `innerHTML` when option values change, preserving active user selections without flicker.
+  5. **Unit Test Suite**: Added `TestRescanStatsDeduplication` (5 consecutive scans verifying 0 duplicate workspaces and stable session counts) and `TestExtractProjectName_Sanitization`. All 15 tests pass.
+
+---
+
 ### 2026-09-20 — Bugfix: Resolve ReferenceError on Session Details Loading
 
 **Agent/Author**: gemini-3.8-flash
