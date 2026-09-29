@@ -238,7 +238,18 @@ export default function App() {
       const res = await fetch('/api/workspaces');
       if (res.ok) {
         const data: WorkspaceInfo[] = await res.json();
-        setWorkspaces(data || []);
+        const seen = new Set<string>();
+        const uniqueWorkspaces: WorkspaceInfo[] = [];
+        (data || []).forEach(ws => {
+          const name = ws.workspace?.trim();
+          if (!name || name === 'workspace' || name === 'default' || name === 'global') return;
+          const key = name.toLowerCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            uniqueWorkspaces.push(ws);
+          }
+        });
+        setWorkspaces(uniqueWorkspaces);
       }
     } catch (err) {
       console.warn('Failed to load workspaces', err);

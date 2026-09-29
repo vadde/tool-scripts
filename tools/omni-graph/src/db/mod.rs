@@ -429,31 +429,72 @@ impl DbClient {
     pub async fn get_workspaces(&self) -> Result<Vec<serde_json::Value>, String> {
         let q = "SELECT workspace, count() AS total_nodes, array::distinct(language) AS languages, array::distinct(file_path) AS files FROM node GROUP BY workspace;";
         let resp = self.query_sql(q).await?;
-        let mut list = Vec::new();
+        let mut map: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
         if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
             for item in arr {
-                let mut obj = item.clone();
-                if let Some(ws) = item.get("workspace").and_then(|v| v.as_str()) {
-                    let mut resolved_root: Option<String> = self.get_workspace_root(ws).await.unwrap_or(None);
-                    
-                    if resolved_root.is_none() {
-                        let sample_files: Vec<String> = item.get("files")
-                            .and_then(|f| f.as_array())
-                            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).take(5).collect())
-                            .unwrap_or_default();
-                        if let Some(auto_p) = resolve_disk_path(ws, &sample_files) {
-                            let _ = self.record_workspace_root(ws, &auto_p).await;
-                            resolved_root = Some(auto_p);
-                        }
+                if let Some(raw_ws) = item.get("workspace").and_then(|v| v.as_str()) {
+                    let ws_str = raw_ws.trim();
+                    if ws_str.is_empty() || ws_str == "default" || ws_str == "global" {
+                        continue;
                     }
+                    let canonical_ws = if ws_str == "workspace" {
+                        "tool-scripts".to_string()
+                    } else {
+                        ws_str.to_string()
+                    };
 
-                    if let Some(rp) = resolved_root {
-                        obj["root_path"] = serde_json::Value::String(rp);
+                    let nodes = item.get("total_nodes").and_then(|n| n.as_u64()).unwrap_or(0);
+                    let langs = item.get("languages").and_then(|l| l.as_array()).cloned().unwrap_or_default();
+                    let files = item.get("files").and_then(|f| f.as_array()).cloned().unwrap_or_default();
+
+                    if let Some(existing) = map.get_mut(&canonical_ws) {
+                        if let Some(prev_nodes) = existing.get("total_nodes").and_then(|n| n.as_u64()) {
+                            existing["total_nodes"] = serde_json::Value::Number((prev_nodes + nodes).into());
+                        }
+                        if let Some(prev_langs) = existing.get_mut("languages").and_then(|l| l.as_array_mut()) {
+                            for l in langs {
+                                if !prev_langs.contains(&l) {
+                                    prev_langs.push(l);
+                                }
+                            }
+                        }
+                        if let Some(prev_files) = existing.get_mut("files").and_then(|f| f.as_array_mut()) {
+                            for f in files {
+                                if !prev_files.contains(&f) {
+                                    prev_files.push(f);
+                                }
+                            }
+                        }
+                    } else {
+                        let mut obj = item.clone();
+                        obj["workspace"] = serde_json::Value::String(canonical_ws.clone());
+                        let mut resolved_root: Option<String> = self.get_workspace_root(&canonical_ws).await.unwrap_or(None);
+                        
+                        if resolved_root.is_none() {
+                            let sample_files: Vec<String> = files.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .take(5)
+                                .collect();
+                            if let Some(auto_p) = resolve_disk_path(&canonical_ws, &sample_files) {
+                                let _ = self.record_workspace_root(&canonical_ws, &auto_p).await;
+                                resolved_root = Some(auto_p);
+                            }
+                        }
+
+                        if let Some(rp) = resolved_root {
+                            obj["root_path"] = serde_json::Value::String(rp);
+                        }
+                        map.insert(canonical_ws, obj);
                     }
                 }
-                list.push(obj);
             }
         }
+        let mut list: Vec<serde_json::Value> = map.into_values().collect();
+        list.sort_by(|a, b| {
+            let name_a = a.get("workspace").and_then(|v| v.as_str()).unwrap_or("");
+            let name_b = b.get("workspace").and_then(|v| v.as_str()).unwrap_or("");
+            name_a.cmp(name_b)
+        });
         Ok(list)
     }
 

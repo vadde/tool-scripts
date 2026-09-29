@@ -4,6 +4,29 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-29 — Workspace Sanitization & Deduplication in Omni-Graph Backend and UI
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Deduplication, DB Coalescence & UI Hardening)
+**Duration**: ~15m
+
+#### What Was Done
+- **Backend Workspace Coalescence (`db/mod.rs`)**:
+  - Overhauled `get_workspaces(&self)`:
+    1. Legacy or uncanonical `workspace = "workspace"` entries are automatically normalized and merged into `"tool-scripts"`.
+    2. Invalid, empty, `"default"`, or `"global"` workspace names are excluded.
+    3. Merged total node counts, language arrays, and file arrays using a clean `HashMap<String, serde_json::Value>` to guarantee strict uniqueness.
+    4. Deterministically sorts workspaces alphabetically.
+- **Frontend Deduplication & Guardrails (`App.tsx`)**:
+  - In `loadWorkspaces`: added case-insensitive `Set` deduplication on incoming `/api/workspaces` payload.
+  - Filtered out `"workspace"`, `"default"`, and `"global"` entries so dropdowns and cluster pickers only present bona fide codebases.
+- **Verification**:
+  - Rebuilt `omni-graph-ui` via Vite (`npm run build`), passing cleanly in 3.04s.
+  - Rebuilt and restarted `omni-rust-app` and `omni-graph-ui` via Docker Compose.
+  - Verified `curl -s http://localhost:8080/api/workspaces` returns clean, unique codebases with 1,591 nodes for `tool-scripts` and zero duplicate entries.
+
+---
+
 ### 2026-09-29 — Unbypassable Polyglot Guardrails, 150-Line Source Gate & Top-Tier Rule 00
 
 **Agent/Author**: Antigravity

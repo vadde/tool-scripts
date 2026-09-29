@@ -33,6 +33,7 @@ blockers: []
 | Agent Analytics & LSP Telemetry | Complete | — | 🟢 Live on Port 3000 & 8080 (Dual-Source Telemetry) |
 | Dynamic Live Delta Sync & Watch HUD | Complete | — | 🟢 Live on Port 3000 & 8080 |
 | Workspace Meta & Path Auto-Resolution | Complete | — | 🟢 Verified & Live in Docker |
+| Workspace Deduplication & Sanitization | Complete | — | 🟢 Live on Port 3000 & 8080 |
 | Unbypassable 150-Line Gate & Rule 00 | Complete | — | 🟢 Live Machine-Wide (Polyglot) |
 | Documentation | Complete | — | ✅ Complete |
 
