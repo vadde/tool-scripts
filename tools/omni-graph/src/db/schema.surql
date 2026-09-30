@@ -73,3 +73,24 @@ DEFINE INDEX IF NOT EXISTS idx_api_call_ws   ON TABLE agent_api_call FIELDS work
 DEFINE INDEX IF NOT EXISTS idx_api_call_cap  ON TABLE agent_api_call FIELDS capability;
 DEFINE INDEX IF NOT EXISTS idx_api_call_time ON TABLE agent_api_call FIELDS created_at;
 
+-- ─── 7. Architectural Galaxy Subsystems ───────────────────────────────────────
+DEFINE TABLE IF NOT EXISTS galaxy SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS workspace         ON TABLE galaxy TYPE string;
+DEFINE FIELD IF NOT EXISTS galaxy_id         ON TABLE galaxy TYPE int;
+DEFINE FIELD IF NOT EXISTS name              ON TABLE galaxy TYPE string;
+DEFINE FIELD IF NOT EXISTS dominant_path     ON TABLE galaxy TYPE string;
+DEFINE FIELD IF NOT EXISTS node_count        ON TABLE galaxy TYPE int;
+DEFINE FIELD IF NOT EXISTS internal_edges    ON TABLE galaxy TYPE int;
+DEFINE FIELD IF NOT EXISTS external_edges    ON TABLE galaxy TYPE int;
+DEFINE FIELD IF NOT EXISTS afferent_coupling ON TABLE galaxy TYPE int;  -- Ca (incoming cross-galaxy calls)
+DEFINE FIELD IF NOT EXISTS efferent_coupling ON TABLE galaxy TYPE int;  -- Ce (outgoing cross-galaxy calls)
+DEFINE FIELD IF NOT EXISTS instability       ON TABLE galaxy TYPE float; -- Ce / (Ca + Ce)
+DEFINE FIELD IF NOT EXISTS role              ON TABLE galaxy TYPE string; -- Core Foundation, Domain Service, Orchestrator
+DEFINE FIELD IF NOT EXISTS key_symbols       ON TABLE galaxy TYPE array<string>;
+DEFINE FIELD IF NOT EXISTS languages         ON TABLE galaxy TYPE array<string>;
+DEFINE FIELD IF NOT EXISTS updated_at        ON TABLE galaxy TYPE datetime DEFAULT time::now();
+
+DEFINE INDEX IF NOT EXISTS idx_galaxy_ws_id ON TABLE galaxy FIELDS workspace, galaxy_id UNIQUE;
+DEFINE INDEX IF NOT EXISTS idx_galaxy_ws    ON TABLE galaxy FIELDS workspace;
+
+

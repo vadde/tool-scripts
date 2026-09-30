@@ -1,7 +1,7 @@
 // Graph RAG Analysis: Community Detection & Hybrid Graph-RAG Retrieval
 // Implements: R-012 (Community Detection / Leiden clustering) and Graph-RAG Hybrid Synthesis
 
-use crate::db::{DbClient, DbLink, DbNode};
+use crate::db::{DbClient, DbLink, DbNode, GalaxyRecord};
 use crate::embedder::EmbedderClient;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -51,31 +51,55 @@ impl SimpleRng {
     }
 }
 
+/// Assign weights to edges based on architectural significance
+pub fn get_edge_weight(edge_type: &str) -> f32 {
+    match edge_type {
+        "IMPLEMENTS" => 3.0,
+        "CALLS" => 2.0,
+        "TYPE_REF" => 1.5,
+        "IMPORTS" | "CONTAINS" => 1.0,
+        _ => 1.0,
+    }
+}
+
 pub struct CommunityDetector;
 
 impl CommunityDetector {
     /// Detect communities using iterative label propagation (high-speed O(E) modular clustering)
-    /// Uses randomized node iteration order per round to prevent oscillation and deterministic bias (Finding #5)
     pub fn detect(nodes: &[DbNode], links: &[DbLink], max_iterations: usize) -> HashMap<String, i32> {
-        let mut labels: HashMap<String, i32> = HashMap::new();
-        let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+        Self::detect_with_seeds(nodes, links, max_iterations, None)
+    }
 
-        // 1. Initialize each node with its own unique label
+    /// Detect communities with warm-seeded initial assignments to prevent cluster ID thrashing across live edits
+    pub fn detect_with_seeds(
+        nodes: &[DbNode],
+        links: &[DbLink],
+        max_iterations: usize,
+        seeds: Option<&HashMap<String, i32>>,
+    ) -> HashMap<String, i32> {
+        let mut labels: HashMap<String, i32> = HashMap::new();
+        let mut adj: HashMap<String, Vec<(String, f32)>> = HashMap::new();
+
+        // 1. Initialize node labels from seeds if available, otherwise allocate unique IDs
         for (i, node) in nodes.iter().enumerate() {
-            labels.insert(node.id.clone(), i as i32);
+            let initial_label = seeds
+                .and_then(|s| s.get(&node.id).copied())
+                .unwrap_or(i as i32 + 100_000);
+            labels.insert(node.id.clone(), initial_label);
             adj.insert(node.id.clone(), Vec::new());
         }
 
-        // 2. Build undirected adjacency list
+        // 2. Build weighted undirected adjacency list
         for link in links {
             if adj.contains_key(&link.source) && adj.contains_key(&link.target) {
-                adj.get_mut(&link.source).unwrap().push(link.target.clone());
-                adj.get_mut(&link.target).unwrap().push(link.source.clone());
+                let weight = get_edge_weight(&link.edge_type);
+                adj.get_mut(&link.source).unwrap().push((link.target.clone(), weight));
+                adj.get_mut(&link.target).unwrap().push((link.source.clone(), weight));
             }
         }
 
-        // 3. Iterative label propagation with randomized node ordering (Finding #5)
-        let mut rng = SimpleRng::new(0x4d595f5345454431); // Deterministic seed for reproducible testing
+        // 3. Iterative label propagation with randomized node ordering
+        let mut rng = SimpleRng::new(0x4d595f5345454431);
         let mut node_indices: Vec<usize> = (0..nodes.len()).collect();
 
         for _ in 0..max_iterations {
@@ -88,16 +112,16 @@ impl CommunityDetector {
                     _ => continue,
                 };
 
-                // Count neighbor label frequencies
-                let mut freq: HashMap<i32, usize> = HashMap::new();
-                for neighbor_id in neighbors {
+                // Accumulate weighted label frequencies
+                let mut freq: HashMap<i32, f32> = HashMap::new();
+                for (neighbor_id, weight) in neighbors {
                     if let Some(lbl) = labels.get(neighbor_id) {
-                        *freq.entry(*lbl).or_insert(0) += 1;
+                        *freq.entry(*lbl).or_insert(0.0) += *weight;
                     }
                 }
 
-                // Choose most frequent label
-                if let Some((&best_label, _)) = freq.iter().max_by_key(|&(_, count)| count) {
+                // Select label with maximum accumulated edge weight
+                if let Some((&best_label, _)) = freq.iter().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)) {
                     if let Some(curr_label) = labels.get_mut(&node.id) {
                         if *curr_label != best_label {
                             *curr_label = best_label;
@@ -112,11 +136,23 @@ impl CommunityDetector {
             }
         }
 
-        // 4. Normalize labels to compact IDs: 0, 1, 2, ...
+        // 4. Normalize labels to compact IDs while preserving established seed IDs
         let mut label_map: HashMap<i32, i32> = HashMap::new();
         let mut next_id = 0;
-        let mut normalized = HashMap::new();
 
+        // Reserve existing seed IDs first
+        if let Some(seed_map) = seeds {
+            for &seed_id in seed_map.values() {
+                if !label_map.contains_key(&seed_id) {
+                    label_map.insert(seed_id, seed_id);
+                    if seed_id >= next_id {
+                        next_id = seed_id + 1;
+                    }
+                }
+            }
+        }
+
+        let mut normalized = HashMap::new();
         for (node_id, raw_label) in labels {
             let compact_id = *label_map.entry(raw_label).or_insert_with(|| {
                 let id = next_id;
@@ -127,6 +163,160 @@ impl CommunityDetector {
         }
 
         normalized
+    }
+
+    /// Compute full architectural metrics (Ca, Ce, Instability, roles) and generate galaxy records
+    pub fn compute_galaxy_metrics(
+        workspace: &str,
+        nodes: &[DbNode],
+        links: &[DbLink],
+        assignments: &HashMap<String, i32>,
+    ) -> (Vec<CommunitySummary>, Vec<GalaxyRecord>) {
+        let mut groups: HashMap<i32, Vec<&DbNode>> = HashMap::new();
+        for node in nodes {
+            if let Some(&cid) = assignments.get(&node.id) {
+                groups.entry(cid).or_default().push(node);
+            }
+        }
+
+        // Count internal and cross-boundary edges per community
+        let mut internal_edges_map: HashMap<i32, usize> = HashMap::new();
+        let mut afferent_coupling_map: HashMap<i32, usize> = HashMap::new(); // Ca: foreign -> this
+        let mut efferent_coupling_map: HashMap<i32, usize> = HashMap::new(); // Ce: this -> foreign
+
+        for link in links {
+            let src_comm = assignments.get(&link.source);
+            let tgt_comm = assignments.get(&link.target);
+
+            match (src_comm, tgt_comm) {
+                (Some(&src_c), Some(&tgt_c)) => {
+                    if src_c == tgt_c {
+                        *internal_edges_map.entry(src_c).or_insert(0) += 1;
+                    } else {
+                        *efferent_coupling_map.entry(src_c).or_insert(0) += 1;
+                        *afferent_coupling_map.entry(tgt_c).or_insert(0) += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut summaries = Vec::new();
+        let mut galaxy_records = Vec::new();
+
+        for (cid, members) in groups {
+            let mut files_set = HashSet::new();
+            let mut top_symbols = Vec::new();
+            let mut languages = HashSet::new();
+            let mut dir_counts: HashMap<String, usize> = HashMap::new();
+
+            for m in &members {
+                files_set.insert(m.file_path.clone());
+                if !m.language.is_empty() {
+                    languages.insert(m.language.clone());
+                }
+                if top_symbols.len() < 8 {
+                    top_symbols.push(m.label.clone());
+                }
+
+                if let Some(parent) = std::path::Path::new(&m.file_path).parent() {
+                    let p = parent.to_string_lossy().to_string();
+                    if !p.is_empty() && p != "." {
+                        *dir_counts.entry(p).or_insert(0) += 1;
+                    }
+                }
+            }
+
+            let dominant = dir_counts
+                .into_iter()
+                .max_by_key(|(_, c)| *c)
+                .map(|(d, _)| d)
+                .unwrap_or_else(|| {
+                    members.first().map(|m| m.file_path.clone()).unwrap_or_else(|| "root".to_string())
+                });
+
+            let name = if dominant.is_empty() || dominant == "." {
+                format!("Galaxy #{}", cid)
+            } else {
+                dominant.clone()
+            };
+
+            let internal_edges = internal_edges_map.get(&cid).copied().unwrap_or(0);
+            let ca = afferent_coupling_map.get(&cid).copied().unwrap_or(0);
+            let ce = efferent_coupling_map.get(&cid).copied().unwrap_or(0);
+            let total_cut = ca + ce;
+
+            let instability = if total_cut == 0 {
+                0.5
+            } else {
+                (ce as f64) / (total_cut as f64)
+            };
+
+            let role = if instability <= 0.25 {
+                "Core Foundation".to_string()
+            } else if instability <= 0.65 {
+                "Domain Service".to_string()
+            } else {
+                "Orchestrator / Leaf".to_string()
+            };
+
+            let langs_vec: Vec<String> = languages.into_iter().collect();
+
+            summaries.push(CommunitySummary {
+                id: cid,
+                name: format!("Galaxy #{}: {}", cid, name),
+                node_count: members.len(),
+                top_symbols: top_symbols.clone(),
+                files: files_set.into_iter().collect(),
+            });
+
+            galaxy_records.push(GalaxyRecord {
+                workspace: workspace.to_string(),
+                galaxy_id: cid,
+                name: name.clone(),
+                dominant_path: dominant,
+                node_count: members.len(),
+                internal_edges,
+                external_edges: total_cut,
+                afferent_coupling: ca,
+                efferent_coupling: ce,
+                instability,
+                role,
+                key_symbols: top_symbols,
+                languages: langs_vec,
+                updated_at: None,
+            });
+        }
+
+        summaries.sort_by_key(|s| std::cmp::Reverse(s.node_count));
+        galaxy_records.sort_by_key(|g| std::cmp::Reverse(g.node_count));
+
+        (summaries, galaxy_records)
+    }
+
+    /// Infer community for a newly created AST node based on modal connection to existing graph
+    pub fn infer_neighbor_community(
+        node_id: &str,
+        all_links: &[DbLink],
+        node_communities: &HashMap<String, i32>,
+    ) -> Option<i32> {
+        let mut votes: HashMap<i32, f32> = HashMap::new();
+        for l in all_links {
+            if l.source == node_id {
+                if let Some(&c) = node_communities.get(&l.target) {
+                    *votes.entry(c).or_insert(0.0) += get_edge_weight(&l.edge_type);
+                }
+            } else if l.target == node_id {
+                if let Some(&c) = node_communities.get(&l.source) {
+                    *votes.entry(c).or_insert(0.0) += get_edge_weight(&l.edge_type);
+                }
+            }
+        }
+
+        votes
+            .into_iter()
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(c, _)| c)
     }
 
     /// Summarize detected communities (macroscopic view)

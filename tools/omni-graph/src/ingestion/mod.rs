@@ -246,11 +246,12 @@ impl IngestionPipeline {
             if let Ok((all_nodes, all_links)) = self.db.get_graph(Some(&workspace_name)).await {
                 if !all_nodes.is_empty() {
                     let assignments = CommunityDetector::detect(&all_nodes, &all_links, 15);
-                    let summaries = CommunityDetector::summarize_filtered(&all_nodes, &assignments, 1);
+                    let (summaries, galaxy_records) = CommunityDetector::compute_galaxy_metrics(&workspace_name, &all_nodes, &all_links, &assignments);
                     clusters_computed = summaries.len();
                     if let Err(e) = self.db.update_communities(&assignments).await {
                         warn!("Auto-clustering failed after ingestion for '{}': {}", workspace_name, e);
                     } else {
+                        let _ = self.db.store_galaxies(&workspace_name, &galaxy_records).await;
                         info!("Auto-clustered '{}' into {} modular communities", workspace_name, clusters_computed);
                     }
                 }

@@ -40,8 +40,8 @@ spec: ../../specs/catalog/omni-graph.md
 
 | Category | Done | Total | Percentage |
 |----------|------|-------|------------|
-| Requirements (R-XXX) | 28 | 28 | 100% |
-| Acceptance Criteria (AC-XXX) | 18 | 18 | 100% |
+| Requirements (R-XXX) | 30 | 30 | 100% |
+| Acceptance Criteria (AC-XXX) | 20 | 20 | 100% |
 | Non-Functional (NF-XXX) | 11 | 11 | 100% |
 
 ---
@@ -80,6 +80,8 @@ spec: ../../specs/catalog/omni-graph.md
 | R-026 | Omni-Graph Native Agent Interface (MCP / Antigravity Skill) | `.agents/skills/omni-graph/` | `tests/agent/` | ✅ |
 | R-027 | Automated Agent Setup CLI & Bootstrapper | `Makefile`, `scripts/setup-agent.sh` | `tests/setup/` | ✅ |
 | R-028 | Subgraph Context Condenser (<1500 tokens AST slice) | `src/condenser/` | `tests/condenser/` | ✅ |
+| R-029 | Dynamic Live Galaxy Clustering & LPA Seed Persistence | `src/watcher/`, `src/analysis/` | `tests/unit_tests.rs` | ✅ |
+| R-030 | Subsystem Boundary Contracts & Agent Actionable Advice | `src/api/`, `src/db/` | `tests/unit_tests.rs` | ✅ |
 
 **Status Legend**: ⬜ Not started · 🔨 In progress · ✅ Implemented · 🧪 Tested · ❌ Blocked
 

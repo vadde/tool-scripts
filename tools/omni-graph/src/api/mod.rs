@@ -100,6 +100,17 @@ pub struct ClusterPayload {
     pub min_size: Option<usize>,
 }
 
+#[derive(Deserialize)]
+pub struct GalaxyBoundaryParams {
+    pub symbol: String,
+    pub workspace: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct GalaxyTopologyParams {
+    pub workspace: Option<String>,
+}
+
 #[derive(Deserialize, Default)]
 pub struct BrowseParams {
     pub path: Option<String>,
@@ -173,6 +184,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/query", post(query_handler))
         .route("/api/cluster", post(cluster_handler))
         .route("/api/galaxies", get(galaxies_handler))
+        .route("/api/galaxy/boundary", get(galaxy_boundary_handler))
+        .route("/api/galaxy/topology", get(galaxy_topology_handler))
         .route("/api/ingest", post(ingest_handler))
         .route("/api/analytics", get(analytics_handler))
         .route("/api/analytics/session/:id", get(session_detail_handler))
@@ -771,9 +784,11 @@ async fn cluster_handler(
 
     match state.db.get_graph(workspace.as_deref()).await {
         Ok((nodes, links)) => {
+            let ws_name = workspace.clone().unwrap_or_else(|| "default".to_string());
             let assignments = CommunityDetector::detect(&nodes, &links, 15);
-            let summaries = CommunityDetector::summarize_filtered(&nodes, &assignments, min_size);
-            let total_communities = summaries.len();
+            let (summaries, galaxy_records) = CommunityDetector::compute_galaxy_metrics(&ws_name, &nodes, &links, &assignments);
+            let filtered_summaries: Vec<_> = summaries.into_iter().filter(|s| s.node_count >= min_size).collect();
+            let total_communities = filtered_summaries.len();
 
             if let Err(e) = state.db.update_communities(&assignments).await {
                 return (
@@ -783,13 +798,16 @@ async fn cluster_handler(
                     .into_response();
             }
 
+            let _ = state.db.store_galaxies(&ws_name, &galaxy_records).await;
+
             (
                 StatusCode::OK,
                 Json(serde_json::json!({
                     "status": "success",
                     "workspace": workspace,
                     "total_communities": total_communities,
-                    "communities": summaries
+                    "communities": filtered_summaries,
+                    "galaxies": galaxy_records
                 })),
             )
                 .into_response()
@@ -800,6 +818,99 @@ async fn cluster_handler(
         )
             .into_response(),
     }
+}
+
+/// GET /api/galaxy/boundary?symbol=<sym>&workspace=<ws>
+/// Returns architectural subsystem containment, caller contracts, and cross-boundary blast radius risk
+async fn galaxy_boundary_handler(
+    State(state): State<AppState>,
+    Query(params): Query<GalaxyBoundaryParams>,
+) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+    let ws = normalize_workspace(params.workspace.as_deref());
+    let sym = params.symbol.trim();
+
+    // Record telemetry asynchronously
+    let db = state.db.clone();
+    let ws_log = ws.clone().unwrap_or_else(|| "default".to_string());
+    let sym_str = sym.to_string();
+    tokio::spawn(async move {
+        let duration_ms = start.elapsed().as_millis() as i64;
+        let _ = db.record_agent_api_call(
+            "/api/galaxy/boundary",
+            &ws_log,
+            "Omni-Graph: Architectural Subsystem Boundary Contract",
+            Some(&sym_str),
+            None,
+            duration_ms,
+        ).await;
+    });
+
+    match state.db.get_symbol_boundary(sym, ws.as_deref()).await {
+        Ok(Some(info)) => (StatusCode::OK, Json(info)).into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!("Symbol '{}' not found in workspace '{:?}'", sym, ws),
+                "symbol": sym,
+                "workspace": ws
+            })),
+        ).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        ).into_response(),
+    }
+}
+
+/// GET /api/galaxy/topology?workspace=<ws>
+/// Returns macro architectural subsystem map, coupling metrics, and cross-galaxy dependencies
+async fn galaxy_topology_handler(
+    State(state): State<AppState>,
+    Query(params): Query<GalaxyTopologyParams>,
+) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+    let ws = normalize_workspace(params.workspace.as_deref());
+
+    // Record telemetry asynchronously
+    let db = state.db.clone();
+    let ws_log = ws.clone().unwrap_or_else(|| "default".to_string());
+    tokio::spawn(async move {
+        let duration_ms = start.elapsed().as_millis() as i64;
+        let _ = db.record_agent_api_call(
+            "/api/galaxy/topology",
+            &ws_log,
+            "Omni-Graph: Macro Subsystem Topology",
+            None,
+            None,
+            duration_ms,
+        ).await;
+    });
+
+    let mut records = state.db.get_galaxies_records(ws.as_deref()).await.unwrap_or_default();
+    if records.is_empty() {
+        // If galaxy table empty, compute on the fly
+        if let Ok((nodes, links)) = state.db.get_graph(ws.as_deref()).await {
+            if !nodes.is_empty() {
+                let ws_name = ws.clone().unwrap_or_else(|| "default".to_string());
+                let assignments = CommunityDetector::detect(&nodes, &links, 15);
+                let (_, computed_records) = CommunityDetector::compute_galaxy_metrics(&ws_name, &nodes, &links, &assignments);
+                let _ = state.db.update_communities(&assignments).await;
+                let _ = state.db.store_galaxies(&ws_name, &computed_records).await;
+                records = computed_records;
+            }
+        }
+    }
+
+    let inter_deps = state.db.get_inter_galaxy_dependencies(ws.as_deref()).await.unwrap_or_default();
+
+    Json(serde_json::json!({
+        "workspace": ws,
+        "total_galaxies": records.len(),
+        "galaxies": records,
+        "inter_galaxy_dependencies": inter_deps,
+        "duration_ms": start.elapsed().as_millis() as u64
+    })).into_response()
 }
 
 /// Allowlist of browseable root directories.

@@ -26,10 +26,12 @@ blockers: []
 
 | Metric | Done | Total | Status |
 |--------|------|-------|--------|
-| Spec Requirements (R-XXX) | 28 | 28 | 🟢 100% Complete |
-| Acceptance Criteria (AC-XXX) | 18 | 18 | 🟢 100% Complete |
+| Spec Requirements (R-XXX) | 30 | 30 | 🟢 100% Complete |
+| Acceptance Criteria (AC-XXX) | 20 | 20 | 🟢 100% Complete |
 | Non-Functional (NF-XXX) | 11 | 11 | 🟢 100% Complete |
-| Test Coverage | 49/49 Unit & Integration Tests | 49 | 🟢 100% Verified in Docker |
+| Test Coverage | 50/50 Unit & Integration Tests | 50 | 🟢 100% Verified in Docker |
+| Dynamic Live Galaxy Clustering (R-029) | Complete | — | 🟢 Seed-Preserving LPA & Quiescent Re-Clustering |
+| Agent Boundary Contracts (R-030) | Complete | — | 🟢 /api/galaxy/boundary & /api/galaxy/topology Live |
 | Agent Analytics & LSP Telemetry | Complete | — | 🟢 Live on Port 3000 & 8080 (Dual-Source Telemetry) |
 | Dynamic Live Delta Sync & Watch HUD | Complete | — | 🟢 Live on Port 3000 & 8080 |
 | Workspace Meta & Path Auto-Resolution | Complete | — | 🟢 Verified & Live in Docker |
@@ -69,6 +71,8 @@ blockers: []
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-09-30 | Dynamic Live Galaxy Clustering (Dual-Phase) | Instant single-file community inheritance in reindex_file + quiescent (3.5s) background re-clustering using seed-preserving weighted LPA |
+| 2026-09-30 | Agent Boundary Contracts (/api/galaxy/boundary) | Exposes macro subsystem containment, cross-galaxy callers, Robert C. Martin coupling metrics (Ca, Ce, Instability I), and actionable risk advice |
 | 2026-09-26 | Dual-Source Telemetry (SurrealDB + Transcripts) | Blends real-time SurrealDB `agent_api_call` events with IDE session logs using `max(t, db)` per capability/workspace |
 | 2026-09-24 | HNSW index (not MTREE) for vector similarity | SurrealDB v2 production-ready ANN index; MTREE deprecated/experimental |
 | 2026-09-24 | TEI CPU-only in Docker (not Metal) | macOS Docker doesn't support GPU passthrough; Metal only via native Homebrew |
@@ -83,10 +87,11 @@ blockers: []
 > _What to do when you pick this tool up. Updated at the end of every session._
 
 1. Multi-container stack (SurrealDB, TEI, Rust API, React UI) active and healthy
-2. Dual-source live agent telemetry and dynamic workspace capability attribution live on ports 3000 & 8080
-3. Dynamic Live Sync (6s) & Grounding Paradigm Hub active in UI
-4. 49/49 unit tests passing and verified in Docker
-5. Ready for human review and transition to `review` phase
+2. Dynamic Live Galaxy Clustering & Modularity Re-Indexing live on port 8080
+3. Agent Boundary Contracts (`/api/galaxy/boundary` & `/api/galaxy/topology`) live and verified
+4. Dual-source live agent telemetry and dynamic workspace capability attribution live on ports 3000 & 8080
+5. 50/50 unit & integration tests passing in Docker
+6. Ready for human review and validation on feature branch `feat/dynamic-galaxy-clustering-agent-primitives`
 
 ---
 
@@ -137,7 +142,9 @@ blockers: []
 | R-026 | Omni-Graph Native Agent Interface (MCP / Skill) | ✅ | ✅ |
 | R-027 | Automated Agent Setup CLI & Bootstrapper | ✅ | ✅ |
 | R-028 | Subgraph Context Condenser (<1500 tokens) | ✅ | ✅ |
+| R-029 | Dynamic Live Galaxy Clustering & LPA Seed Persistence | ✅ | ✅ |
+| R-030 | Subsystem Boundary Contracts & Agent Actionable Advice | ✅ | ✅ |
 
 ---
 
-_Last updated: 2026-09-25_
+_Last updated: 2026-09-30_

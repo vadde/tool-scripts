@@ -4,6 +4,40 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-30 — Dynamic Live Galaxy Clustering & Agent Actionable Boundary Contracts
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Feature: Dynamic Galaxy Clustering & Agent Primitives)
+**Branch**: `feat/dynamic-galaxy-clustering-agent-primitives`
+**Duration**: ~45m
+
+#### Problem & Architectural Motivation
+- While Omni-Graph computed file-level delta AST updates in real-time, galaxy clusters (communities) remained static unless manually triggered via `/api/cluster`.
+- More critically, community data was previously only consumed by the WebGL visualizer as raw integers (`community: 42`). AI coding agents had no actionable primitives to query macro subsystem boundaries, cross-boundary blast radii, or coupling metrics before refactoring symbols.
+
+#### What Was Done
+- **Schema-Full `galaxy` Table (`src/db/schema.surql`)**:
+  - Defined table `galaxy` storing macro architectural subsystem entities: `workspace`, `galaxy_id`, `name`, `dominant_path`, `node_count`, `internal_edges`, `external_edges`, `afferent_coupling` ($C_a$), `efferent_coupling` ($C_e$), `instability` ($I$), `role`, `key_symbols`, `languages`, and `updated_at`.
+- **Dual-Phase Dynamic Clustering**:
+  - **Phase 1 (Instant Single-File Inheritance in `watcher/pipeline.rs`)**:
+    - During incremental `reindex_file`, queries the previous community of the file (`get_file_community`) before pruning old nodes.
+    - Updated `store_nodes` to use SurrealQL `MERGE` rather than `CONTENT` to guarantee `community` assignments are never wiped during incremental AST updates.
+  - **Phase 2 (Quiescent Seed-Preserving Re-Clustering in `watcher/mod.rs` & `analysis/mod.rs`)**:
+    - Background task detects when file edits pause for $\ge 3.5$s (`last_event_processed_time`).
+    - Executes `detect_with_seeds`: edge-weighted Label Propagation Algorithm (`IMPLEMENTS` = 3.0, `CALLS` = 2.0, `TYPE_REF` = 1.5, `IMPORTS` = 1.0) with seed persistence to prevent cluster ID thrashing.
+    - Computes Robert C. Martin coupling metrics and subsystem roles (`"Core Foundation"` for $I \le 0.25$, `"Domain Service"` for $I \le 0.65$, `"Orchestrator / Leaf"` for $I > 0.65$).
+    - Persists updated `galaxy` records and emits a `"ClustersRefreshed"` SSE `WatchEvent`.
+- **Actionable Agent Endpoints (`src/api/mod.rs` & `src/db/mod.rs`)**:
+  - `GET /api/galaxy/topology?workspace=<ws>`: Returns high-level architectural map with coupling metrics and cross-galaxy dependency edges.
+  - `GET /api/galaxy/boundary?symbol=<sym>&workspace=<ws>`: Returns symbol architectural contract, home galaxy, internal vs foreign callers, and synthesized `agent_actionable_advice` (`risk_level`, `summary`, `rule_of_thumb`).
+  - Optimized `find_symbols` to rank exact definition matches ahead of import statements.
+- **Verification**:
+  - All 50/50 unit and integration tests passing in Docker (`unit_tests.rs`).
+  - Verified `/api/cluster`, `/api/galaxy/topology`, and `/api/galaxy/boundary` with live queries against `tool-scripts`.
+  - Rebuilt and restarted `omni-rust-app` container successfully.
+
+---
+
 ### 2026-09-30 — Architectural Root Prevention: Session-Scoped Recon Gate & Lifecycle Hooks
 
 **Agent/Author**: Antigravity (Google DeepMind)

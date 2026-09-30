@@ -71,7 +71,9 @@ impl IncrementalPipeline {
             }
         };
 
-        // 1. Prune old nodes and edges for this file before inserting fresh AST
+        // 1. Look up existing community for this file before pruning to preserve community assignment
+        let existing_comm = self.db.get_file_community(workspace, rel_path).await.unwrap_or(None);
+
         if let Err(e) = self.db.delete_file(workspace, rel_path).await {
             warn!("Failed to prune previous nodes for '{}': {}", rel_path, e);
         }
@@ -86,8 +88,8 @@ impl IncrementalPipeline {
             }
         };
 
-        // 3. Store new nodes
-        if let Err(e) = self.db.store_nodes(&parse_res.nodes, &embeddings, Some(&hash)).await {
+        // 3. Store new nodes with inherited community
+        if let Err(e) = self.db.store_nodes_with_community(&parse_res.nodes, &embeddings, Some(&hash), existing_comm).await {
             error!("Failed to store nodes during live sync for '{}': {}", rel_path, e);
             return Err(e);
         }

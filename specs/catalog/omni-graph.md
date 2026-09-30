@@ -86,6 +86,8 @@ All four services are orchestrated via Docker Compose on a dedicated network (`o
 | R-026 | Omni-Graph Native Agent Interface: First-class MCP server & Antigravity Skill (`skills/omni-graph/`) providing structured tools (`search_symbols`, `get_call_chain`, `query_subgraph`, `find_dependencies`) | Must | ⬜ | ⬜ | Symbolic agent tooling inspired by Serena |
 | R-027 | Automated Agent Setup & Onboarding CLI: Interactive bootstrap command (`make setup-agent` / `omni setup`) that configures workspace and global agent rules, skills, hooks, and MCP servers | Must | ⬜ | ⬜ | Validates container connectivity & sets up `.agents/` |
 | R-028 | Subgraph Context Condenser: Condenses multi-hop call traces and dependency chains into token-efficient (<1500 tokens) AST subgraphs for agent prompts | Must | ⬜ | ⬜ | Replaces 50K-token raw file dumps with high-fidelity graph slices |
+| R-029 | Dynamic Live Galaxy Clustering & LPA Seed Persistence: Dual-phase dynamic clustering with single-file community inheritance in `reindex_file` and quiescent (3.5s) background re-clustering via edge-weighted Label Propagation Algorithm with seed preservation | Must | ✅ | ✅ | Eliminates cluster ID thrashing and preserves subsystem identity across edits |
+| R-030 | Subsystem Boundary Contracts & Agent Actionable Advice: REST API endpoints (`GET /api/galaxy/boundary` & `GET /api/galaxy/topology`) exposing subsystem containment, cross-galaxy callers, coupling metrics (Ca, Ce, I), and synthesized agent advice | Must | ✅ | ✅ | Provides high-signal architectural risk contracts for refactoring agents |
 
 **Priority levels**: Must (required for MVP), Should (important), Could (nice-to-have)
 
@@ -376,6 +378,8 @@ Tests that MUST pass for this spec to be considered satisfied:
 | AC-016 | Given Omni-Graph MCP server or Antigravity Skill, when an agent invokes `search_symbols` or `get_call_chain`, then structured AST results return in <100ms | R-026 |
 | AC-017 | Given `make setup-agent` execution, then `.agents/rules/`, `.agents/skills/omni-graph/`, and `.agents/hooks.json` are installed and validated against local services | R-027 |
 | AC-018 | Given a cross-file call chain query, when condensed, then subgraph returns <=1500 tokens of high-density semantic context rather than full raw files | R-028 |
+| AC-019 | Given continuous file edits in a live watched workspace, when file editing pauses for >=3.5s, then dynamic galaxy clustering runs automatically in the background and preserves existing cluster IDs via LPA seeds | R-029 |
+| AC-020 | Given a symbol query to `/api/galaxy/boundary`, then the response returns architectural containment, home galaxy, internal vs foreign callers, and an actionable risk advisory | R-030 |
 
 ---
 

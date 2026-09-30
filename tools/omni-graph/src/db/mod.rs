@@ -6,7 +6,7 @@ use crate::parser::{ExtractedEdge, ExtractedNode};
 use reqwest::header::{ACCEPT, AUTHORIZATION};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tracing::info;
 
@@ -75,6 +75,73 @@ pub struct SearchResult {
     pub text: String,
     pub similarity: f32,
     pub community: Option<i32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GalaxyRecord {
+    pub workspace: String,
+    pub galaxy_id: i32,
+    pub name: String,
+    pub dominant_path: String,
+    pub node_count: usize,
+    pub internal_edges: usize,
+    pub external_edges: usize,
+    pub afferent_coupling: usize, // Ca
+    pub efferent_coupling: usize, // Ce
+    pub instability: f64,         // Ce / (Ca + Ce)
+    pub role: String,             // Core Foundation, Domain Service, Orchestrator
+    pub key_symbols: Vec<String>,
+    pub languages: Vec<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GalaxySubsystemRef {
+    pub id: i32,
+    pub name: String,
+    pub dominant_path: String,
+    pub instability: f64,
+    pub role: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CallerRef {
+    pub symbol: String,
+    pub kind: String,
+    pub file_path: String,
+    pub line_start: usize,
+    pub galaxy_id: Option<i32>,
+    pub galaxy_name: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContainmentStatus {
+    pub is_exported: bool,
+    pub internal_callers_count: usize,
+    pub cross_galaxy_callers_count: usize,
+    pub architectural_status: String, // "INTERNAL_ONLY", "BOUNDARY_CROSSING", "ISOLATED"
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AgentBoundaryAdvice {
+    pub risk_level: String, // "LOW", "MEDIUM", "HIGH"
+    pub summary: String,
+    pub rule_of_thumb: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SymbolBoundaryInfo {
+    pub symbol: String,
+    pub kind: String,
+    pub file_path: String,
+    pub line_start: usize,
+    pub workspace: String,
+    pub home_galaxy: Option<GalaxySubsystemRef>,
+    pub containment: ContainmentStatus,
+    pub internal_callers: Vec<CallerRef>,
+    pub cross_galaxy_callers: Vec<CallerRef>,
+    pub agent_actionable_advice: AgentBoundaryAdvice,
 }
 
 #[allow(dead_code)]
@@ -214,12 +281,28 @@ impl DbClient {
         embeddings: &[Vec<f32>],
         file_hash: Option<&str>,
     ) -> Result<(), String> {
+        self.store_nodes_with_community(nodes, embeddings, file_hash, None).await
+    }
+
+    /// Batch insert/merge nodes with optional community assignment (preserves existing community if None)
+    pub async fn store_nodes_with_community(
+        &self,
+        nodes: &[ExtractedNode],
+        embeddings: &[Vec<f32>],
+        file_hash: Option<&str>,
+        default_community: Option<i32>,
+    ) -> Result<(), String> {
         if nodes.is_empty() {
             return Ok(());
         }
 
         let hash_field = match file_hash {
             Some(h) => format!(", file_hash: '{}'", surql_escape(h)),
+            None => String::new(),
+        };
+
+        let comm_field = match default_community {
+            Some(c) => format!(", community: {}", c),
             None => String::new(),
         };
 
@@ -236,9 +319,10 @@ impl DbClient {
                 let escaped_kind = surql_escape(&node.kind);
                 let escaped_lang = surql_escape(&node.language);
 
+                // Use MERGE instead of CONTENT so that existing fields like community are preserved when not explicitly overridden
                 query.push_str(&format!(
-                    "UPSERT type::thing('node', '{}') CONTENT {{ workspace: '{}', label: '{}', kind: '{}', file_path: '{}', language: '{}', line_start: {}, line_end: {}, text: '{}', embedding: {}{} }};\n",
-                    escaped_id, escaped_ws, escaped_label, escaped_kind, escaped_path, escaped_lang, node.line_start, node.line_end, escaped_text, emb_str, hash_field
+                    "UPSERT type::thing('node', '{}') MERGE {{ workspace: '{}', label: '{}', kind: '{}', file_path: '{}', language: '{}', line_start: {}, line_end: {}, text: '{}', embedding: {}{}{} }};\n",
+                    escaped_id, escaped_ws, escaped_label, escaped_kind, escaped_path, escaped_lang, node.line_start, node.line_end, escaped_text, emb_str, hash_field, comm_field
                 ));
             }
             self.query_sql(&query).await?;
@@ -521,6 +605,19 @@ impl DbClient {
                 }
             }
         }
+        results.sort_by(|a, b| {
+            let exact_a = a.label == name;
+            let exact_b = b.label == name;
+            if exact_a != exact_b {
+                return exact_b.cmp(&exact_a);
+            }
+            let is_import_a = a.kind == "import";
+            let is_import_b = b.kind == "import";
+            if is_import_a != is_import_b {
+                return is_import_a.cmp(&is_import_b);
+            }
+            a.id.cmp(&b.id)
+        });
 
         Ok(results)
     }
@@ -716,6 +813,216 @@ impl DbClient {
             return Ok(arr.clone());
         }
         Ok(Vec::new())
+    }
+
+    /// Store computed architectural galaxy subsystems with coupling metrics
+    pub async fn store_galaxies(&self, workspace: &str, galaxies: &[GalaxyRecord]) -> Result<(), String> {
+        if galaxies.is_empty() {
+            return Ok(());
+        }
+
+        let esc_ws = surql_escape(workspace);
+        let delete_q = format!("DELETE galaxy WHERE workspace = '{}';", esc_ws);
+        let _ = self.query_sql(&delete_q).await;
+
+        let mut query = String::new();
+        for g in galaxies {
+            let key_syms_json = serde_json::to_string(&g.key_symbols).unwrap_or_else(|_| "[]".to_string());
+            let langs_json = serde_json::to_string(&g.languages).unwrap_or_else(|_| "[]".to_string());
+            let id_str = format!("{}:{}", g.workspace, g.galaxy_id);
+            let esc_id = surql_escape(&id_str);
+            let esc_name = surql_escape(&g.name);
+            let esc_dom = surql_escape(&g.dominant_path);
+            let esc_role = surql_escape(&g.role);
+
+            query.push_str(&format!(
+                "UPSERT type::thing('galaxy', '{}') CONTENT {{ \
+                    workspace: '{}', galaxy_id: {}, name: '{}', dominant_path: '{}', \
+                    node_count: {}, internal_edges: {}, external_edges: {}, \
+                    afferent_coupling: {}, efferent_coupling: {}, instability: {}, \
+                    role: '{}', key_symbols: {}, languages: {}, updated_at: time::now() \
+                }};\n",
+                esc_id, esc_ws, g.galaxy_id, esc_name, esc_dom,
+                g.node_count, g.internal_edges, g.external_edges,
+                g.afferent_coupling, g.efferent_coupling, g.instability,
+                esc_role, key_syms_json, langs_json
+            ));
+        }
+
+        self.query_sql(&query).await?;
+        info!("Persisted {} architectural galaxy records for '{}'", galaxies.len(), workspace);
+        Ok(())
+    }
+
+    /// Retrieve stored architectural galaxy subsystem records
+    pub async fn get_galaxies_records(&self, workspace: Option<&str>) -> Result<Vec<GalaxyRecord>, String> {
+        let ws_filter = match workspace {
+            Some(ws) if !ws.is_empty() => format!("WHERE workspace = '{}'", surql_escape(ws)),
+            _ => String::new(),
+        };
+        let q = format!("SELECT * FROM galaxy {} ORDER BY node_count DESC;", ws_filter);
+        let resp = self.query_sql(&q).await?;
+        let mut results = Vec::new();
+        if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            for item in arr {
+                if let Ok(rec) = serde_json::from_value::<GalaxyRecord>(item.clone()) {
+                    results.push(rec);
+                }
+            }
+        }
+        Ok(results)
+    }
+
+    /// Look up existing community ID for a given file
+    pub async fn get_file_community(&self, workspace: &str, file_path: &str) -> Result<Option<i32>, String> {
+        let esc_ws = surql_escape(workspace);
+        let esc_path = surql_escape(file_path);
+        let q = format!(
+            "SELECT VALUE community FROM node WHERE workspace = '{}' AND file_path = '{}' AND community IS NOT NONE LIMIT 1;",
+            esc_ws, esc_path
+        );
+        let resp = self.query_sql(&q).await?;
+        if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            if let Some(val) = arr.first().and_then(|v| v.as_i64()) {
+                return Ok(Some(val as i32));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Retrieve symbol architectural boundary contract and cross-galaxy blast radius
+    pub async fn get_symbol_boundary(&self, symbol: &str, workspace: Option<&str>) -> Result<Option<SymbolBoundaryInfo>, String> {
+        let symbols = self.find_symbols(symbol, workspace).await?;
+        let target = match symbols.into_iter().next() {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+        let target_ws = target.workspace.clone().unwrap_or_else(|| workspace.unwrap_or("default").to_string());
+        let target_community = target.community;
+
+        // Fetch callers of the target symbol
+        let callers = self.find_references(symbol, Some(&target_ws)).await.unwrap_or_default();
+
+        // Fetch galaxy records for context
+        let galaxies = self.get_galaxies_records(Some(&target_ws)).await.unwrap_or_default();
+        let galaxy_map: HashMap<i32, &GalaxyRecord> = galaxies.iter().map(|g| (g.galaxy_id, g)).collect();
+
+        let home_galaxy = target_community.and_then(|cid| {
+            galaxy_map.get(&cid).map(|g| GalaxySubsystemRef {
+                id: g.galaxy_id,
+                name: g.name.clone(),
+                dominant_path: g.dominant_path.clone(),
+                instability: g.instability,
+                role: g.role.clone(),
+            })
+        });
+
+        let mut internal_callers = Vec::new();
+        let mut cross_galaxy_callers = Vec::new();
+
+        for c in callers {
+            let caller_cid = c.community;
+            let caller_gname = caller_cid.and_then(|id| galaxy_map.get(&id).map(|g| g.name.clone()));
+            let caller_ref = CallerRef {
+                symbol: c.label.clone(),
+                kind: c.kind.clone(),
+                file_path: c.file_path.clone(),
+                line_start: c.line_start,
+                galaxy_id: caller_cid,
+                galaxy_name: caller_gname,
+            };
+
+            if caller_cid == target_community && target_community.is_some() {
+                internal_callers.push(caller_ref);
+            } else {
+                cross_galaxy_callers.push(caller_ref);
+            }
+        }
+
+        let is_exported = true; // AST level symbol
+        let internal_cnt = internal_callers.len();
+        let cross_cnt = cross_galaxy_callers.len();
+
+        let (arch_status, risk_level, summary, rule_of_thumb) = if cross_cnt > 0 {
+            let foreign_galaxies: HashSet<String> = cross_galaxy_callers
+                .iter()
+                .filter_map(|c| c.galaxy_name.clone().or_else(|| c.galaxy_id.map(|id| format!("Galaxy #{}", id))))
+                .collect();
+            let foreign_list = foreign_galaxies.into_iter().collect::<Vec<_>>().join(", ");
+            let risk = if cross_cnt >= 3 || foreign_list.contains(',') { "HIGH" } else { "MEDIUM" };
+            (
+                "BOUNDARY_CROSSING".to_string(),
+                risk.to_string(),
+                format!("Symbol '{}' is called by {} foreign components across boundary subsystems: {}.", symbol, cross_cnt, foreign_list),
+                format!("⚠️ ARCHITECTURAL CONTRACT: Modifying this symbol signature requires coordinated updates across external subsystems ({}). Internal callers ({}) within the home galaxy are safe.", foreign_list, internal_cnt),
+            )
+        } else if internal_cnt > 0 {
+            (
+                "INTERNAL_ONLY".to_string(),
+                "LOW".to_string(),
+                format!("Symbol '{}' has {} internal callers strictly contained within its home galaxy.", symbol, internal_cnt),
+                "✅ INTERNAL SUBSYSTEM DETAIL: Change is 100% contained within the home galaxy. Safe to refactor without breaking foreign architectural boundaries.".to_string(),
+            )
+        } else {
+            (
+                "ISOLATED".to_string(),
+                "LOW".to_string(),
+                format!("Symbol '{}' has zero recorded callers in the AST graph.", symbol),
+                "ℹ️ ISOLATED COMPONENT: No callers found in graph. Check if this is an external API entry point or unreferenced code.".to_string(),
+            )
+        };
+
+        Ok(Some(SymbolBoundaryInfo {
+            symbol: target.label,
+            kind: target.kind,
+            file_path: target.file_path,
+            line_start: target.line_start,
+            workspace: target_ws,
+            home_galaxy,
+            containment: ContainmentStatus {
+                is_exported,
+                internal_callers_count: internal_cnt,
+                cross_galaxy_callers_count: cross_cnt,
+                architectural_status: arch_status,
+            },
+            internal_callers,
+            cross_galaxy_callers,
+            agent_actionable_advice: AgentBoundaryAdvice {
+                risk_level,
+                summary,
+                rule_of_thumb,
+            },
+        }))
+    }
+
+    /// Retrieve cross-galaxy architectural dependency edges
+    pub async fn get_inter_galaxy_dependencies(
+        &self,
+        workspace: Option<&str>,
+    ) -> Result<Vec<serde_json::Value>, String> {
+        let ws_filter = match workspace {
+            Some(ws) if !ws.is_empty() => format!("WHERE workspace = '{}'", surql_escape(ws)),
+            _ => String::new(),
+        };
+        let clause = if ws_filter.is_empty() {
+            "WHERE".to_string()
+        } else {
+            format!("{} AND", ws_filter)
+        };
+        let q = format!(
+            "SELECT in.community AS from_galaxy, out.community AS to_galaxy, in.label AS source_symbol, out.label AS target_symbol, type AS edge_type \
+             FROM linked_to {} in.community IS NOT NONE AND out.community IS NOT NONE AND in.community != out.community LIMIT 200;",
+            clause
+        );
+        let resp = self.query_sql(&q).await?;
+        let mut results = Vec::new();
+        if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            for item in arr {
+                results.push(item.clone());
+            }
+        }
+        Ok(results)
     }
 }
 

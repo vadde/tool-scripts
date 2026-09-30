@@ -9,6 +9,7 @@
 pub mod delta;
 pub mod pipeline;
 
+use crate::analysis::CommunityDetector;
 use crate::db::DbClient;
 use crate::embedder::EmbedderClient;
 use crate::ingestion::FileCache;
@@ -314,7 +315,7 @@ async fn run_watcher(
     if let Ok(hashes) = db.get_file_hashes(&workspace).await {
         cache.populate(hashes).await;
     }
-    let pipeline = IncrementalPipeline::new(db, embedder, cache);
+    let pipeline = IncrementalPipeline::new(db.clone(), embedder, cache);
     let debounce_duration = Duration::from_millis(debounce_ms);
     let mut pending_events: Vec<Event> = Vec::new();
     let mut last_batch_time = Instant::now();
@@ -324,6 +325,7 @@ async fn run_watcher(
     let mut total_sync_ms: u64 = 0;
     let mut sync_count: u64 = 0;
     let mut files_changed_since_cluster: u64 = 0;
+    let mut last_event_processed_time = Instant::now();
 
     loop {
         tokio::select! {
@@ -396,6 +398,7 @@ async fn run_watcher(
                         total_sync_ms += elapsed_ms;
                         sync_count += 1;
                         files_changed_since_cluster += changeset.events.len() as u64;
+                        last_event_processed_time = Instant::now();
 
                         // Update status
                         {
@@ -480,6 +483,7 @@ async fn run_watcher(
                         total_sync_ms += elapsed_ms;
                         sync_count += 1;
                         files_changed_since_cluster += changeset.events.len() as u64;
+                        last_event_processed_time = Instant::now();
 
                         {
                             let mut s = status.write().await;
@@ -527,6 +531,41 @@ async fn run_watcher(
                         });
                     }
                     info!("Periodic sweep pruned {} missing files in '{}'", pruned.len(), workspace);
+                }
+
+                // Quiescent auto-clustering: If files have changed and editing has paused for >= 3.5 seconds,
+                // automatically recompute communities in memory, update DB, and emit SSE notification.
+                if files_changed_since_cluster > 0 && last_event_processed_time.elapsed() >= Duration::from_millis(3500) {
+                    info!("Quiescent period detected for '{}' ({} pending changes) -> auto-reclustering galaxies...", workspace, files_changed_since_cluster);
+                    if let Ok((nodes, links)) = db.get_graph(Some(&workspace)).await {
+                        if !nodes.is_empty() {
+                            let mut seeds = HashMap::new();
+                            for n in &nodes {
+                                if let Some(c) = n.community {
+                                    seeds.insert(n.id.clone(), c);
+                                }
+                            }
+                            let assignments = CommunityDetector::detect_with_seeds(&nodes, &links, 15, Some(&seeds));
+                            let (_, galaxy_records) = CommunityDetector::compute_galaxy_metrics(&workspace, &nodes, &links, &assignments);
+                            if let Err(e) = db.update_communities(&assignments).await {
+                                warn!("Failed to update communities during live auto-recluster for '{}': {}", workspace, e);
+                            } else {
+                                let _ = db.store_galaxies(&workspace, &galaxy_records).await;
+                                info!("Auto-reclustered '{}' into {} active galaxies in background", workspace, galaxy_records.len());
+
+                                let mut s = status.write().await;
+                                s.cluster_status = "live".to_string();
+                                let _ = event_tx.send(WatchEvent {
+                                    workspace: workspace.clone(),
+                                    kind: "ClustersRefreshed".to_string(),
+                                    file_path: format!("{} galaxies computed", galaxy_records.len()),
+                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    sync_ms: Some(0),
+                                });
+                            }
+                        }
+                    }
+                    files_changed_since_cluster = 0;
                 }
             }
         }
