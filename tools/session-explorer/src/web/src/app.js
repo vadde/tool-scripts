@@ -26,6 +26,7 @@ const state = {
   selectedSessionId: null,
   selectedSessionDetail: null,
   currentView: 'dashboard', // 'dashboard' | 'detail'
+  groupBy: localStorage.getItem('se_group_by') || 'project', // 'project' | 'date' | 'flat'
   filterWorkspace: '',
   dateFrom: '',
   dateTo: '',
@@ -102,7 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initEventListeners();
   initLiveWatch();
-  loadSessions();
+  applyDatePreset('7d');
 });
 
 // Theme Management
@@ -133,13 +134,6 @@ function showToast(message) {
     el.toast.classList.remove('active');
   }, 2500);
 }
-
-// Event Listeners
-function initEventListeners() {
-  if (el.themeToggleBtn) el.themeToggleBtn.addEventListener('click', toggleTheme);
-  if (el.refreshBtn) el.refreshBtn.addEventListener('click', () => refreshData(false));
-  if (el.insightsBtn) el.insightsBtn.addEventListener('click', openInsightsModal);
-  if (el.closeInsightsModalBtn) el.closeInsightsModalBtn.addEventListener('click', closeInsightsModal);
 
 // Live Watch Management
 let liveTimer = null;
@@ -238,6 +232,13 @@ async function refreshData(silent = false) {
   }
 }
 
+// Event Listeners
+function initEventListeners() {
+  if (el.themeToggleBtn) el.themeToggleBtn.addEventListener('click', toggleTheme);
+  if (el.refreshBtn) el.refreshBtn.addEventListener('click', () => refreshData(false));
+  if (el.insightsBtn) el.insightsBtn.addEventListener('click', openInsightsModal);
+  if (el.closeInsightsModalBtn) el.closeInsightsModalBtn.addEventListener('click', closeInsightsModal);
+
   // Global search triggers
   if (el.globalSearchInput) {
     el.globalSearchInput.addEventListener('focus', () => {
@@ -311,7 +312,13 @@ async function refreshData(silent = false) {
   const handleDateChange = () => {
     state.dateFrom = el.dateFromInput ? el.dateFromInput.value : '';
     state.dateTo = el.dateToInput ? el.dateToInput.value : '';
-    el.datePresets.forEach(p => p.classList.remove('active'));
+    if (el.datePresets) {
+      el.datePresets.forEach(p => p.classList.remove('active'));
+      if (!state.dateFrom && !state.dateTo) {
+        const allPreset = Array.from(el.datePresets).find(p => p.dataset.preset === 'all');
+        if (allPreset) allPreset.classList.add('active');
+      }
+    }
     loadSessions();
   };
 
@@ -328,8 +335,6 @@ async function refreshData(silent = false) {
   // Date Presets
   el.datePresets.forEach(preset => {
     preset.addEventListener('click', () => {
-      el.datePresets.forEach(p => p.classList.remove('active'));
-      preset.classList.add('active');
       applyDatePreset(preset.dataset.preset);
     });
   });
@@ -430,6 +435,12 @@ function formatLocalDate(d) {
 
 // Date Presets Logic (R-010)
 function applyDatePreset(preset) {
+  if (el.datePresets) {
+    el.datePresets.forEach(p => {
+      p.classList.toggle('active', p.dataset.preset === preset);
+    });
+  }
+
   const now = new Date();
   let from = '';
   let to = '';
@@ -454,6 +465,7 @@ function applyDatePreset(preset) {
       break;
     }
     case 'all':
+    default:
       from = '';
       to = '';
       break;

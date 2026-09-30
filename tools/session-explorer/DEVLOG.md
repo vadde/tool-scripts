@@ -6,6 +6,36 @@
 
 ---
 
+### 2026-09-30 — Bugfix: Resolve Initial Landing ReferenceError, Scope Live Watch & Default to 7-Day Date Filter
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `review` (Bugfix / Runtime stability)
+**Duration**: ~15m
+
+#### What Was Done
+- **Root-Cause Analysis of "Loading..." on Default Landing**:
+  1. In `src/web/src/app.js`, `initLiveWatch()`, `setLiveInterval()`, `updateLastSyncLabel()`, `refreshData()`, and their timers were declared inside the scope of `initEventListeners()`.
+  2. On `DOMContentLoaded`, after calling `initEventListeners()`, calling `initLiveWatch()` resulted in an uncaught `ReferenceError: initLiveWatch is not defined`.
+  3. This uncaught exception terminated the initialization thread before `loadSessions()` could execute. The `#sessionCountBadge` remained stuck displaying its static HTML placeholder (`Loading...`), and date inputs remained blank placeholders (`mm/dd/yyyy`).
+  4. Interacting with any filter chips subsequently fired an individual click handler that directly invoked `loadSessions()` or `applyDatePreset()`, which is why shuffling filters appeared to "wake up" the page.
+  5. Secondary issue: `state.groupBy` was missing from initial `state`, causing button active state desync on page reload.
+- **Comprehensive Solution Implemented**:
+  1. **Scoping Fix**: Extracted `liveTimer`, `lastSyncTimer`, `initLiveWatch`, `setLiveInterval`, `updateLastSyncLabel`, and `refreshData` out of `initEventListeners` into module scope.
+  2. **Landing Preset Configuration**: Configured `DOMContentLoaded` to execute `applyDatePreset('7d')` on initial landing, populating date inputs with ISO `YYYY-MM-DD` strings, highlighting the "7 Days" chip, and immediately loading recent sessions.
+  3. **Bidirectional Preset Sync**: Updated `applyDatePreset` to toggle active classes across all `.date-preset-chip` elements. Updated `handleDateChange` so that clearing both inputs automatically re-highlights "All Time" (`all`).
+  4. **HTML Placeholder Polish**: Updated `#sessionCountBadge` placeholder to `--` and marked `data-preset="7d"` as `active` in `index.html`.
+  5. **State Initialization**: Added `groupBy: localStorage.getItem('se_group_by') || 'project'` to `state`.
+  6. **Rebuild & Verification**: Rebundled frontend with Bun into `src/web/dist/app.bundle.js` and recompiled standalone Go binary `bin/session-explorer`. All 15 unit tests pass (`make test`).
+
+#### Files Changed
+- `src/web/src/app.js` — Scoped live watch functions to module level, added `groupBy` to state, synced preset chips, initialized landing to 7d.
+- `src/web/index.html` — Updated active chip to 7d and badge placeholder to `--`.
+- `src/web/dist/app.bundle.js` — Bun bundle updated.
+- `src/web/dist/index.html` — Synced with `index.html`.
+- `bin/session-explorer` — Standalone Go binary recompiled.
+
+---
+
 ### 2026-09-29 — Holistic Workspace Deduplication, Re-scan Leakage Prevention & Canonical Sanitization
 
 **Agent/Author**: Antigravity (Google DeepMind)
