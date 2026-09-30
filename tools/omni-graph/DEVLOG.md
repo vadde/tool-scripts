@@ -31,10 +31,15 @@
   - `GET /api/galaxy/topology?workspace=<ws>`: Returns high-level architectural map with coupling metrics and cross-galaxy dependency edges.
   - `GET /api/galaxy/boundary?symbol=<sym>&workspace=<ws>`: Returns symbol architectural contract, home galaxy, internal vs foreign callers, and synthesized `agent_actionable_advice` (`risk_level`, `summary`, `rule_of_thumb`).
   - Optimized `find_symbols` to rank exact definition matches ahead of import statements.
+- **UI/UX Architecture Overhaul (`ui/src/`)**:
+  - **`BoundaryContractCard.tsx`**: Integrated into Node Inspector drawer. Displays architectural containment badge (`🛡️ Contained Internal`, `⚠️ Boundary Crossing`, `🔌 Isolated`), home galaxy with role badge, internal vs foreign cross-subsystem callers with click-to-navigate action, glowing risk advice banner (`HIGH`, `MEDIUM`, `LOW`), and one-click "Copy Boundary Contract for Agent" button.
+  - **`SubsystemTopologyHub.tsx`**: Integrated into Galaxy Subsystems drawer with View Mode Toggle (`Macro Topology & Coupling` vs `Flat Explorer`). Features global subsystem metric cards (Core Foundation, Domain Services, Leaves), Instability ($I$) progress meters with gradient visualization, coupling counts ($C_a, C_e$, internal links), key exported symbols, and direct `[ 🎯 Isolate in 3D ]` action.
+  - **Top Navigation HUD**: Added `● Live Modularity` watch chip that pulses when active and links directly to the macro topology hub. Added real-time SSE listener for `cluster` events.
 - **Verification**:
   - All 50/50 unit and integration tests passing in Docker (`unit_tests.rs`).
+  - Frontend production build (`tsc && vite build`) passed with zero errors in 2.99s.
   - Verified `/api/cluster`, `/api/galaxy/topology`, and `/api/galaxy/boundary` with live queries against `tool-scripts`.
-  - Rebuilt and restarted `omni-rust-app` container successfully.
+  - Rebuilt and restarted both `omni-rust-app` and `omni-graph-ui` containers successfully.
 
 ---
 

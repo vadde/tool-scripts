@@ -32,6 +32,7 @@ blockers: []
 | Test Coverage | 50/50 Unit & Integration Tests | 50 | 🟢 100% Verified in Docker |
 | Dynamic Live Galaxy Clustering (R-029) | Complete | — | 🟢 Seed-Preserving LPA & Quiescent Re-Clustering |
 | Agent Boundary Contracts (R-030) | Complete | — | 🟢 /api/galaxy/boundary & /api/galaxy/topology Live |
+| UI/UX Macro Topology Hub & Boundary Inspector | Complete | — | 🟢 Live on Port 3000 (Topology Hub & Inspector) |
 | Agent Analytics & LSP Telemetry | Complete | — | 🟢 Live on Port 3000 & 8080 (Dual-Source Telemetry) |
 | Dynamic Live Delta Sync & Watch HUD | Complete | — | 🟢 Live on Port 3000 & 8080 |
 | Workspace Meta & Path Auto-Resolution | Complete | — | 🟢 Verified & Live in Docker |

@@ -26,8 +26,11 @@ import {
   Activity,
   Play,
   Square,
+  Boxes,
 } from 'lucide-react';
 import AgentAnalytics from './AgentAnalytics';
+import BoundaryContractCard from './BoundaryContractCard';
+import SubsystemTopologyHub, { GalaxyRecord, GalaxyDependencyEdge } from './SubsystemTopologyHub';
 
 interface GraphNode {
   id: string;
@@ -146,6 +149,11 @@ export default function App() {
   const [visibleClusterCount, setVisibleClusterCount] = useState(60);
   const [expandedAllNodes, setExpandedAllNodes] = useState<{ [clusterId: number]: boolean }>({});
 
+  // Dynamic Macro Topology state (R-029, R-030)
+  const [topologyGalaxies, setTopologyGalaxies] = useState<GalaxyRecord[]>([]);
+  const [topologyDependencies, setTopologyDependencies] = useState<GalaxyDependencyEdge[]>([]);
+  const [galaxyViewMode, setGalaxyViewMode] = useState<'topology' | 'flat'>('topology');
+
   // Directory Browser Modal state
   const [isBrowserModalOpen, setIsBrowserModalOpen] = useState(false);
   const [browsePath, setBrowsePath] = useState<string>('/workspace');
@@ -256,6 +264,21 @@ export default function App() {
     }
   };
 
+  const loadGalaxyTopology = async (wsFilter?: string | null) => {
+    try {
+      const ws = wsFilter !== undefined ? wsFilter : selectedWorkspace;
+      const qs = ws ? `workspace=${encodeURIComponent(ws)}&_t=${Date.now()}` : `_t=${Date.now()}`;
+      const res = await fetch(`/api/galaxy/topology?${qs}`);
+      if (res.ok) {
+        const json = await res.json();
+        setTopologyGalaxies(json.galaxies || []);
+        setTopologyDependencies(json.dependencies || []);
+      }
+    } catch (err) {
+      console.warn('Failed to load galaxy topology', err);
+    }
+  };
+
   const loadGraph = async (wsFilter?: string | null) => {
     try {
       const qs = wsFilter
@@ -268,6 +291,7 @@ export default function App() {
         setNodes(gJson.nodes || []);
         setLinks(gJson.links || []);
       }
+      loadGalaxyTopology(wsFilter);
     } catch (err) {
       console.warn('Failed to load graph data', err);
     }
@@ -292,6 +316,7 @@ export default function App() {
     loadHealth();
     loadWorkspaces();
     loadGraph(selectedWorkspace);
+    loadGalaxyTopology(selectedWorkspace);
     fetchWatchers();
 
     const interval = setInterval(() => {
@@ -312,6 +337,18 @@ export default function App() {
           loadWorkspaces();
         } catch (err) {
           console.warn('SSE parse error', err);
+        }
+      });
+
+      es.addEventListener('cluster', (e: MessageEvent) => {
+        try {
+          const evt = JSON.parse(e.data);
+          setWatchToast(`🌌 Dynamic Live Modularity: [${evt.workspace}] ${evt.total_clusters} galaxies re-indexed`);
+          setTimeout(() => setWatchToast(null), 3500);
+          loadGalaxyTopology(selectedWorkspace);
+          loadGraph(selectedWorkspace);
+        } catch (err) {
+          console.warn('SSE cluster parse error', err);
         }
       });
     } catch (err) {
@@ -1077,6 +1114,33 @@ export default function App() {
             </button>
           )}
 
+          {/* Dynamic Galaxy Watch Status Chip */}
+          {activeWatchers.some((w) => w.status === 'watching') && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '4px 9px',
+                borderRadius: 12,
+                background: 'rgba(52, 211, 153, 0.12)',
+                border: '1px solid rgba(52, 211, 153, 0.35)',
+                fontSize: '0.68rem',
+                fontWeight: 600,
+                color: 'var(--accent-emerald)',
+                cursor: 'pointer',
+              }}
+              onClick={() => {
+                setIsGalaxyDrawerOpen(true);
+                setGalaxyViewMode('topology');
+              }}
+              title="Dynamic Live Galaxy Re-Clustering active: quiescent 3.5s background seed-preserving LPA"
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--accent-emerald)' }} className="pulsing-dot" />
+              <span>Live Modularity</span>
+            </div>
+          )}
+
           {/* Quick Cluster Button if no clusters exist */}
           {clusters.length === 0 && nodes.length > 0 && (
             <button
@@ -1397,7 +1461,79 @@ export default function App() {
           </div>
         </div>
 
-        {/* Filter input for galaxies & symbols */}
+        {/* View Mode Toggle: Topology Hub vs Flat Tree */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 4,
+            background: 'rgba(0, 0, 0, 0.4)',
+            padding: 3,
+            borderRadius: 8,
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+          }}
+        >
+          <button
+            onClick={() => setGalaxyViewMode('topology')}
+            style={{
+              padding: '6px 8px',
+              borderRadius: 6,
+              border: 'none',
+              background: galaxyViewMode === 'topology' ? 'var(--accent-purple)' : 'transparent',
+              color: galaxyViewMode === 'topology' ? '#fff' : 'var(--text-muted)',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <Boxes size={13} />
+            <span>Macro Topology</span>
+          </button>
+          <button
+            onClick={() => setGalaxyViewMode('flat')}
+            style={{
+              padding: '6px 8px',
+              borderRadius: 6,
+              border: 'none',
+              background: galaxyViewMode === 'flat' ? 'var(--accent-cyan)' : 'transparent',
+              color: galaxyViewMode === 'flat' ? '#000' : 'var(--text-muted)',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <Layers size={13} />
+            <span>Flat Explorer</span>
+          </button>
+        </div>
+
+        {galaxyViewMode === 'topology' ? (
+          <SubsystemTopologyHub
+            galaxies={topologyGalaxies}
+            dependencies={topologyDependencies}
+            workspace={selectedWorkspace || ''}
+            isolatedClusterId={isolatedClusterId}
+            onIsolateCluster={(id) => handleToggleIsolateGalaxy(id ?? 0)}
+            onFocusCluster={handleFocusCluster}
+            onSelectSymbol={(sym) => {
+              const target = nodes.find((n) => n.label === sym);
+              if (target) setSelectedNode(target);
+            }}
+            palette={GALAXY_COLORS}
+          />
+        ) : (
+          <>
+            {/* Filter input for galaxies & symbols */}
         <div
           style={{
             display: 'flex',
@@ -1690,6 +1826,8 @@ export default function App() {
             </div>
           )}
         </div>
+          </>
+        )}
       </aside>
 
       {/* ─── 4. RIGHT COLLAPSIBLE DRAWER: CONTEXT CONDENSER & NODE INSPECTOR ── */}
@@ -1783,6 +1921,20 @@ export default function App() {
               </span>
             </div>
           )}
+
+          {/* Architectural Boundary & Blast Radius Contract (R-030) */}
+          <BoundaryContractCard
+            symbol={selectedNode.label}
+            workspace={selectedNode.workspace || selectedWorkspace || 'tool-scripts'}
+            onSelectCaller={(caller) => {
+              const targetNode = nodes.find(
+                (n) => n.label === caller.symbol || n.file_path === caller.file_path
+              );
+              if (targetNode) {
+                setSelectedNode(targetNode);
+              }
+            }}
+          />
 
           {/* Code Snippet Box */}
           {selectedNode.text && (
