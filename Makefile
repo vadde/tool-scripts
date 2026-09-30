@@ -10,7 +10,7 @@
 .PHONY: help setup new-tool test test-tool lint lint-tool build build-tool \
         run-tool demo-tool validate-specs catalog status clean \
         session-explorer omni-graph ingest cluster workspaces search-graph query-graph \
-        graph-symbol graph-references graph-condense graph-galaxies graph-health health
+        graph-symbol graph-references graph-condense graph-galaxies graph-health relate-graph health
 
 .DEFAULT_GOAL := help
 
@@ -75,6 +75,7 @@ help: ## Show this interactive command directory
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "workspaces"                "List all partitioned codebases and stats in Omni-Graph"
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "search-graph Q=\"...\""     "Fast vector semantic code search in knowledge hub"
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "query-graph Q=\"...\""      "Hybrid Graph-RAG synthesis (<1500 tokens for agents)"
+	@printf "  $(CYAN)%-24s$(NC) %s\n" "relate-graph SRC=.. TGT=.." "Augment graph with dynamic inferred dependency"
 	@printf "\n"
 	@printf "$(BOLD)📦 Build & Compilation:$(NC)\n"
 	@printf "  $(CYAN)%-24s$(NC) %s\n" "build"                     "Build ALL tools across the monorepo"
@@ -168,6 +169,9 @@ graph-condense: ## Condense AST slice (<1500 tokens): make graph-condense SYM=<n
 
 graph-galaxies: ## Inspect architectural subsystems: make graph-galaxies [PROJECT=name]
 	@$(MAKE) -C $(TOOLS_DIR)/omni-graph galaxies PROJECT="$(PROJECT)"
+
+relate-graph: ## Augment graph with relationship: make relate-graph SRC=<name> TGT=<name> [TYPE=CALLS] [PROJECT=name]
+	@$(MAKE) -C $(TOOLS_DIR)/omni-graph relate-graph SRC="$(SRC)" TGT="$(TGT)" TYPE="$(TYPE)" PROJECT="$(PROJECT)"
 
 graph-health health: ## Check health of Omni-Graph services
 	@$(MAKE) -C $(TOOLS_DIR)/omni-graph health

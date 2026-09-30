@@ -48,6 +48,9 @@ make search-graph Q="session scanner" PROJECT=session-explorer K=5
 
 # 7. Hybrid Graph-RAG architectural query
 make query-graph Q="How does session extraction and date parsing work?" PROJECT=session-explorer
+
+# 8. Augment knowledge graph with dynamic runtime relationships
+make relate-graph SRC="ChatUI" TGT="FastAPI" TYPE="ROUTES_TO" PROJECT="QuarkDock"
 ```
 
 ---
@@ -74,19 +77,25 @@ Returns JSON containing exact file path, start line, end line, AST node kind, an
 ```
 Finds all functions and tests in the graph with directional `CALLS` or `IMPORTS` edges pointing to the target symbol.
 
-### 4. Condensed Multi-Hop Subgraph (`condense`)
+### 4. Agent Relationship Augmentation (`relate`)
+```bash
+./tools/omni-graph/scripts/omni.sh relate <source_sym> <target_sym> [relation_type] [workspace]
+```
+Tree-Sitter parsers only extract static in-file AST edges (`category: "EXTRACTED"`). When you discover dynamic cross-process or runtime relationships (e.g. React UI connecting via SSE to FastAPI, or WebSocket event dispatchers), use `relate` to augment SurrealDB with inferred edges (`category: "INFERRED"`). If either node is external or virtual, Omni-Graph synthesizes auxiliary virtual components automatically.
+
+### 5. Condensed Multi-Hop Subgraph (`condense`)
 ```bash
 ./tools/omni-graph/scripts/omni.sh condense "init_pool" [workspace] 2
 ```
 Outputs a dense, beautifully formatted Markdown slice with definitions, signatures, and ASCII call graph traces ready to paste into your reasoning context.
 
-### 5. Semantic Vector Search (`search`)
+### 6. Semantic Vector Search (`search`)
 ```bash
 ./tools/omni-graph/scripts/omni.sh search "websocket message dispatcher" [workspace] 5
 ```
 Performs 384-dimensional cosine ANN vector search across SurrealDB HNSW index.
 
-### 6. Hybrid Graph-RAG Retrieval (`query`)
+### 7. Hybrid Graph-RAG Retrieval (`query`)
 ```bash
 ./tools/omni-graph/scripts/omni.sh query "How does authentication flow work?" [workspace] 5
 ```
@@ -101,10 +110,11 @@ For automated subagents, direct REST queries are available:
 - `GET /api/workspaces` — List all indexed codebases
 - `GET /api/galaxies?workspace=<name>` — List architectural clusters
 - `GET /api/symbol?name=<sym>&workspace=<ws>` — Symbol definition
-- `GET /api/references?symbol=<sym>&workspace=<ws>` — Symbol callers
+- `GET /api/references?symbol=<sym>&workspace=<ws>` — Symbol callers (includes inferred edges and metadata)
 - `GET /api/condense?symbol=<sym>&workspace=<ws>&hops=2` — Condensed markdown slice
 - `GET /api/search?q=<query>&workspace=<ws>&k=10` — Vector search
 - `POST /api/query` (`{"prompt": "...", "workspace": "..."}`) — Graph-RAG query
+- `POST /api/relationships` (`{"source_symbol": "...", "target_symbol": "...", "type": "CALLS|ROUTES_TO|...", "category": "INFERRED", "metadata": {...}}`) — Augment graph with runtime dependency
 
 ---
 
@@ -121,3 +131,8 @@ For automated subagents, direct REST queries are available:
 1. Run `make graph-symbol SYM=<target>` to inspect its current implementation and line range.
 2. Run `make graph-references SYM=<target>` to get a complete, guaranteed list of all caller locations and test files that depend on it.
 3. Edit the definition and all callers with targeted changes, ensuring zero broken dependencies.
+
+### Recipe C: Augmenting Dynamic Cross-Service Dependencies
+1. When inspecting system configuration, Dockerfiles, or client-server communications (e.g. frontend fetching from backend endpoint), identify runtime connections that static AST parsers cannot detect.
+2. Run `make relate-graph SRC="ChatUI" TGT="FastAPI" TYPE="ROUTES_TO" PROJECT="QuarkDock"` (or call `POST /api/relationships`).
+3. Future agent sessions and blast-radius queries (`make graph-references SYM=FastAPI`) will immediately reveal these callers across system boundaries.

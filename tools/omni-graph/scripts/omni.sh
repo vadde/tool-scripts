@@ -22,6 +22,7 @@ Commands:
   search <query> [ws] [k]    Vector similarity search (optional workspace filter)
   symbol <name> [ws]         Symbol definition lookup (LSP definition)
   references <symbol> [ws]   Find all callers/references (LSP references)
+  relate <src> <tgt> [t] [ws] Augment graph with dynamic/inferred relationship
   condense <sym> [ws] [hops] Multi-hop AST subgraph slice (<1500 tokens for agents)
   query <prompt> [ws] [k]    Hybrid Graph-RAG retrieval (seeds + AST + community)
   cluster [workspace]        Run Louvain/Leiden community detection clustering
@@ -125,6 +126,39 @@ with urllib.request.urlopen(req) as resp:
     data = json.loads(resp.read().decode())
     print(json.dumps(data, indent=2))
 " "${SYM}" "${WS}"
+    ;;
+
+  relate)
+    SRC="${1:-}"
+    TGT="${2:-}"
+    TYPE="${3:-CALLS}"
+    WS="$(norm_ws "${4:-}")"
+    if [ -z "${SRC}" ] || [ -z "${TGT}" ]; then
+      echo "❌ Usage: omni.sh relate <source_symbol> <target_symbol> [relation_type] [workspace]"
+      exit 1
+    fi
+    python3 -c "
+import urllib.request, json, sys
+url = '${ENDPOINT}/api/relationships'
+payload_data = {
+    'source_symbol': sys.argv[1],
+    'target_symbol': sys.argv[2],
+    'type': sys.argv[3],
+    'category': 'INFERRED',
+    'workspace': sys.argv[4] if sys.argv[4] else 'default'
+}
+payload = json.dumps(payload_data).encode('utf-8')
+req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+try:
+    with urllib.request.urlopen(req) as resp:
+        data = json.loads(resp.read().decode())
+        print(f\"✅ Successfully linked: {data.get('source')} -[{data.get('type')}]-> {data.get('target')}\")
+        print(f\"   Relationship ID: {data.get('relationship_id')}\")
+        print(f\"   Category: {data.get('category')}\")
+except Exception as e:
+    print(f'❌ Error augmenting relationship: {e}')
+    sys.exit(1)
+" "${SRC}" "${TGT}" "${TYPE}" "${WS}"
     ;;
 
   condense)

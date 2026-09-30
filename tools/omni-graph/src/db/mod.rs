@@ -65,6 +65,45 @@ pub struct DbLink {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReferenceResult {
+    #[serde(flatten)]
+    pub caller: DbNode,
+    #[serde(rename = "type", default = "default_calls_type")]
+    pub edge_type: String,
+    #[serde(default = "default_inferred_category")]
+    pub category: String,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+impl std::ops::Deref for ReferenceResult {
+    type Target = DbNode;
+    fn deref(&self) -> &Self::Target {
+        &self.caller
+    }
+}
+
+fn default_calls_type() -> String {
+    "CALLS".to_string()
+}
+
+fn default_inferred_category() -> String {
+    "INFERRED".to_string()
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RelationshipPayload {
+    pub workspace: String,
+    pub source_symbol: String,
+    pub target_symbol: String,
+    #[serde(rename = "type", default = "default_calls_type")]
+    pub rel_type: String,
+    #[serde(default = "default_inferred_category")]
+    pub category: String,
+    pub metadata: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SearchResult {
     pub id: String,
     pub workspace: Option<String>,
@@ -623,16 +662,15 @@ impl DbClient {
     }
 
     /// Symbolic references: Find all callers / references of a symbol (LSP textDocument/references equivalent)
-    pub async fn find_references(&self, symbol_name: &str, workspace: Option<&str>) -> Result<Vec<DbNode>, String> {
+    pub async fn find_references(&self, symbol_name: &str, workspace: Option<&str>) -> Result<Vec<ReferenceResult>, String> {
         let escaped = surql_escape(symbol_name);
         let ws_filter = match workspace {
             Some(ws) if !ws.is_empty() => format!("AND workspace = '{}'", surql_escape(ws)),
             _ => String::new(),
         };
         let q = format!(
-            "LET $targets = (SELECT id FROM node WHERE label = '{}' {});\n\
-             SELECT in.* AS caller FROM linked_to WHERE out IN $targets.id;\n",
-            escaped, ws_filter
+            "LET $targets = (SELECT id FROM node WHERE (label = '{escaped}' OR string::ends_with(label, '::{escaped}') OR string::ends_with(label, '.{escaped}')) {ws_filter});\n\
+             SELECT in.* AS caller, type, category, metadata FROM linked_to WHERE out IN $targets.id;\n"
         );
 
         let resp = self.query_sql(&q).await?;
@@ -641,9 +679,16 @@ impl DbClient {
         if let Some(arr) = resp.as_array() {
             if let Some(res_arr) = arr.get(1).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
                 for item in res_arr {
-                    if let Some(caller) = item.get("caller") {
+                    if let Ok(ref_res) = serde_json::from_value::<ReferenceResult>(item.clone()) {
+                        results.push(ref_res);
+                    } else if let Some(caller) = item.get("caller") {
                         if let Ok(node) = serde_json::from_value::<DbNode>(caller.clone()) {
-                            results.push(node);
+                            results.push(ReferenceResult {
+                                caller: node,
+                                edge_type: item.get("type").and_then(|t| t.as_str()).unwrap_or("CALLS").to_string(),
+                                category: item.get("category").and_then(|c| c.as_str()).unwrap_or("EXTRACTED").to_string(),
+                                metadata: item.get("metadata").cloned(),
+                            });
                         }
                     }
                 }
@@ -1023,6 +1068,58 @@ impl DbClient {
             }
         }
         Ok(results)
+    }
+
+    /// Agent Relationship Augmentation: Dynamically link symbols with inferred runtime relationships
+    pub async fn add_relationship(
+        &self,
+        workspace: &str,
+        source_symbol: &str,
+        target_symbol: &str,
+        rel_type: &str,
+        category: &str,
+        metadata: Option<&serde_json::Value>,
+    ) -> Result<String, String> {
+        let ws_esc = surql_escape(workspace);
+        let src_esc = surql_escape(source_symbol);
+        let tgt_esc = surql_escape(target_symbol);
+        let type_esc = surql_escape(rel_type);
+        let cat_esc = surql_escape(category);
+        let meta_str = match metadata {
+            Some(v) if !v.is_null() => serde_json::to_string(v).unwrap_or_else(|_| "NONE".to_string()),
+            _ => "NONE".to_string(),
+        };
+        let zero_emb = serde_json::to_string(&vec![0.0f32; 384]).unwrap();
+
+        let q = format!(
+            "LET $src_list = (SELECT VALUE id FROM node WHERE workspace = '{ws}' AND (label = '{src}' OR string::ends_with(label, '::{src}') OR string::ends_with(label, '.{src}')) LIMIT 1);\n\
+             LET $src = IF array::len($src_list) > 0 THEN array::first($src_list) ELSE (UPSERT type::thing('node', '{ws}:virtual:{src}') MERGE {{ workspace: '{ws}', label: '{src}', kind: 'virtual_service', file_path: 'virtual', language: 'virtual', line_start: 0, line_end: 0, text: 'Virtual component: {src}', embedding: {zero_emb} }}).id END;\n\
+             LET $tgt_list = (SELECT VALUE id FROM node WHERE workspace = '{ws}' AND (label = '{tgt}' OR string::ends_with(label, '::{tgt}') OR string::ends_with(label, '.{tgt}')) LIMIT 1);\n\
+             LET $tgt = IF array::len($tgt_list) > 0 THEN array::first($tgt_list) ELSE (UPSERT type::thing('node', '{ws}:virtual:{tgt}') MERGE {{ workspace: '{ws}', label: '{tgt}', kind: 'endpoint', file_path: 'virtual', language: 'virtual', line_start: 0, line_end: 0, text: 'Virtual component: {tgt}', embedding: {zero_emb} }}).id END;\n\
+             RELATE $src->linked_to->$tgt CONTENT {{ workspace: '{ws}', type: '{rel_type}', category: '{cat}', metadata: {meta}, created_at: time::now() }};\n",
+            ws = ws_esc,
+            src = src_esc,
+            tgt = tgt_esc,
+            rel_type = type_esc,
+            cat = cat_esc,
+            meta = meta_str,
+            zero_emb = zero_emb
+        );
+
+        let resp = self.query_sql(&q).await?;
+        if let Some(arr) = resp.as_array() {
+            for item in arr.iter().rev() {
+                if let Some(res_arr) = item.get("result").and_then(|r| r.as_array()) {
+                    if let Some(first_edge) = res_arr.first() {
+                        if let Some(id_str) = first_edge.get("id").and_then(|v| v.as_str()) {
+                            return Ok(id_str.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok("linked_to:created".to_string())
     }
 }
 

@@ -4,7 +4,7 @@
 use crate::analysis::{CommunityDetector, GraphRagEngine};
 use crate::analytics::AnalyticsEngine;
 use crate::condenser::ContextCondenser;
-use crate::db::DbClient;
+use crate::db::{DbClient, RelationshipPayload};
 use crate::embedder::EmbedderClient;
 use crate::ingestion::IngestionPipeline;
 use crate::watcher::WatchManager;
@@ -179,6 +179,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/search", get(search_handler))
         .route("/api/symbol", get(symbol_handler))
         .route("/api/references", get(references_handler))
+        .route("/api/relationships", post(relationships_handler))
+        .route("/api/relation", post(relationships_handler))
         .route("/api/condense", get(condense_handler))
         .route("/api/browse", get(browse_handler))
         .route("/api/query", post(query_handler))
@@ -703,6 +705,75 @@ async fn references_handler(
                 "workspace": ws,
                 "references": callers,
                 "count": callers.len()
+            })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        )
+            .into_response(),
+    }
+}
+
+/// POST /api/relationships or POST /api/relation (Agent Relationship Augmentation)
+async fn relationships_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<RelationshipPayload>,
+) -> impl IntoResponse {
+    let start = std::time::Instant::now();
+    let ws = normalize_workspace(Some(&payload.workspace)).unwrap_or_else(|| payload.workspace.clone());
+
+    if payload.source_symbol.trim().is_empty() || payload.target_symbol.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Both source_symbol and target_symbol must be non-empty"
+            })),
+        )
+            .into_response();
+    }
+
+    let res = state
+        .db
+        .add_relationship(
+            &ws,
+            &payload.source_symbol,
+            &payload.target_symbol,
+            &payload.rel_type,
+            &payload.category,
+            payload.metadata.as_ref(),
+        )
+        .await;
+
+    let duration_ms = start.elapsed().as_millis() as i64;
+    let db = state.db.clone();
+    let ws_log = ws.clone();
+    let query_summary = format!("{} -> {}", payload.source_symbol, payload.target_symbol);
+
+    tokio::spawn(async move {
+        let _ = db
+            .record_agent_api_call(
+                "/api/relationships",
+                &ws_log,
+                "Omni-Graph: Dynamic Relationship Augmentation",
+                Some(&query_summary),
+                None,
+                duration_ms,
+            )
+            .await;
+    });
+
+    match res {
+        Ok(rel_id) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "status": "ok",
+                "relationship_id": rel_id,
+                "source": payload.source_symbol,
+                "target": payload.target_symbol,
+                "type": payload.rel_type,
+                "category": payload.category
             })),
         )
             .into_response(),

@@ -7,7 +7,7 @@
 # ============================================================================
 
 .PHONY: help setup test lint run build clean up down logs health \
-        ingest cluster workspaces search query symbol references condense galaxies setup-agent
+        ingest cluster workspaces search query symbol references condense galaxies relate-graph setup-agent
 
 .DEFAULT_GOAL := help
 
@@ -52,6 +52,7 @@ help: ## Show this help message
 	@echo "  • make workspaces                     List all indexed codebases & partition stats"
 	@echo "  • make search Q=\"<terms>\"             Fast vector similarity code search"
 	@echo "  • make query Q=\"<question>\"          Hybrid Graph-RAG synthesis (<1500 tokens)"
+	@echo "  • make relate-graph SRC=.. TGT=..    Augment graph with dynamic inferred dependency"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -158,13 +159,20 @@ condense: ## Condense AST slice (<1500 tokens): make condense SYM=<name> [HOPS=2
 galaxies: ## Inspect architectural subsystems: make galaxies [PROJECT=name]
 	@./scripts/omni.sh galaxies "$(PROJECT)"
 
+relate-graph: ## Augment graph with relationship: make relate-graph SRC=<name> TGT=<name> [TYPE=CALLS] [PROJECT=name]
+	@if [ -z "$(SRC)" ] || [ -z "$(TGT)" ]; then \
+		echo "❌ Missing arguments: make relate-graph SRC=\"<src>\" TGT=\"<tgt>\" [TYPE=CALLS] [PROJECT=name]"; \
+		exit 1; \
+	fi
+	@./scripts/omni.sh relate "$(SRC)" "$(TGT)" "$(if $(TYPE),$(TYPE),CALLS)" "$(PROJECT)"
+
 # ─── Test ───────────────────────────────────────────────────────────────────
 test: ## Run test suite
 	@echo "🧪 Running tests for $(TOOL_NAME)..."
 	@if command -v cargo >/dev/null && cargo --version | grep -v 'cargo 1\.[0-5]' >/dev/null; then \
-		cargo test --all; \
+		cargo test --all -- --test-threads=1; \
 	elif docker info >/dev/null 2>&1; then \
-		docker run --rm -v "$$(pwd)":/app -w /app rust:latest cargo test --all; \
+		docker run --rm -e CARGO_INCREMENTAL=0 -v "$$(pwd)":/app -w /app rust:latest cargo test --all -- --test-threads=1; \
 	else \
 		echo "⚠️ Modern Rust/Cargo (>= 1.56) or Docker required to run tests."; \
 	fi

@@ -4,6 +4,43 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-30 — Omni-Graph Galaxy Intelligence & Agent Relationship Augmentation
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Feature: Agent Relationship Augmentation & 3-Tier Reconnaissance Ladder)
+**Branch**: `feat/agent-relationship-augmentation`
+**Duration**: ~25m
+
+#### Context & Objectives
+Empowered coding agents across the system to actively augment the Omni-Graph knowledge base with inferred runtime/cross-service relationships and streamlined reconnaissance through the 3-Tier Omniverse Reconnaissance Ladder.
+
+#### What Was Done
+1. **Pre-Invocation Ephemeral Prompt Banner (Task 1)**:
+   - Updated `.agents/scripts/hook_pre_invocation.sh`, `tools/omni-graph/scripts/hook_pre_invocation.sh`, and `~/.gemini/config/scripts/hook_pre_invocation.sh`.
+   - Structured prompt injection into a 3-Tier Reconnaissance Ladder:
+     - **Tier 1 (Graph-RAG Query)**: `POST /api/query`
+     - **Tier 2 (Galaxy Clusters)**: `GET /api/galaxies?workspace={ws}`
+     - **Tier 3 (AST Subgraph & Blast Radius)**: `GET /api/condense`, `GET /api/references`, `GET /api/symbol`, `GET /api/search`
+2. **Agent Relationship Augmentation Endpoint (`POST /api/relationships` & `/api/relation`) (Task 2)**:
+   - Added `RelationshipPayload` and `ReferenceResult` in `src/db/mod.rs`.
+   - Implemented `add_relationship` in `DbClient` with SurrealQL atomic linking and automatic virtual component synthesis (`kind: "virtual_service"` / `kind: "endpoint"`) with 384-dim zero embeddings for external/unindexed symbols.
+   - Enhanced `find_references` to return caller nodes along with `type`, `category` (`EXTRACTED` vs `INFERRED`), and `metadata` (`option<object>`).
+   - Implemented `relationships_handler` in `src/api/mod.rs` with asynchronous agent telemetry recording (`/api/relationships`).
+3. **CLI Helpers, Makefile Targets & Agent Skill Documentation (Task 3)**:
+   - Added `relate` command to `omni.sh` (`./tools/omni-graph/scripts/omni.sh relate <src> <tgt> [type] [ws]`) across repo and user config skills.
+   - Added `relate-graph` target in root `Makefile` and `tools/omni-graph/Makefile`:
+     `make relate-graph SRC="ChatUI" TGT="FastAPI" TYPE="ROUTES_TO" PROJECT="QuarkDock"`
+   - Updated `SKILL.md` (root, tool, and `~/.gemini/config`) with documentation on dynamic runtime dependency augmentation, REST API endpoints, and Recipe C.
+
+#### Verification
+- Docker multi-stage build succeeded cleanly with 0 compiler errors.
+- `POST /api/relationships` verified end-to-end with runtime metadata.
+- `GET /api/references` verified returning augmented relations with category and metadata.
+- `make relate-graph` verified from repo root.
+- Ephemeral pre-invocation prompt banner verified live on agent turn start.
+
+---
+
 ### 2026-09-30 — Fix Heavy Subsystem List Flex Collapse & Consolidate Live Watch Status
 
 **Agent/Author**: Antigravity (Google DeepMind)

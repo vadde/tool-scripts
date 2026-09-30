@@ -69,12 +69,13 @@ try:
 
         msg = (
             f"🧭 [Omni-Graph Active | Workspace: {matched_ws} ({node_count:,} AST nodes)]:\n"
-            f"• AST Condense: curl -s \"http://localhost:8080/api/condense?symbol=<sym>&workspace={matched_ws}&hops=2\"\n"
-            f"• Callers/Blast Radius: curl -s \"http://localhost:8080/api/references?symbol=<sym>&workspace={matched_ws}\"\n"
-            f"• Symbol Def: curl -s \"http://localhost:8080/api/symbol?name=<sym>&workspace={matched_ws}\"\n"
-            f"• Semantic Search: curl -s \"http://localhost:8080/api/search?q=<query>&workspace={matched_ws}&k=5\"\n"
-            f"⚠️ Source code access (grep_search, view_file) is gated until you query Omni-Graph.\n"
-            f"*Note: Direct view_file >150 lines on source code is gated by PreToolUse.*"
+            f"• Tier 1 (Graph-RAG Query):  curl -s -X POST http://localhost:8080/api/query -H \"Content-Type: application/json\" -d '{{\"prompt\": \"<question>\", \"workspace\": \"{matched_ws}\"}}'\n"
+            f"• Tier 2 (Galaxy Clusters):  curl -s \"http://localhost:8080/api/galaxies?workspace={matched_ws}\"\n"
+            f"• Tier 3 (AST Subgraph):     curl -s \"http://localhost:8080/api/condense?symbol=<sym>&workspace={matched_ws}&hops=2\"\n"
+            f"• Blast Radius / Callers:    curl -s \"http://localhost:8080/api/references?symbol=<sym>&workspace={matched_ws}\"\n"
+            f"• Symbol Definition:         curl -s \"http://localhost:8080/api/symbol?name=<sym>&workspace={matched_ws}\"\n"
+            f"• Semantic Vector Search:    curl -s \"http://localhost:8080/api/search?q=<query>&workspace={matched_ws}&k=5\"\n"
+            f"⚠️ Direct source code reads (>150 lines) and recursive grep are gated until Omni-Graph recon is performed."
         )
     else:
         try:
