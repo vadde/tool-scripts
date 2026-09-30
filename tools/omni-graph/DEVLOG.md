@@ -4,6 +4,35 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-30 — Architectural Root Prevention: Session-Scoped Recon Gate & Lifecycle Hooks
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Core Prevention & Enforcement Architecture)
+**Duration**: ~20m
+
+#### Problem & Architectural Audit
+- Prior enforcement mechanisms treated symptoms (magnitude checks such as line counts or regex query filters) rather than root cause:
+  - An agent could bypass Omni-Graph entirely by chunking `view_file` calls (e.g. 150 lines at a time) or running targeted `grep_search` calls, touching raw source code without ever consulting the AST knowledge graph.
+  - Rule 00 invariant states: *"Never read whole source code files without prior AST symbol localization."* The core flaw was lack of sequence enforcement (*order* rather than magnitude).
+
+#### What Was Done
+- **Session-Scoped Recon Gate (`hook_pre_tool.sh`)**:
+  - Enforced the architectural invariant: **Do A before B**. Source code access (`view_file` and `grep_search` targeting code) is gated until the agent queries Omni-Graph at least once in the session.
+  - Implemented `/tmp/omni_recon_<workspace>.marker` with a 2-hour TTL (7,200s).
+  - Automatically detects Omni-Graph AST queries in `run_command` (`localhost:8080/api/symbol`, `/condense`, `/references`, `/search`, `/galaxy`, `/ast`, `/workspaces`, `/ingest`, `make graph-*`, `make workspaces`, `omni.sh`) and records the recon marker.
+  - Preserved complete exemptions for non-code files (`.md`, `.json`, `.yaml`, `.toml`, `Makefile`, configs) and agent infrastructure (`/.agents/`, `/.gemini/`, `/.git/`) so orientation and rule checks remain friction-free.
+  - Kept the 150-line gate as independent defense-in-depth after recon is unlocked.
+- **PreInvocation Hook Hardening (`hook_pre_invocation.sh`)**:
+  - Added upfront banner: `⚠️ Source code access (grep_search, view_file) is gated until you query Omni-Graph.`
+  - Added fast workspace caching (`/tmp/omni_indexed_<workspace>.flag` and `/tmp/omni_indexed_workspaces.json`) for sub-millisecond PreToolUse evaluation without HTTP roundtrips.
+- **Robust Bash Heredoc Invocation**:
+  - Switched execution to `python3 - "$PAYLOAD" << 'EOF'` across hook scripts, preventing bash quote collisions on regex patterns or complex strings.
+- **Verification & Deployment**:
+  - Validated all 9 lifecycle test cases covering: pre-recon blocking on source view and grep, doc exemptions, agent script exemptions, recon recording via API command, post-recon access, and post-recon 150-line gate enforcement.
+  - Deployed and synchronized machine-wide via `setup-agent.sh workspace` and `setup-agent.sh global`.
+
+---
+
 ### 2026-09-29 — Workspace Sanitization & Deduplication in Omni-Graph Backend and UI
 
 **Agent/Author**: Antigravity (Google DeepMind)

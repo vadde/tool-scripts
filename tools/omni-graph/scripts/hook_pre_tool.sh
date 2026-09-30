@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Omni-Graph PreToolUse Guardrail Hook
-# Intercepts brute-force grep, broad search, and unbounded source file reads (>150 lines)
-# that exhaust LLM context windows. Enforces high-density AST retrieval.
+# Intercepts brute-force grep, broad search, un-reconnoitered source access,
+# and unbounded source file reads (>150 lines) that exhaust LLM context windows.
+# Enforces the Session-Scoped Recon Gate and high-density AST retrieval.
 # ==============================================================================
 
 set -e
@@ -10,8 +11,8 @@ set -e
 # Read hook payload from stdin
 PAYLOAD=$(cat)
 
-python3 -c '
-import sys, json, os, urllib.request
+python3 - "$PAYLOAD" << 'EOF'
+import sys, json, os, urllib.request, time, subprocess, re
 
 try:
     # 1. Daemon Liveness Check (Fail-Open Safeguard)
@@ -34,6 +35,53 @@ try:
     tool_name = tool_call.get("name", "")
     args = tool_call.get("args", {})
 
+    RECON_TTL = 7200  # 2 hours
+
+    def get_workspace():
+        ws = os.environ.get("WORKSPACE")
+        if ws:
+            return ws
+        try:
+            git_root = subprocess.check_output(
+                ["git", "rev-parse", "--show-toplevel"],
+                stderr=subprocess.DEVNULL,
+                encoding="utf-8"
+            ).strip()
+            return os.path.basename(git_root)
+        except Exception:
+            return os.path.basename(os.getcwd()) or "default"
+
+    def is_workspace_indexed(workspace):
+        if os.path.exists(f"/tmp/omni_indexed_{workspace}.flag"):
+            return True
+        try:
+            with open("/tmp/omni_indexed_workspaces.json", "r") as f:
+                indexed = json.load(f)
+                return workspace in indexed
+        except Exception:
+            return workspace in {"tool-scripts", "session-explorer", "k8s-eks", "python", "tutor-intelligence"}
+
+    def is_recon_done(workspace):
+        for ws_key in [workspace, "default"]:
+            marker = f"/tmp/omni_recon_{ws_key}.marker"
+            try:
+                with open(marker, "r") as f:
+                    ts = int(f.read().strip())
+                if (int(time.time()) - ts) < RECON_TTL:
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def record_recon(workspace):
+        now = str(int(time.time()))
+        for ws_key in filter(None, [workspace, "default"]):
+            try:
+                with open(f"/tmp/omni_recon_{ws_key}.marker", "w") as f:
+                    f.write(now)
+            except Exception:
+                pass
+
     NON_CODE_EXTS = {
         ".md", ".markdown", ".mdown", ".mkd", ".txt", ".text",
         ".json", ".json5", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
@@ -53,6 +101,9 @@ try:
     def is_source_code(file_path):
         if not file_path:
             return False
+        normalized = file_path.replace("\\", "/")
+        if "/.agents/" in normalized or "/.gemini/" in normalized or "/.git/" in normalized:
+            return False
         base = os.path.basename(file_path).lower()
         if base in NON_CODE_FILENAMES:
             return False
@@ -61,10 +112,58 @@ try:
             return False
         return True
 
-    # 3. Intercept view_file (>150 lines gate on source code)
-    if tool_name == "view_file":
+    # 3. Intercept run_command (detect recon API queries & block blind recursive search)
+    if tool_name == "run_command":
+        cmd = args.get("CommandLine", "")
+
+        # Detect Omni-Graph API / CLI usage -> record recon
+        omni_patterns = [
+            "localhost:8080/api/symbol", "127.0.0.1:8080/api/symbol",
+            "localhost:8080/api/condense", "127.0.0.1:8080/api/condense",
+            "localhost:8080/api/references", "127.0.0.1:8080/api/references",
+            "localhost:8080/api/search", "127.0.0.1:8080/api/search",
+            "localhost:8080/api/galaxy", "127.0.0.1:8080/api/galaxy",
+            "localhost:8080/api/ast", "127.0.0.1:8080/api/ast",
+            "localhost:8080/api/workspaces", "127.0.0.1:8080/api/workspaces",
+            "localhost:8080/api/ingest", "127.0.0.1:8080/api/ingest",
+            "make graph-", "make search-graph", "make query-graph",
+            "omni.sh", "make workspaces"
+        ]
+        if any(p in cmd for p in omni_patterns):
+            ws = get_workspace()
+            record_recon(ws)
+            ws_match = re.search(r'(?:workspace|PROJECT)=([a-zA-Z0-9_-]+)', cmd)
+            if ws_match:
+                record_recon(ws_match.group(1))
+
+        blocked_patterns = [
+            "grep -r", "grep -rn", "grep -ri", "grep -rin", "grep -rIn",
+            "find . -name", "cat $(find", "ag -l", "rg -l"
+        ]
+        if any(p in cmd for p in blocked_patterns):
+            print(json.dumps({
+                "decision": "deny",
+                "reason": "Blind recursive search blocked. Query Omni-Graph semantic vector search: GET http://localhost:8080/api/search?q=<query> or AST symbol lookups."
+            }))
+            sys.exit(0)
+
+    # 4. Intercept view_file (Recon Gate + 150-line gate on source code)
+    elif tool_name == "view_file":
         target_path = args.get("AbsolutePath", "")
         if is_source_code(target_path):
+            ws = get_workspace()
+            if is_workspace_indexed(ws) and not is_recon_done(ws):
+                print(json.dumps({
+                    "decision": "deny",
+                    "reason": f"🧭 Omni-Graph reconnaissance required before touching source code ({os.path.basename(target_path)}).\n"
+                              f"Run one of:\n"
+                              f"  curl -s \"http://localhost:8080/api/condense?symbol=<sym>&workspace={ws}&hops=2\"\n"
+                              f"  curl -s \"http://localhost:8080/api/symbol?name=<sym>&workspace={ws}\"\n"
+                              f"  curl -s \"http://localhost:8080/api/search?q=<query>&workspace={ws}&k=5\"\n"
+                              f"This ensures you start from the AST graph, not blind file reading."
+                }))
+                sys.exit(0)
+
             start_line = args.get("StartLine")
             end_line = args.get("EndLine")
 
@@ -89,23 +188,35 @@ try:
             except (ValueError, TypeError):
                 pass
 
-    # 4. Intercept run_command (recursive/blanket search)
-    elif tool_name == "run_command":
-        cmd = args.get("CommandLine", "")
-        blocked_patterns = [
-            "grep -r", "grep -rn", "grep -ri", "grep -rin", "grep -rIn",
-            "find . -name", "cat $(find", "ag -l", "rg -l"
-        ]
-        if any(p in cmd for p in blocked_patterns):
+    # 5. Intercept grep_search (Recon Gate + empty query check)
+    elif tool_name == "grep_search":
+        ws = get_workspace()
+        query = args.get("Query", "").strip()
+        search_path = args.get("SearchPath", "")
+        includes = args.get("Includes", [])
+
+        # Check if search is strictly targeting non-code files or agent meta
+        is_non_code_search = False
+        normalized_path = search_path.replace("\\", "/")
+        if "/.agents" in normalized_path or "/.gemini" in normalized_path or "/.git" in normalized_path:
+            is_non_code_search = True
+        elif search_path and os.path.isfile(search_path) and not is_source_code(search_path):
+            is_non_code_search = True
+        elif includes and all(any(inc.lower().endswith(ext) for ext in NON_CODE_EXTS) for inc in includes):
+            is_non_code_search = True
+
+        if not is_non_code_search and is_workspace_indexed(ws) and not is_recon_done(ws):
             print(json.dumps({
                 "decision": "deny",
-                "reason": "Blind recursive search blocked. Query Omni-Graph semantic vector search: GET http://localhost:8080/api/search?q=<query> or AST symbol lookups."
+                "reason": f"🧭 Omni-Graph reconnaissance required before text searching source code in workspace \"{ws}\".\n"
+                          f"Run one of:\n"
+                          f"  curl -s \"http://localhost:8080/api/symbol?name=<sym>&workspace={ws}\"\n"
+                          f"  curl -s \"http://localhost:8080/api/search?q=<query>&workspace={ws}&k=5\"\n"
+                          f"  curl -s \"http://localhost:8080/api/references?symbol=<sym>&workspace={ws}\"\n"
+                          f"This ensures you start from the AST graph, not brute-force grep."
             }))
             sys.exit(0)
 
-    # 5. Intercept grep_search (blanket search)
-    elif tool_name == "grep_search":
-        query = args.get("Query", "").strip()
         if len(query) < 2:
             print(json.dumps({
                 "decision": "deny",
@@ -119,4 +230,4 @@ try:
 except Exception as e:
     # Fail-safe allow so agents are never hard-crashed on script error
     print(json.dumps({"decision": "allow"}))
-' "$PAYLOAD"
+EOF
