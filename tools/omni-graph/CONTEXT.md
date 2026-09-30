@@ -72,6 +72,7 @@ blockers: []
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-09-30 | Node Inspector Breadcrumbs & Caller Stack | Added `nodeHistory` stack, interactive breadcrumbs, `Back to [prev]` button, and `Return to caller` action in BoundaryContractCard for one-click return from foreign callers |
 | 2026-09-30 | Progressive Windowing & Flexbox Isolation | SubsystemTopologyHub uses `visibleCount` progressive slicing and `flexShrink: 0` to prevent flex collapse on 250+ cluster workspaces (QuarkDock) |
 | 2026-09-30 | Live Watch HUD Consolidation | Unified live file watching and background modularity under single `LIVE WATCH` HUD; removed redundant top-bar chip |
 | 2026-09-30 | Dynamic Live Galaxy Clustering (Dual-Phase) | Instant single-file community inheritance in reindex_file + quiescent (3.5s) background re-clustering using seed-preserving weighted LPA |

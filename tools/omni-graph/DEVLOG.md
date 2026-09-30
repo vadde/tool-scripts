@@ -1168,3 +1168,35 @@
 - `tools/omni-graph/DEVLOG.md` — This entry
 
 ---
+
+### 2026-09-30 — Node Inspector Breadcrumbs, Caller History Stack & One-Click Back Navigation
+
+**Agent/Author**: Antigravity
+**SDLC Phase**: `in-progress`
+**Duration**: ~20m
+
+#### What Was Done
+- **Navigation History Stack & Breadcrumbs (`tools/omni-graph/ui/src/App.tsx`)**:
+  - Implemented `nodeHistory: GraphNode[]` state stack tracking the traversal path when exploring symbols and callers.
+  - Added dedicated navigation bar at the top of the Node Inspector (Right Drawer):
+    - `← Back to [Previous Symbol]` one-click return button.
+    - `Origin` shortcut to return immediately to the root symbol of the exploration session.
+    - Interactive breadcrumb trail (`Symbol A › Symbol B › Current Symbol`) allowing agents and users to jump directly to any ancestor node.
+  - Reset navigation history cleanly when selecting a new root node via Macro Topology, Flat Explorer, search, or workspace change.
+- **In-Card Contextual Return Affordance (`tools/omni-graph/ui/src/BoundaryContractCard.tsx`)**:
+  - Extended `BoundaryContractCardProps` with `previousSymbol` and `onNavigateBack`.
+  - Added an in-card "Return to caller: `[previousSymbol]`" button with an `ArrowLeft` icon placed right below the containment status badge.
+  - Provides dual affordance: users can navigate back from the top drawer header or directly within the boundary contract card.
+- **Robust Cross-Boundary Node Resolution**:
+  - Enhanced `onSelectCaller` and `onSelectSymbol` with fallback resolvers so navigating to foreign callers across workspaces/subsystems always synthesizes valid `GraphNode` objects and opens the Node Inspector reliably.
+- **Verification**:
+  - Rebuilt production UI bundle with Vite (`npm run build` in 3.21s).
+  - Recreated Docker container `omni-graph-ui` via `docker compose build graph-ui && docker compose up -d graph-ui`.
+  - Tested navigation flow in Chrome: verified origin symbol (`detect`), drilldown to caller (`detect_compact_ids_start_at_zero`), breadcrumb display, and one-click return to origin.
+
+#### Files Changed
+- `tools/omni-graph/ui/src/App.tsx` — Navigation history stack, breadcrumb trail, top-level back button, fallback symbol resolution
+- `tools/omni-graph/ui/src/BoundaryContractCard.tsx` — `previousSymbol` and `onNavigateBack` props, in-card return button
+- `tools/omni-graph/DEVLOG.md` — This entry
+
+---

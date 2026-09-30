@@ -11,6 +11,7 @@ import {
   Check,
   Activity,
   Boxes,
+  ArrowLeft,
 } from 'lucide-react';
 
 export interface CallerRef {
@@ -53,12 +54,16 @@ export interface SymbolBoundaryInfo {
 interface BoundaryContractCardProps {
   symbol: string;
   workspace: string;
+  previousSymbol?: string | null;
+  onNavigateBack?: () => void;
   onSelectCaller?: (caller: CallerRef) => void;
 }
 
 export const BoundaryContractCard: React.FC<BoundaryContractCardProps> = ({
   symbol,
   workspace,
+  previousSymbol,
+  onNavigateBack,
   onSelectCaller,
 }) => {
   const [data, setData] = useState<SymbolBoundaryInfo | null>(null);
@@ -237,6 +242,33 @@ ${foreignList || '_None (contained within home subsystem)_'}
           {agent_actionable_advice.risk_level} RISK
         </span>
       </div>
+
+      {/* Return to Previous Origin Caller */}
+      {previousSymbol && onNavigateBack && (
+        <button
+          type="button"
+          onClick={onNavigateBack}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '6px 10px',
+            borderRadius: 6,
+            background: 'rgba(56, 189, 248, 0.12)',
+            border: '1px solid rgba(56, 189, 248, 0.35)',
+            color: 'var(--accent-cyan)',
+            fontSize: '0.72rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            textAlign: 'left',
+            transition: 'all 0.15s ease',
+          }}
+          title={`Return to caller: ${previousSymbol}`}
+        >
+          <ArrowLeft size={13} />
+          <span>Return to caller: <code>{previousSymbol}</code></span>
+        </button>
+      )}
 
       {/* Subsystem / Home Galaxy Context */}
       {home_galaxy && (

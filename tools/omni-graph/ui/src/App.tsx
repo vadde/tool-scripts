@@ -27,6 +27,7 @@ import {
   Play,
   Square,
   Boxes,
+  ArrowLeft,
 } from 'lucide-react';
 import AgentAnalytics from './AgentAnalytics';
 import BoundaryContractCard from './BoundaryContractCard';
@@ -126,6 +127,7 @@ export default function App() {
   const [links, setLinks] = useState<GraphLink[]>([]);
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  const [nodeHistory, setNodeHistory] = useState<GraphNode[]>([]);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
 
   // Workspaces state
@@ -400,6 +402,7 @@ export default function App() {
     setSelectedWorkspace(ws);
     setIsWorkspaceDropdownOpen(false);
     setSelectedNode(null);
+    setNodeHistory([]);
     setSelectedClusterId(null);
     setIsolatedClusterId(null);
     loadGraph(ws);
@@ -708,6 +711,7 @@ export default function App() {
 
   const handleFocusNode = (node: GraphNode) => {
     setSelectedNode(node);
+    setNodeHistory([]);
     if (cosmographRef.current) {
       cosmographRef.current.selectNodes([node]);
     }
@@ -1524,8 +1528,22 @@ export default function App() {
             onIsolateCluster={(id) => handleToggleIsolateGalaxy(id ?? 0)}
             onFocusCluster={handleFocusCluster}
             onSelectSymbol={(sym) => {
-              const target = nodes.find((n) => n.label === sym);
-              if (target) setSelectedNode(target);
+              const target = nodes.find(
+                (n) => n.label === sym ||
+                       n.label.endsWith(`::${sym}`) ||
+                       n.label.endsWith(`.${sym}`) ||
+                       n.label.includes(sym)
+              );
+              const resolved: GraphNode = target || {
+                id: `node:symbol:${sym}`,
+                label: sym,
+                kind: 'symbol',
+                language: 'unknown',
+                file_path: '',
+                workspace: selectedWorkspace || '',
+              };
+              setSelectedNode(resolved);
+              setNodeHistory([]);
             }}
             palette={GALAXY_COLORS}
           />
@@ -1867,12 +1885,118 @@ export default function App() {
               </span>
             </div>
             <button
-              onClick={() => setSelectedNode(null)}
+              onClick={() => {
+                setSelectedNode(null);
+                setNodeHistory([]);
+              }}
               style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
             >
               <X size={16} />
             </button>
           </div>
+
+          {/* Navigation History & Breadcrumb Bar */}
+          {nodeHistory.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                padding: '8px 10px',
+                borderRadius: 8,
+                background: 'rgba(56, 189, 248, 0.08)',
+                border: '1px solid rgba(56, 189, 248, 0.25)',
+                marginTop: -4,
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const prev = nodeHistory[nodeHistory.length - 1];
+                    setNodeHistory((stack) => stack.slice(0, -1));
+                    setSelectedNode(prev);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    color: 'var(--accent-cyan)',
+                    fontSize: '0.74rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                  title={`Return to previous symbol: ${nodeHistory[nodeHistory.length - 1].label}`}
+                >
+                  <ArrowLeft size={13} />
+                  <span>Back to <code>{nodeHistory[nodeHistory.length - 1].label}</code></span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const origin = nodeHistory[0];
+                    setNodeHistory([]);
+                    setSelectedNode(origin);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    fontSize: '0.65rem',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                  }}
+                  title={`Jump directly back to origin: ${nodeHistory[0].label}`}
+                >
+                  Origin
+                </button>
+              </div>
+
+              {/* Breadcrumb path visualization */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  fontSize: '0.65rem',
+                  color: 'var(--text-muted)',
+                  overflowX: 'auto',
+                  whiteSpace: 'nowrap',
+                  paddingBottom: 2,
+                }}
+              >
+                {nodeHistory.map((item, idx) => (
+                  <React.Fragment key={idx}>
+                    <span
+                      onClick={() => {
+                        const target = nodeHistory[idx];
+                        setNodeHistory((stack) => stack.slice(0, idx));
+                        setSelectedNode(target);
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        color: 'var(--accent-cyan)',
+                        maxWidth: 95,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={`Jump to ${item.label}`}
+                    >
+                      {item.label}
+                    </span>
+                    <span>›</span>
+                  </React.Fragment>
+                ))}
+                <span style={{ color: '#fff', fontWeight: 600, maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {selectedNode.label}
+                </span>
+              </div>
+            </div>
+          )}
 
           <div>
             <h3
@@ -1924,13 +2048,33 @@ export default function App() {
           <BoundaryContractCard
             symbol={selectedNode.label}
             workspace={selectedNode.workspace || selectedWorkspace || 'tool-scripts'}
+            previousSymbol={nodeHistory.length > 0 ? nodeHistory[nodeHistory.length - 1].label : null}
+            onNavigateBack={() => {
+              if (nodeHistory.length > 0) {
+                const prev = nodeHistory[nodeHistory.length - 1];
+                setNodeHistory((stack) => stack.slice(0, -1));
+                setSelectedNode(prev);
+              }
+            }}
             onSelectCaller={(caller) => {
               const targetNode = nodes.find(
-                (n) => n.label === caller.symbol || n.file_path === caller.file_path
+                (n) => n.label === caller.symbol ||
+                       (caller.file_path && n.file_path === caller.file_path && (!caller.line_start || n.line_start === caller.line_start)) ||
+                       n.label.endsWith(`::${caller.symbol}`) ||
+                       n.label.endsWith(`.${caller.symbol}`)
               );
-              if (targetNode) {
-                setSelectedNode(targetNode);
-              }
+              const resolvedNode: GraphNode = targetNode || {
+                id: `node:${caller.file_path}:${caller.symbol}:${caller.line_start || 1}`,
+                label: caller.symbol,
+                kind: caller.kind || 'function',
+                language: selectedNode.language || 'unknown',
+                file_path: caller.file_path,
+                line_start: caller.line_start,
+                community: caller.galaxy_id,
+                workspace: selectedNode.workspace || selectedWorkspace || '',
+              };
+              setNodeHistory((prev) => [...prev, selectedNode]);
+              setSelectedNode(resolvedNode);
             }}
           />
 
