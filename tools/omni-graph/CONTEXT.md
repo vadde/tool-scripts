@@ -72,6 +72,8 @@ blockers: []
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-09-30 | Progressive Windowing & Flexbox Isolation | SubsystemTopologyHub uses `visibleCount` progressive slicing and `flexShrink: 0` to prevent flex collapse on 250+ cluster workspaces (QuarkDock) |
+| 2026-09-30 | Live Watch HUD Consolidation | Unified live file watching and background modularity under single `LIVE WATCH` HUD; removed redundant top-bar chip |
 | 2026-09-30 | Dynamic Live Galaxy Clustering (Dual-Phase) | Instant single-file community inheritance in reindex_file + quiescent (3.5s) background re-clustering using seed-preserving weighted LPA |
 | 2026-09-30 | Agent Boundary Contracts (/api/galaxy/boundary) | Exposes macro subsystem containment, cross-galaxy callers, Robert C. Martin coupling metrics (Ca, Ce, Instability I), and actionable risk advice |
 | 2026-09-26 | Dual-Source Telemetry (SurrealDB + Transcripts) | Blends real-time SurrealDB `agent_api_call` events with IDE session logs using `max(t, db)` per capability/workspace |

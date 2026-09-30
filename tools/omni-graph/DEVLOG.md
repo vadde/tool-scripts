@@ -4,6 +4,44 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-09-30 — Fix Heavy Subsystem List Flex Collapse & Consolidate Live Watch Status
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Feature: Dynamic Galaxy Clustering & Agent Primitives)
+**Branch**: `feat/dynamic-galaxy-clustering-agent-primitives`
+**Duration**: ~20m
+
+#### Root Cause Analysis of Empty Subsystem Display List
+- **The Issue**: In codebases with large numbers of clusters (e.g. `QuarkDock` with 252 total galaxies and 246 Domain Services), selecting "Domain Services" or "Total Galaxies" resulted in an empty/invisible card list, while small categories (3 Core Stable and 3 Leaves Orch) rendered normally.
+- **Root Cause**:
+  1. **Flex-Shrink Collapse**: Inside `SubsystemTopologyHub.tsx`, the card container was styled with `display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto'`. The individual galaxy cards lacked `flexShrink: 0` and `minHeight: 'fit-content'`. Under CSS flexbox default (`flex-shrink: 1`), fitting 246 cards into a 420px column compressed each card down to ~1.7px height with `overflow: 'hidden'`, rendering them invisible. With 3 cards, they easily fit into 420px and did not compress.
+  2. **Non-Windowed DOM Overload**: All 246 cards and their nested metric subtrees were rendered simultaneously into the DOM without progressive windowing.
+  3. **Stale Workspace Closure in Async Callbacks**: In `App.tsx`, SSE event listeners captured `selectedWorkspace` (`null` at mount) in closure, occasionally fetching Omniverse topology instead of workspace-scoped topology.
+
+#### Solutions & Improvements
+- **Windowed Progressive Rendering (`SubsystemTopologyHub.tsx`)**:
+  - Added `visibleCount` state (default 40), automatically resetting on filter, sort, or workspace change.
+  - Sliced rendered array with `filteredGalaxies.slice(0, visibleCount)`.
+  - Added infinite scroll trigger (`onScroll`) and explicit `[ Load More (X remaining) ]` button at the bottom.
+  - Added `flexShrink: 0` and `minHeight: 'fit-content'` on every card.
+  - Replaced hardcoded `maxHeight: 420` with `flex: 1; minHeight: 0; overflowY: 'auto'` to dynamically expand across any viewport.
+- **HUD Consolidation & Live Modularity Redundancy Removal (`App.tsx`)**:
+  - Removed the redundant standalone `Live Modularity` badge from the top header action row.
+  - Retained the primary `LIVE WATCH` button and HUD as the single source of truth for background sync and watching state.
+  - Added a subtle `● Live Sync` indicator inside the Galaxy Subsystems drawer header next to the workspace name.
+- **Closure State Integrity (`App.tsx`)**:
+  - Added `selectedWorkspaceRef = useRef(selectedWorkspace)` to ensure SSE event handlers and async callbacks always query the active workspace.
+  - Awaited `loadGalaxyTopology` in `loadGraph`.
+
+#### Verification
+- Verified via automated headless Chrome testing (`test_quarkdock_ui.js`):
+  - Confirmed QuarkDock's 246 Domain Services and 252 Total Galaxies render at full height (`height: 73px, width: 324px`).
+  - Confirmed infinite scrolling dynamically extends card count (40 -> 90 -> 140...).
+  - Verified clean header with single `LIVE WATCH` indicator.
+  - Captured verified screenshots: `quarkdock_subsystems_domain_services.png` and `quarkdock_subsystems_total_galaxies.png`.
+
+---
+
 ### 2026-09-30 — Dynamic Live Galaxy Clustering & Agent Actionable Boundary Contracts
 
 **Agent/Author**: Antigravity (Google DeepMind)

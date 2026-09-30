@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Maximize2,
   Minimize2,
@@ -56,6 +56,12 @@ export const SubsystemTopologyHub: React.FC<SubsystemTopologyHubProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'nodes' | 'instability_high' | 'instability_low' | 'edges'>('nodes');
   const [expandedGalaxyId, setExpandedGalaxyId] = useState<number | null>(null);
+  const [visibleCount, setVisibleCount] = useState(40);
+
+  // Reset pagination on filter, search, sort, or workspace changes
+  useEffect(() => {
+    setVisibleCount(40);
+  }, [roleFilter, searchQuery, sortBy, workspace]);
 
   // Global counts
   const stats = useMemo(() => {
@@ -101,9 +107,9 @@ export const SubsystemTopologyHub: React.FC<SubsystemTopologyHubProps> = ({
   }, [galaxies, roleFilter, searchQuery, sortBy]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minHeight: 0 }}>
       {/* Metric Cards Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, flexShrink: 0 }}>
         <div
           onClick={() => setRoleFilter('all')}
           style={{
@@ -169,7 +175,7 @@ export const SubsystemTopologyHub: React.FC<SubsystemTopologyHubProps> = ({
       </div>
 
       {/* Search & Sort Controls */}
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
         <div style={{ position: 'relative', flex: 1 }}>
           <Search
             size={13}
@@ -216,13 +222,29 @@ export const SubsystemTopologyHub: React.FC<SubsystemTopologyHubProps> = ({
       </div>
 
       {/* Subsystem Cards List */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto', paddingRight: 2 }}>
+      <div
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 250) {
+            setVisibleCount((prev) => Math.min(prev + 50, filteredGalaxies.length));
+          }
+        }}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          paddingRight: 2,
+        }}
+      >
         {filteredGalaxies.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '24px 12px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
             No architectural subsystems match the current filters.
           </div>
         ) : (
-          filteredGalaxies.map((g) => {
+          filteredGalaxies.slice(0, visibleCount).map((g) => {
             const color = palette[Math.abs(g.galaxy_id) % palette.length];
             const isIsolated = isolatedClusterId === g.galaxy_id;
             const isExpanded = expandedGalaxyId === g.galaxy_id;
@@ -241,6 +263,8 @@ export const SubsystemTopologyHub: React.FC<SubsystemTopologyHubProps> = ({
                 key={g.galaxy_id}
                 style={{
                   borderRadius: 8,
+                  flexShrink: 0,
+                  minHeight: 'fit-content',
                   background: isIsolated
                     ? 'rgba(168, 85, 247, 0.15)'
                     : isExpanded
@@ -460,6 +484,24 @@ export const SubsystemTopologyHub: React.FC<SubsystemTopologyHubProps> = ({
               </div>
             );
           })
+        )}
+
+        {filteredGalaxies.length > visibleCount && (
+          <button
+            type="button"
+            onClick={() => setVisibleCount((prev) => Math.min(prev + 50, filteredGalaxies.length))}
+            className="cyber-button-secondary"
+            style={{
+              width: '100%',
+              justifyContent: 'center',
+              padding: '8px 12px',
+              fontSize: '0.75rem',
+              flexShrink: 0,
+              marginTop: 4,
+            }}
+          >
+            <span>Load More ({filteredGalaxies.length - visibleCount} remaining)</span>
+          </button>
         )}
       </div>
     </div>

@@ -131,7 +131,12 @@ export default function App() {
   // Workspaces state
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null);
+  const selectedWorkspaceRef = useRef<string | null>(selectedWorkspace);
   const [isWorkspaceDropdownOpen, setIsWorkspaceDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    selectedWorkspaceRef.current = selectedWorkspace;
+  }, [selectedWorkspace]);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -266,7 +271,7 @@ export default function App() {
 
   const loadGalaxyTopology = async (wsFilter?: string | null) => {
     try {
-      const ws = wsFilter !== undefined ? wsFilter : selectedWorkspace;
+      const ws = wsFilter !== undefined ? wsFilter : selectedWorkspaceRef.current;
       const qs = ws ? `workspace=${encodeURIComponent(ws)}&_t=${Date.now()}` : `_t=${Date.now()}`;
       const res = await fetch(`/api/galaxy/topology?${qs}`);
       if (res.ok) {
@@ -291,7 +296,7 @@ export default function App() {
         setNodes(gJson.nodes || []);
         setLinks(gJson.links || []);
       }
-      loadGalaxyTopology(wsFilter);
+      await loadGalaxyTopology(wsFilter);
     } catch (err) {
       console.warn('Failed to load graph data', err);
     }
@@ -345,8 +350,8 @@ export default function App() {
           const evt = JSON.parse(e.data);
           setWatchToast(`🌌 Dynamic Live Modularity: [${evt.workspace}] ${evt.total_clusters} galaxies re-indexed`);
           setTimeout(() => setWatchToast(null), 3500);
-          loadGalaxyTopology(selectedWorkspace);
-          loadGraph(selectedWorkspace);
+          loadGalaxyTopology(selectedWorkspaceRef.current);
+          loadGraph(selectedWorkspaceRef.current);
         } catch (err) {
           console.warn('SSE cluster parse error', err);
         }
@@ -1114,33 +1119,6 @@ export default function App() {
             </button>
           )}
 
-          {/* Dynamic Galaxy Watch Status Chip */}
-          {activeWatchers.some((w) => w.status === 'watching') && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                padding: '4px 9px',
-                borderRadius: 12,
-                background: 'rgba(52, 211, 153, 0.12)',
-                border: '1px solid rgba(52, 211, 153, 0.35)',
-                fontSize: '0.68rem',
-                fontWeight: 600,
-                color: 'var(--accent-emerald)',
-                cursor: 'pointer',
-              }}
-              onClick={() => {
-                setIsGalaxyDrawerOpen(true);
-                setGalaxyViewMode('topology');
-              }}
-              title="Dynamic Live Galaxy Re-Clustering active: quiescent 3.5s background seed-preserving LPA"
-            >
-              <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--accent-emerald)' }} className="pulsing-dot" />
-              <span>Live Modularity</span>
-            </div>
-          )}
-
           {/* Quick Cluster Button if no clusters exist */}
           {clusters.length === 0 && nodes.length > 0 && (
             <button
@@ -1376,8 +1354,28 @@ export default function App() {
               <Sparkles size={16} color="var(--accent-purple)" />
               <span>Galaxy Subsystems</span>
             </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-              {selectedWorkspace ? `Workspace: ${selectedWorkspace}` : 'All Indexed Subsystems'}
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+              <span>{selectedWorkspace ? `Workspace: ${selectedWorkspace}` : 'All Indexed Subsystems'}</span>
+              {activeWatchers.some((w) => w.status === 'watching' && (!selectedWorkspace || w.workspace === selectedWorkspace)) && (
+                <span
+                  title="Dynamic Live Galaxy Re-Clustering active for this workspace (quiescent 3.5s background LPA)"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 3,
+                    color: 'var(--accent-emerald)',
+                    fontSize: '0.62rem',
+                    background: 'rgba(52, 211, 153, 0.12)',
+                    padding: '1px 5px',
+                    borderRadius: 8,
+                    border: '1px solid rgba(52, 211, 153, 0.3)',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--accent-emerald)' }} className="pulsing-dot" />
+                  Live Sync
+                </span>
+              )}
             </div>
           </div>
           <button
