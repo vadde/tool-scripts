@@ -265,4 +265,17 @@ body, html, #root {
   transform: scale(0.95);
 }
 
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinning-icon {
+  animation: spin 1.2s linear infinite;
+}
+
 

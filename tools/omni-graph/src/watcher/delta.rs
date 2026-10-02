@@ -7,8 +7,8 @@ use notify::{
     Event, EventKind,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeltaKind {
@@ -39,7 +39,6 @@ pub fn classify_events(events: &[Event], workspace: &str, root: &Path) -> DeltaC
     let now = Utc::now();
     // Map of rel_path -> (DeltaKind, Option<old_rel_path>)
     let mut file_states: HashMap<String, (DeltaKind, Option<String>)> = HashMap::new();
-    let mut pending_renames: HashMap<String, String> = HashMap::new(); // from -> to
 
     for event in events {
         match &event.kind {

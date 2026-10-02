@@ -79,6 +79,12 @@ pub struct CondenseParams {
 pub struct IngestPayload {
     pub path: String,
     pub project: Option<String>,
+    pub refresh: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct IngestDismissPayload {
+    pub workspace: String,
 }
 
 #[derive(Deserialize)]
@@ -189,6 +195,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/galaxy/boundary", get(galaxy_boundary_handler))
         .route("/api/galaxy/topology", get(galaxy_topology_handler))
         .route("/api/ingest", post(ingest_handler))
+        .route("/api/ingest/status", get(ingest_status_handler))
+        .route("/api/ingest/dismiss", post(ingest_dismiss_handler))
         .route("/api/analytics", get(analytics_handler))
         .route("/api/analytics/session/:id", get(session_detail_handler))
         .route("/api/watch/start", post(watch_start_handler))
@@ -588,9 +596,10 @@ async fn ingest_handler(
     let start = std::time::Instant::now();
     let path = payload.path;
     let project = payload.project;
-    info!("Ingest request received for path: {}, project: {:?}", path, project);
+    let refresh = payload.refresh.unwrap_or(false);
+    info!("Ingest request received for path: {}, project: {:?}, refresh: {}", path, project, refresh);
 
-    let res = state.pipeline.ingest_directory(&path, project.as_deref()).await;
+    let res = state.pipeline.ingest_directory(&path, project.as_deref(), refresh).await;
     let duration_ms = start.elapsed().as_millis() as i64;
 
     // Record telemetry asynchronously
@@ -626,6 +635,24 @@ async fn ingest_handler(
         )
             .into_response(),
     }
+}
+
+/// GET /api/ingest/status
+async fn ingest_status_handler(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let statuses = state.pipeline.get_status().await;
+    Json(statuses).into_response()
+}
+
+/// POST /api/ingest/dismiss
+async fn ingest_dismiss_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<IngestDismissPayload>,
+) -> impl IntoResponse {
+    let ws = normalize_workspace(Some(&payload.workspace)).unwrap_or(payload.workspace);
+    state.pipeline.dismiss_job(&ws).await;
+    StatusCode::OK.into_response()
 }
 
 /// GET /api/symbol?name=<sym>&workspace=<ws> (Symbolic definition lookup — LSP textDocument/definition)

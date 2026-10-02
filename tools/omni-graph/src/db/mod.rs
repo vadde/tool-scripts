@@ -197,7 +197,7 @@ impl DbClient {
         let encoded_auth = format!("Basic {}", Self::base64_encode(auth.as_bytes()));
 
         let client = Client::builder()
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(300))
             .build()
             .unwrap_or_default();
 
@@ -790,6 +790,39 @@ impl DbClient {
         );
         self.query_sql(&q).await?;
         Ok(())
+    }
+
+    /// Atomic purge of ALL nodes, edges, and galaxy records for a workspace.
+    /// Used by refresh-ingestion to clear zombie nodes before a clean re-scan.
+    pub async fn purge_workspace(&self, workspace: &str) -> Result<u64, String> {
+        let esc_ws = surql_escape(workspace);
+
+        // Count existing nodes for audit trail
+        let count_q = format!(
+            "SELECT count() AS total FROM node WHERE workspace = '{}' GROUP ALL;",
+            esc_ws
+        );
+        let count_result = self.query_sql(&count_q).await.unwrap_or_default();
+        let purged_count: u64 = count_result
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(|r| r.get("result"))
+            .and_then(|res| res.as_array())
+            .and_then(|a| a.first())
+            .and_then(|row| row.get("total"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+
+        // Atomic 3-step purge: edges → nodes → galaxies
+        let q = format!(
+            "DELETE linked_to WHERE workspace = '{}';\n\
+             DELETE node WHERE workspace = '{}';\n\
+             DELETE galaxy WHERE workspace = '{}';",
+            esc_ws, esc_ws, esc_ws
+        );
+        self.query_sql(&q).await?;
+        info!("Purged {} nodes + edges + galaxies for workspace '{}'", purged_count, workspace);
+        Ok(purged_count)
     }
 
     /// Rename file path on nodes across workspace

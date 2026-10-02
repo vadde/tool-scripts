@@ -4,6 +4,133 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-10-02 — Reactive Path Navigation & Dynamic Subdirectory Palette
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Feature: Directory Browser Reactive Path Navigation)
+**Branch**: `main`
+**Duration**: ~20m
+
+#### Context & User Feedback
+- When entering or pasting long paths (e.g. `/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge`) in `TARGET PATH`, the modal directory list stayed frozen at the previous browse path (`/workspace`). Users had to manually click breadcrumbs and drill down 10+ nested levels one by one.
+- The user requested automatic adaptation: as soon as they paste or type a path, the palette should immediately fetch and render the subdirectories under that path.
+
+#### What Was Done
+1. **Interactive Path Synchronization (`ui/src/App.tsx`)**:
+   - Implemented `handleTargetPathChange` with a 400ms debounce that triggers `fetchDirectory(path, false)` as the user types without resetting their input cursor.
+   - Implemented `handleTargetPathPaste` to immediately capture pasted directory paths and trigger instant directory exploration.
+   - Added `handleTargetPathKeyDown` (listening for `Enter`) and an explicit `Browse ➔` button beside `TARGET PATH` for instantaneous navigation.
+2. **Current Directory Selection Banner**:
+   - Added a prominent indicator above the directory entries list showing `Current Directory: <name> (X subfolders detected)` with a quick `Select This Folder` action.
+   - Users can now seamlessly choose either the parent folder or any sub-codebase (`AWS`, `DSA`, `GenAI`, `GoLang`, `python`, `tool-scripts`, `tutor-intelligence`) with 1 click.
+3. **Quick Jump Bookmarks**:
+   - Added a dedicated 1-click bookmark chip for `📚 Interviews/Knowledge` (`/Users/aparv/.../knowledge`) alongside `/workspace`, `/Users`, and `/workspace/tools`.
+4. **Error Handling & Visual Feedback**:
+   - Added `dirError` display and spinning activity indicator `Exploring...` during dynamic path fetches.
+5. **Verification**:
+   - Built React UI bundle (`npm run build`) and restarted `graph-ui`.
+   - Verified 50/50 unit tests passing (`make test`).
+
+### 2026-10-02 — Persistent Active Ingestion HUD & Multi-Codebase In-Motion Tracker
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Feature: Active Ingestion HUD & Multi-Repo Tracker)
+**Branch**: `main`
+**Duration**: ~35m
+
+#### Context & User Feedback
+- The user requested a persistent status dock at the bottom of the screen mirroring the Live Watch HUD, specifically designed for ingestion progress reporting.
+- Crucial UX requirements:
+  1. Multi-codebase tracking: if two codebases are in-motion, the badge displays `INGESTING (2 IN MOTION)` and both repos appear as individual status chips.
+  2. Hard browser refresh immunity: when a user reloads or hard-refreshes (`Cmd+Shift+R`), background re-ingestion must NOT be canceled, and the UI must instantly rehydrate in-motion progress.
+  3. Live progress breakdown: display elapsed seconds, scanning/indexing counters, clustering phase, and a quick "✨ Explore" button upon completion.
+
+#### What Was Done
+1. **Nginx Client Abort Immunity (`ui/nginx.conf`)**:
+   - Added `proxy_ignore_client_abort on;` inside `location /api/`.
+   - Prevents client socket close (such as browser refresh) from propagating abort signals upstream to the backend Rust orchestrator.
+2. **Backend Ingestion Job Tracker (`src/ingestion/mod.rs` & `src/api/mod.rs`)**:
+   - Defined `IngestionJobStatus` struct tracking: `workspace`, `path`, `is_refresh`, `phase`, `files_scanned`, `files_indexed`, `total_nodes`, `total_edges`, `clusters_computed`, `started_at`, `elapsed_ms`, `completed`, and `error`.
+   - Integrated `jobs: Arc<RwLock<HashMap<String, IngestionJobStatus>>>` into `IngestionPipeline`.
+   - Updated `ingest_directory` to publish live status transitions (`purging` → `scanning` → `indexing` → `clustering` → `completed` / `failed`).
+   - Exposed `GET /api/ingest/status` and `POST /api/ingest/dismiss` in `src/api/mod.rs`.
+3. **Frontend Mission Control Ingestion HUD (`ui/src/App.tsx` & `ui/src/index.css`)**:
+   - Built the Global Persistent Ingestion HUD floating dock with glassmorphism backdrop (`rgba(10, 15, 30, 0.94)`, `backdrop-filter: blur(20px)`, outer indigo/emerald glow).
+   - Dynamic stacking: smoothly docks at `bottom: 74` when Live Watch HUD is active, or `bottom: 18` when idle, eliminating visual collision.
+   - Dual-mode badge: animated radar dot with `INGESTING (N IN MOTION)` or `INGESTION COMPLETE`.
+   - Multi-codebase chip list with rotating icons, clean re-ingest tag (`CLEAN`), real-time file counters, elapsed timer, `✨ Explore` quick-action button, and chip dismiss (`✕`).
+   - Added `fetchIngestStatus` called on mount and every 2.5s, enabling instant rehydration across browser refreshes.
+   - Added `@keyframes spin` and `.spinning-icon` to `ui/src/index.css`.
+4. **Verification**:
+   - Rebuilt Docker images for `rust-app` and `graph-ui`.
+   - Verified `GET /api/ingest/status` returns active and completed jobs.
+   - Verified `POST /api/ingest/dismiss` successfully clears jobs.
+   - Verified 50/50 unit and integration tests passing (`cargo test --all -- --test-threads=1`).
+
+### 2026-10-02 — Refresh Ingestion & Non-Blocking Ingestion UX Overhaul
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Feature: Refresh Ingestion & Non-Blocking UX)
+**Branch**: `main`
+**Duration**: ~30m
+
+#### Context & Objectives
+Addressed user's key concerns regarding codebase ingestion:
+1. **Accumulated zombie nodes/stale data**: When significant changes happen offline or when re-indexing a workspace from scratch, there was no way to purge prior nodes, leading to duplicate/stale references and hash collision skips.
+2. **Blocking modal & dead Cancel button**: During ingestion (which could take 30–120s on larger repos like DSA), the Cancel button was disabled (`disabled={isIngesting}`), locking the user on the modal screen with zero escape hatch.
+3. **Unknown error / Client timeout**: Default browser fetch timeout resulted in "Ingestion failed: unknown error" when large codebases took >60s.
+
+#### What Was Done
+1. **Backend Refresh & Purge Pipeline**:
+   - `src/db/mod.rs`: Implemented `purge_workspace(&self, workspace: &str)` executing an atomic 4-step purge (`DELETE linked_to WHERE in IN $nodes OR out IN $nodes`, `DELETE node WHERE workspace = $ws`, `DELETE galaxy WHERE workspace = $ws`, plus audit count).
+   - `src/ingestion/mod.rs`: Added `clear(&self)` to `FileCache` and wired `refresh: bool` parameter through `ingest_directory`. When `refresh=true`, purges database records and resets in-memory staleness hashes so all files undergo clean, unskipped re-indexing.
+   - `src/api/mod.rs`: Added `refresh: Option<bool>` to `IngestPayload` and routed through `ingest_handler`.
+2. **Frontend UX & Non-Blocking Progress HUD**:
+   - `ui/src/App.tsx`:
+     - Added "Clean Re-ingest — purge existing data before fresh scan" toggle checkbox with red danger accent.
+     - Dynamic button label & styling: switches from "Start Ingestion" to "Re-ingest Fresh" with subtle crimson glow when toggle is enabled.
+     - Fixed Cancel button: Cancel is never disabled during ingestion and closes the modal immediately.
+     - Instant modal dismissal: on trigger, modal immediately closes and shifts progress to a floating, non-blocking toast HUD (`ingestToast`) styled consistently with the Live Watch HUD.
+     - Multi-phase animated progress toast: displays step transitions (`🔄 Purging stale data...` → `📂 Scanning AST nodes...` → `✨ Re-ingested X nodes & Y edges → Z galaxy clusters in Ws`).
+     - Removed redundant `/api/cluster` post-ingest call since backend orchestrator already auto-computes galaxy communities.
+     - Fixed large repo timeout by attaching an `AbortController` with a 5-minute timeout window.
+3. **Code Quality & Compiler Cleanups**:
+   - Eliminated unused variables and imports in `src/watcher/delta.rs` and `src/watcher/mod.rs`.
+   - Verified clean zero-warning build for Rust orchestrator and TypeScript React bundle.
+
+#### Verification
+- Rebuilt Docker containers (`omni-rust-app` and `omni-graph-ui`).
+- Tested end-to-end clean re-ingest on `session-explorer`: purged 68 stale nodes, rescanned 21 files fresh with 0 skipped, created 225 nodes, 999 edges, and 60 clusters in 9.1s.
+- Tested template tool re-ingestion: completed in 1.03s with 55 nodes and 13 clusters.
+- All 50 unit and integration tests passing (`cargo test --all -- --test-threads=1`).
+- Automated visual validation via headless CDP captured:
+  - `modal_opened.png`: clean modal layout with Clean Re-ingest toggle
+  - `modal_clean_reingest_checked.png`: checked state with "Re-ingest Fresh" button
+  - `toast_ingesting_progress.png`: non-blocking toast HUD floating over active graph view
+  - `modal_after_cancel.png`: modal dismissal test verified.
+
+#### Deep-Dive Investigation: "DSA" Ingestion "Unknown Error"
+- **Symptom**: User attempted to re-ingest the `DSA` workspace and received `❌ Ingestion failed: Unknown error`.
+- **Root Cause Analysis (Double-Culprit)**:
+  1. **Nginx Reverse Proxy Default 60s Timeout**:
+     In `ui/nginx.conf`, the `/api/` proxy lacked `proxy_read_timeout`. Nginx defaulted to 60s. For large repositories (DSA has 688 files, 5,662 AST nodes, 4,474 edges), embedding inference via CPU TEI + Louvain community clustering takes ~3.3 minutes (201s). At the 60s mark, Nginx dropped the connection with an HTML `504 Gateway Time-out`. The React UI attempted `await res.json()`, which threw on HTML, resulting in an empty fallback `{}` and `Unknown error`.
+  2. **SurrealDB Client 30s Timeout & Unindexed Edge Purge**:
+     In `src/db/mod.rs`, `reqwest::Client` had a hardcoded `timeout(Duration::from_secs(30))`. Furthermore, `purge_workspace` was using an unindexed subquery `DELETE linked_to WHERE in IN $nodes OR out IN $nodes;`, which did an unindexed scan across the edge table for 5,600+ node IDs, timing out at 30.02s before ingestion could even start.
+- **Permanent Fixes Applied**:
+  1. `ui/nginx.conf`: Configured `proxy_read_timeout 600s;`, `proxy_connect_timeout 600s;`, `proxy_send_timeout 600s;`, and `proxy_buffering off;`.
+  2. `src/db/mod.rs`: Increased SurrealDB HTTP client timeout to 300s (5 minutes) and optimized `purge_workspace` to use the indexed `workspace` field (`DELETE linked_to WHERE workspace = $ws;`), slashing purge duration from >30s down to clean execution.
+  3. `ui/src/App.tsx`: Increased `AbortController` timeout to 10 minutes (600,000ms) and added HTML fallback text parsing for non-JSON status codes (e.g. 504 Gateway Timeout) so the user receives clear, descriptive error messages.
+- **End-to-End Validation**:
+  - Successfully clean re-ingested `DSA` (`/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge/DSA`):
+    - Purged 5,662 stale nodes + edges + galaxies cleanly
+    - Scanned 688 files, indexed 688 files, 0 skipped
+    - Created 5,662 AST nodes & 4,474 edges
+    - Computed 3,155 modular galaxy communities in 201.8s
+    - Querying `/api/graph?workspace=DSA` returns all 5,662 nodes and 4,471 links cleanly.
+
+---
+
+
 ### 2026-09-30 — Omni-Graph Galaxy Intelligence & Agent Relationship Augmentation
 
 **Agent/Author**: Antigravity (Google DeepMind)

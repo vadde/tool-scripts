@@ -28,6 +28,10 @@ import {
   Square,
   Boxes,
   ArrowLeft,
+  AlertTriangle,
+  RotateCcw,
+  CheckCircle,
+  AlertCircle,
 } from 'lucide-react';
 import AgentAnalytics from './AgentAnalytics';
 import BoundaryContractCard from './BoundaryContractCard';
@@ -103,6 +107,24 @@ export interface WatcherStatus {
   debounce_ms: number;
 }
 
+export interface IngestionJobStatus {
+  workspace: string;
+  path: string;
+  is_refresh: boolean;
+  phase: 'purging' | 'scanning' | 'indexing' | 'clustering' | 'completed' | 'failed' | string;
+  files_scanned: number;
+  files_indexed: number;
+  files_skipped: number;
+  total_files: number;
+  nodes_created: number;
+  edges_created: number;
+  clusters_computed: number;
+  started_at: number;
+  elapsed_ms: number;
+  completed: boolean;
+  error?: string | null;
+}
+
 const GALAXY_COLORS = [
   '#38bdf8', // Neon Cyan
   '#a855f7', // Vivid Purple
@@ -167,10 +189,13 @@ export default function App() {
   const [parentPath, setParentPath] = useState<string | null>(null);
   const [dirEntries, setDirEntries] = useState<DirEntry[]>([]);
   const [isLoadingDir, setIsLoadingDir] = useState(false);
+  const [dirError, setDirError] = useState<string | null>(null);
+  const browseDebounceTimer = useRef<any>(null);
   const [selectedFolderForIngest, setSelectedFolderForIngest] = useState<string>('/workspace');
   const [customProjectName, setCustomProjectName] = useState('');
   const [isIngesting, setIsIngesting] = useState(false);
-  const [ingestNotice, setIngestNotice] = useState<string | null>(null);
+  const [refreshIngest, setRefreshIngest] = useState(false);
+  const [ingestToast, setIngestToast] = useState<string | null>(null);
 
   // Context Condenser state (Right Panel)
   const [copied, setCopied] = useState(false);
@@ -186,10 +211,39 @@ export default function App() {
   const [watchDebounceMs, setWatchDebounceMs] = useState<number>(500);
   const [isStartingWatch, setIsStartingWatch] = useState<boolean>(false);
 
+  // Ingestion HUD state (tracks multi-codebase in-motion ingestions & survives hard refresh)
+  const [activeIngestions, setActiveIngestions] = useState<IngestionJobStatus[]>([]);
+  const [isIngestBarMinimized, setIsIngestBarMinimized] = useState<boolean>(false);
+
   const cosmographRef = useRef<any>(null);
   const workspaceDropdownRef = useRef<HTMLDivElement>(null);
 
   // ─── 1. Data Fetching ──────────────────────────────────────────────────────
+  const fetchIngestStatus = async () => {
+    try {
+      const res = await fetch('/api/ingest/status');
+      if (res.ok) {
+        const list: IngestionJobStatus[] = await res.json();
+        setActiveIngestions(list || []);
+      }
+    } catch (err) {
+      console.warn('Failed to load ingestion status', err);
+    }
+  };
+
+  const handleDismissIngestJob = async (workspace: string) => {
+    try {
+      await fetch('/api/ingest/dismiss', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace }),
+      });
+      setActiveIngestions((prev) => prev.filter((j) => j.workspace !== workspace));
+    } catch (err) {
+      console.warn('Failed to dismiss ingest job', err);
+    }
+  };
+
   const fetchWatchers = async () => {
     try {
       const res = await fetch('/api/watch/status');
@@ -325,11 +379,13 @@ export default function App() {
     loadGraph(selectedWorkspace);
     loadGalaxyTopology(selectedWorkspace);
     fetchWatchers();
+    fetchIngestStatus();
 
     const interval = setInterval(() => {
       loadHealth();
       fetchWatchers();
-    }, 4000);
+      fetchIngestStatus();
+    }, 2500);
 
     // Real-time SSE Delta stream connection
     let es: EventSource | null = null;
@@ -561,96 +617,175 @@ export default function App() {
   };
 
   // ─── 5. Dynamic Directory Traversal & Ingestion ───────────────────────────
-  const fetchDirectory = async (pathTarget?: string) => {
+  const fetchDirectory = async (pathTarget?: string, syncTargetInput = true) => {
     setIsLoadingDir(true);
+    setDirError(null);
     try {
-      const url = pathTarget ? `/api/browse?path=${encodeURIComponent(pathTarget)}` : '/api/browse';
+      const cleanPath = pathTarget ? pathTarget.trim() : undefined;
+      const url = cleanPath ? `/api/browse?path=${encodeURIComponent(cleanPath)}` : '/api/browse';
       const res = await fetch(url);
       if (res.ok) {
         const data: BrowseResponse = await res.json();
         setBrowsePath(data.current_path);
         setParentPath(data.parent_path || null);
         setDirEntries(data.entries || []);
-        setSelectedFolderForIngest(data.current_path);
-
-        const folderName = data.current_path.split('/').filter(Boolean).pop() || '';
-        setCustomProjectName(folderName);
+        if (syncTargetInput) {
+          setSelectedFolderForIngest(data.current_path);
+          const folderName = data.current_path.split('/').filter(Boolean).pop() || '';
+          setCustomProjectName(folderName);
+        }
+        setDirError(null);
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setDirError(errJson.error || `Unable to access directory: ${pathTarget}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to browse directory', err);
+      setDirError(`Connection error: ${err.message}`);
     } finally {
       setIsLoadingDir(false);
     }
   };
 
+  const handleTargetPathChange = (newPath: string) => {
+    setSelectedFolderForIngest(newPath);
+    const folderName = newPath.split('/').filter(Boolean).pop() || '';
+    if (folderName) {
+      setCustomProjectName(folderName);
+    }
+
+    if (browseDebounceTimer.current) {
+      clearTimeout(browseDebounceTimer.current);
+    }
+
+    if (newPath.trim().startsWith('/') && newPath.trim().length >= 4) {
+      browseDebounceTimer.current = setTimeout(() => {
+        fetchDirectory(newPath.trim(), false);
+      }, 400);
+    }
+  };
+
+  const handleTargetPathPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const pasted = e.clipboardData.getData('text').trim();
+    if (pasted.startsWith('/')) {
+      setSelectedFolderForIngest(pasted);
+      const folderName = pasted.split('/').filter(Boolean).pop() || '';
+      if (folderName) setCustomProjectName(folderName);
+      if (browseDebounceTimer.current) clearTimeout(browseDebounceTimer.current);
+      fetchDirectory(pasted, false);
+    }
+  };
+
+  const handleTargetPathKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (browseDebounceTimer.current) clearTimeout(browseDebounceTimer.current);
+      fetchDirectory(selectedFolderForIngest.trim(), false);
+    }
+  };
+
   const openBrowserModal = () => {
     setIsBrowserModalOpen(true);
-    fetchDirectory(browsePath || '/workspace');
+    fetchDirectory(selectedFolderForIngest || browsePath || '/workspace', true);
   };
 
   const handleIngestExecution = async (targetPath: string, projectOverride?: string) => {
     setIsIngesting(true);
-    setIngestNotice('1/2: Indexing AST nodes & generating 384-d vector embeddings...');
+
+    // Immediately close modal — ingestion continues in background via toast
+    setIsBrowserModalOpen(false);
+
+    // Animated step-by-step toast
+    const isRefresh = refreshIngest;
+    if (isRefresh) {
+      setIngestToast('🔄 Purging stale data for clean re-scan...');
+    } else {
+      setIngestToast('📂 Scanning AST nodes & generating 384-d vector embeddings...');
+    }
+
+    // If refresh mode, show intermediate step after 2.5s
+    let stepTimer: ReturnType<typeof setTimeout> | null = null;
+    if (isRefresh) {
+      stepTimer = setTimeout(() => {
+        setIngestToast('📂 Scanning AST nodes & generating 384-d vector embeddings...');
+      }, 2500);
+    }
+
     try {
-      const payload: { path: string; project?: string } = { path: targetPath };
+      const payload: { path: string; project?: string; refresh?: boolean } = { path: targetPath };
       if (projectOverride?.trim()) {
         payload.project = projectOverride.trim();
       }
+      if (isRefresh) {
+        payload.refresh = true;
+      }
+
+      // AbortController with 10-minute timeout for large monorepos (e.g. DSA, Linux kernel)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 600000);
+
+      // Rehydrate HUD tracker immediately
+      setTimeout(() => fetchIngestStatus(), 150);
 
       const res = await fetch('/api/ingest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
+      if (stepTimer) clearTimeout(stepTimer);
 
       if (res.ok) {
         const data = await res.json();
         const r = data.result || {};
         const targetWs = r.workspace || customProjectName;
 
-        if (autoClusterAfterIngest) {
-          setIngestNotice(`2/2: Ingested ${r.nodes_created || 0} nodes. Computing galaxy modular clusters...`);
-          try {
-            const clusterRes = await fetch('/api/cluster', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ workspace: targetWs }),
-            });
-            if (clusterRes.ok) {
-              const cData = await clusterRes.json();
-              setIngestNotice(
-                `✨ Complete! Ingested ${r.nodes_created || 0} nodes and partitioned into ${cData.total_communities} galaxy clusters!`
-              );
-            } else {
-              setIngestNotice(`✅ Ingested ${r.nodes_created || 0} nodes into workspace '${targetWs}'!`);
-            }
-          } catch (e) {
-            console.warn('Auto-clustering failed', e);
-            setIngestNotice(`✅ Ingested ${r.nodes_created || 0} nodes into workspace '${targetWs}'!`);
-          }
-        } else {
-          setIngestNotice(
-            `✅ Ingested ${r.nodes_created || 0} nodes & ${r.edges_created || 0} edges into workspace '${targetWs}'!`
-          );
-        }
+        // Backend already auto-clusters — no redundant /api/cluster call needed
+        const durationSec = ((r.duration_ms || 0) / 1000).toFixed(1);
+        const clusterInfo = r.clusters_computed > 0 ? ` → ${r.clusters_computed} galaxy clusters` : '';
+        setIngestToast(
+          `✨ ${isRefresh ? 'Re-ingested' : 'Ingested'} ${r.nodes_created || 0} nodes & ${r.edges_created || 0} edges${clusterInfo} in ${durationSec}s`
+        );
 
         await loadWorkspaces();
         setSelectedWorkspace(targetWs);
         await loadGraph(targetWs);
         setIsGalaxyDrawerOpen(true);
 
+        // Auto-dismiss success toast after 6s
         setTimeout(() => {
-          setIsBrowserModalOpen(false);
-          setIngestNotice(null);
-        }, 2200);
+          setIngestToast(null);
+        }, 6000);
       } else {
-        const errJson = await res.json().catch(() => ({}));
-        setIngestNotice(`❌ Ingestion failed: ${errJson.message || 'Unknown error'}`);
+        let errMessage = 'Unknown error';
+        try {
+          const errJson = await res.json();
+          errMessage = errJson.message || `Server returned ${res.status}`;
+        } catch {
+          const text = await res.text().catch(() => '');
+          if (res.status === 504) {
+            errMessage = 'Gateway timeout: Ingestion took longer than 10 minutes.';
+          } else {
+            errMessage = text.slice(0, 120) || `HTTP ${res.status}`;
+          }
+        }
+        setIngestToast(`❌ Ingestion failed: ${errMessage}`);
+        setTimeout(() => setIngestToast(null), 8000);
       }
-    } catch (err) {
-      setIngestNotice('❌ Connection error: Backend stack may be offline. Run "make omni-graph" in your terminal to start.');
+    } catch (err: any) {
+      if (stepTimer) clearTimeout(stepTimer);
+      if (err?.name === 'AbortError') {
+        setIngestToast('❌ Ingestion timed out after 10 minutes. The codebase may be too large for a single pass.');
+      } else {
+        setIngestToast('❌ Connection error: Backend stack may be offline. Run "make omni-graph" to start.');
+      }
+      setTimeout(() => setIngestToast(null), 8000);
     } finally {
       setIsIngesting(false);
+      setRefreshIngest(false);
+      await fetchIngestStatus();
     }
   };
 
@@ -2230,6 +2365,13 @@ export default function App() {
               >
                 📦 Tools Monorepo
               </button>
+              <button
+                onClick={() => fetchDirectory('/Users/aparv/Library/CloudStorage/OneDrive-Personal/G-Drive/Interviews/knowledge')}
+                className="cyber-button-secondary"
+                style={{ padding: '3px 10px', fontSize: '0.72rem', borderColor: 'rgba(168, 85, 247, 0.4)', color: '#c084fc' }}
+              >
+                📚 Interviews/Knowledge
+              </button>
             </div>
 
             {/* Breadcrumb Path Bar */}
@@ -2311,9 +2453,57 @@ export default function App() {
                 gap: 4,
               }}
             >
+              {/* Current Directory Selection Bar */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '7px 12px',
+                  background: selectedFolderForIngest === browsePath ? 'rgba(56, 189, 248, 0.14)' : 'rgba(56, 189, 248, 0.06)',
+                  border: selectedFolderForIngest === browsePath
+                    ? '1px solid rgba(56, 189, 248, 0.5)'
+                    : '1px dashed rgba(56, 189, 248, 0.3)',
+                  borderRadius: 6,
+                  marginBottom: 4,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+                  <Folder size={15} color="var(--accent-cyan)" style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: '0.75rem', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    Current Directory: <strong style={{ color: '#fff' }}>{browsePath.split('/').filter(Boolean).pop() || 'root'}</strong>
+                  </span>
+                  <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                    ({dirEntries.length} subfolders)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedFolderForIngest(browsePath);
+                    const name = browsePath.split('/').filter(Boolean).pop() || '';
+                    setCustomProjectName(name);
+                  }}
+                  style={{
+                    background: selectedFolderForIngest === browsePath ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.06)',
+                    border: '1px solid rgba(56, 189, 248, 0.4)',
+                    color: '#38bdf8',
+                    borderRadius: 4,
+                    padding: '3px 8px',
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                  }}
+                  title="Target this entire directory for ingestion"
+                >
+                  {selectedFolderForIngest === browsePath ? '✓ Selected as Target' : 'Select This Folder'}
+                </button>
+              </div>
+
               {isLoadingDir ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, color: 'var(--text-muted)' }}>
-                  <RefreshCw size={18} className="pulsing-dot" color="var(--accent-cyan)" />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, color: 'var(--text-muted)', padding: '24px 0' }}>
+                  <RefreshCw size={18} className="spinning-icon" color="var(--accent-cyan)" />
                   <span>Loading directory contents...</span>
                 </div>
               ) : dirEntries.length > 0 ? (
@@ -2364,6 +2554,28 @@ export default function App() {
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedFolderForIngest(entry.path);
+                          setCustomProjectName(entry.name);
+                        }}
+                        style={{
+                          background: selectedFolderForIngest === entry.path ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                          border: '1px solid rgba(56, 189, 248, 0.3)',
+                          borderRadius: 4,
+                          padding: '3px 8px',
+                          color: selectedFolderForIngest === entry.path ? '#38bdf8' : 'var(--text-secondary)',
+                          fontSize: '0.68rem',
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                        }}
+                        title="Select this codebase as target"
+                      >
+                        {selectedFolderForIngest === entry.path ? '✓ Selected' : 'Select'}
+                      </button>
+                      <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           fetchDirectory(entry.path);
@@ -2379,35 +2591,82 @@ export default function App() {
                   </div>
                 ))
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                  No subdirectories in this path.
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '24px 0' }}>
+                  No subdirectories found in this path.
                 </div>
               )}
             </div>
 
             {/* Ingestion Settings & Status Footer */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
                 <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>TARGET PATH</label>
-                  <input
-                    type="text"
-                    value={selectedFolderForIngest}
-                    onChange={(e) => setSelectedFolderForIngest(e.target.value)}
-                    style={{
-                      width: '100%',
-                      background: 'rgba(0, 0, 0, 0.4)',
-                      border: '1px solid rgba(255, 255, 255, 0.12)',
-                      borderRadius: 6,
-                      padding: '6px 10px',
-                      color: '#e2e8f0',
-                      fontSize: '0.78rem',
-                      marginTop: 2,
-                    }}
-                  />
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                    <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>TARGET PATH</span>
+                      <span style={{ fontSize: '0.65rem', color: 'var(--accent-cyan)', fontWeight: 400 }}>
+                        (Paste or type path to explore subdirectories)
+                      </span>
+                    </label>
+                    {isLoadingDir && (
+                      <span style={{ fontSize: '0.68rem', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <RefreshCw size={11} className="spinning-icon" />
+                        <span>Exploring...</span>
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      type="text"
+                      placeholder="e.g. /workspace or /Users/aparv/.../knowledge"
+                      value={selectedFolderForIngest}
+                      onChange={(e) => handleTargetPathChange(e.target.value)}
+                      onPaste={handleTargetPathPaste}
+                      onKeyDown={handleTargetPathKeyDown}
+                      style={{
+                        flex: 1,
+                        background: 'rgba(0, 0, 0, 0.4)',
+                        border: dirError
+                          ? '1px solid rgba(239, 68, 68, 0.5)'
+                          : browsePath === selectedFolderForIngest
+                          ? '1px solid rgba(56, 189, 248, 0.4)'
+                          : '1px solid rgba(255, 255, 255, 0.12)',
+                        borderRadius: 6,
+                        padding: '6px 10px',
+                        color: '#e2e8f0',
+                        fontSize: '0.78rem',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fetchDirectory(selectedFolderForIngest.trim(), false)}
+                      className="cyber-button-secondary"
+                      style={{
+                        padding: '0 12px',
+                        fontSize: '0.72rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        background: 'rgba(56, 189, 248, 0.15)',
+                        borderColor: 'rgba(56, 189, 248, 0.4)',
+                        color: '#38bdf8',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title="Navigate and render directories in this path (Enter)"
+                    >
+                      <span>Browse</span>
+                      <ChevronRight size={13} />
+                    </button>
+                  </div>
+                  {dirError && (
+                    <div style={{ fontSize: '0.68rem', color: '#f87171', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <AlertTriangle size={12} />
+                      <span>{dirError}</span>
+                    </div>
+                  )}
                 </div>
-                <div style={{ width: 180 }}>
-                  <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>WORKSPACE NAME</label>
+                <div style={{ width: 190 }}>
+                  <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 2 }}>WORKSPACE NAME</label>
                   <input
                     type="text"
                     placeholder="e.g. session-explorer"
@@ -2421,7 +2680,6 @@ export default function App() {
                       padding: '6px 10px',
                       color: '#e2e8f0',
                       fontSize: '0.78rem',
-                      marginTop: 2,
                     }}
                   />
                 </div>
@@ -2443,25 +2701,25 @@ export default function App() {
                 </label>
               </div>
 
-              {ingestNotice && (
-                <div
-                  style={{
-                    padding: '8px 12px',
-                    borderRadius: 6,
-                    background: ingestNotice.startsWith('✅') || ingestNotice.startsWith('✨') ? 'rgba(52, 211, 153, 0.1)' : 'rgba(56, 189, 248, 0.1)',
-                    border: `1px solid ${ingestNotice.startsWith('✅') || ingestNotice.startsWith('✨') ? 'rgba(52, 211, 153, 0.3)' : 'rgba(56, 189, 248, 0.3)'}`,
-                    fontSize: '0.75rem',
-                    color: ingestNotice.startsWith('✅') || ingestNotice.startsWith('✨') ? '#34d399' : '#38bdf8',
-                  }}
-                >
-                  {ingestNotice}
-                </div>
-              )}
+              {/* Clean Re-ingest Toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 0' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.76rem', color: '#e2e8f0' }}>
+                  <input
+                    type="checkbox"
+                    checked={refreshIngest}
+                    onChange={(e) => setRefreshIngest(e.target.checked)}
+                    style={{ accentColor: '#ef4444', cursor: 'pointer', width: 15, height: 15 }}
+                  />
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <RefreshCw size={13} color="#ef4444" />
+                    <span>Clean Re-ingest — purge existing data before fresh scan</span>
+                  </span>
+                </label>
+              </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
                 <button
                   onClick={() => setIsBrowserModalOpen(false)}
-                  disabled={isIngesting}
                   className="cyber-button-secondary"
                 >
                   Cancel
@@ -2470,13 +2728,51 @@ export default function App() {
                   onClick={() => handleIngestExecution(selectedFolderForIngest, customProjectName)}
                   disabled={isIngesting || !selectedFolderForIngest}
                   className="cyber-button"
+                  style={refreshIngest ? { borderColor: 'rgba(239, 68, 68, 0.5)', boxShadow: '0 0 12px rgba(239, 68, 68, 0.2)' } : {}}
                 >
-                  {isIngesting ? <RefreshCw size={15} className="pulsing-dot" /> : <Sparkles size={15} />}
-                  <span>{isIngesting ? 'Ingesting Codebase...' : 'Start Ingestion'}</span>
+                  {isIngesting ? <RefreshCw size={15} className="pulsing-dot" /> : (refreshIngest ? <RefreshCw size={15} /> : <Sparkles size={15} />)}
+                  <span>{isIngesting ? 'Ingesting...' : (refreshIngest ? 'Re-ingest Fresh' : 'Start Ingestion')}</span>
                 </button>
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ─── INGESTION PROGRESS TOAST (NON-BLOCKING) ───────────────────── */}
+      {ingestToast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: activeWatchers.length > 0 ? (watchToast ? 136 : 80) : (watchToast ? 80 : 24),
+            right: 24,
+            zIndex: 10001,
+            background: 'rgba(15, 23, 42, 0.94)',
+            backdropFilter: 'blur(16px)',
+            border: `1px solid ${ingestToast.startsWith('❌') ? 'rgba(239, 68, 68, 0.45)' : ingestToast.startsWith('✨') ? 'rgba(52, 211, 153, 0.5)' : 'rgba(129, 140, 248, 0.45)'}`,
+            borderRadius: 10,
+            padding: '10px 16px',
+            color: ingestToast.startsWith('❌') ? '#f87171' : ingestToast.startsWith('✨') ? '#34d399' : '#818cf8',
+            fontSize: '0.78rem',
+            fontWeight: 600,
+            boxShadow: `0 10px 30px rgba(0, 0, 0, 0.7), 0 0 16px ${ingestToast.startsWith('✨') ? 'rgba(52, 211, 153, 0.3)' : 'rgba(129, 140, 248, 0.3)'}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            maxWidth: 440,
+            animation: 'fadeIn 0.2s ease-out',
+          }}
+        >
+          {isIngesting ? (
+            <RefreshCw size={16} className="pulsing-dot" color="#818cf8" />
+          ) : ingestToast.startsWith('✨') ? (
+            <Sparkles size={16} color="#34d399" />
+          ) : ingestToast.startsWith('❌') ? (
+            <AlertTriangle size={16} color="#f87171" />
+          ) : (
+            <Sparkles size={16} color="#818cf8" />
+          )}
+          <span>{ingestToast}</span>
         </div>
       )}
 
@@ -2505,6 +2801,300 @@ export default function App() {
         >
           <Activity size={16} className="pulsing-dot" color="#38bdf8" />
           <span>{watchToast}</span>
+        </div>
+      )}
+
+      {/* ─── GLOBAL PERSISTENT IN-MOTION INGESTION HUD ──────────────────── */}
+      {/* Appears across ALL pages whenever codebases are being ingested/re-ingested */}
+      {activeIngestions.length > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: activeWatchers.length > 0 ? 74 : 18,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            background: 'rgba(10, 15, 30, 0.94)',
+            backdropFilter: 'blur(20px)',
+            border: activeIngestions.some((j) => !j.completed)
+              ? '1px solid rgba(129, 140, 248, 0.45)'
+              : '1px solid rgba(52, 211, 153, 0.45)',
+            boxShadow: activeIngestions.some((j) => !j.completed)
+              ? '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 24px rgba(129, 140, 248, 0.25)'
+              : '0 8px 32px rgba(0, 0, 0, 0.8), 0 0 20px rgba(52, 211, 153, 0.2)',
+            borderRadius: 30,
+            padding: isIngestBarMinimized ? '6px 14px' : '6px 18px',
+            transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+          }}
+        >
+          {/* Ingestion Status Badge */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <span
+              style={{
+                width: 9,
+                height: 9,
+                borderRadius: '50%',
+                background: activeIngestions.some((j) => !j.completed) ? '#818cf8' : '#34d399',
+                boxShadow: activeIngestions.some((j) => !j.completed)
+                  ? '0 0 10px #818cf8'
+                  : '0 0 10px #34d399',
+                display: 'inline-block',
+              }}
+              className={activeIngestions.some((j) => !j.completed) ? 'pulsing-dot' : ''}
+            />
+            <span
+              style={{
+                fontSize: '0.72rem',
+                fontWeight: 800,
+                letterSpacing: '0.08em',
+                color: activeIngestions.some((j) => !j.completed) ? '#a5b4fc' : '#6ee7b7',
+                textTransform: 'uppercase',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
+            >
+              {activeIngestions.filter((j) => !j.completed).length > 0 ? (
+                <>
+                  <span>INGESTING</span>
+                  <span
+                    style={{
+                      background: 'rgba(129, 140, 248, 0.25)',
+                      color: '#c7d2fe',
+                      padding: '1px 6px',
+                      borderRadius: 10,
+                      fontSize: '0.66rem',
+                    }}
+                  >
+                    {activeIngestions.filter((j) => !j.completed).length === 1
+                      ? '1 REPO'
+                      : `${activeIngestions.filter((j) => !j.completed).length} IN MOTION`}
+                  </span>
+                </>
+              ) : (
+                <span>INGESTION COMPLETE</span>
+              )}
+            </span>
+          </div>
+
+          {!isIngestBarMinimized ? (
+            <>
+              {/* Active Workspace Chips */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  maxWidth: 620,
+                  overflowX: 'auto',
+                  padding: '2px 0',
+                }}
+              >
+                {activeIngestions.map((job) => {
+                  const isDone = job.completed;
+                  const isFail = job.phase === 'failed';
+                  const elapsedSec = Math.round((job.elapsed_ms || 0) / 1000);
+
+                  return (
+                    <div
+                      key={job.workspace}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        background: isFail
+                          ? 'rgba(239, 68, 68, 0.15)'
+                          : isDone
+                          ? 'rgba(52, 211, 153, 0.12)'
+                          : 'rgba(255, 255, 255, 0.07)',
+                        border: isFail
+                          ? '1px solid rgba(239, 68, 68, 0.4)'
+                          : isDone
+                          ? '1px solid rgba(52, 211, 153, 0.35)'
+                          : '1px solid rgba(129, 140, 248, 0.35)',
+                        borderRadius: 16,
+                        padding: '3px 10px',
+                        fontSize: '0.72rem',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {/* Workspace icon / spinning indicator */}
+                      {!isDone ? (
+                        <RotateCcw
+                          size={12}
+                          className="spinning-icon"
+                          color={job.is_refresh ? '#f87171' : '#818cf8'}
+                        />
+                      ) : isFail ? (
+                        <AlertCircle size={12} color="#f87171" />
+                      ) : (
+                        <CheckCircle size={12} color="#34d399" />
+                      )}
+
+                      {/* Workspace Name */}
+                      <span style={{ fontWeight: 700, color: '#f1f5f9' }}>{job.workspace}</span>
+
+                      {/* Clean Re-ingest Tag */}
+                      {job.is_refresh && (
+                        <span
+                          style={{
+                            background: 'rgba(239, 68, 68, 0.25)',
+                            color: '#fca5a5',
+                            padding: '0 4px',
+                            borderRadius: 4,
+                            fontSize: '0.62rem',
+                            fontWeight: 700,
+                          }}
+                        >
+                          CLEAN
+                        </span>
+                      )}
+
+                      {/* Live Phase Text */}
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.68rem' }}>
+                        {job.phase === 'purging'
+                          ? 'Purging DB...'
+                          : job.phase === 'scanning'
+                          ? `Scanning files... (${job.files_scanned})`
+                          : job.phase === 'indexing'
+                          ? `${job.files_indexed} files • ${job.nodes_created} nodes`
+                          : job.phase === 'clustering'
+                          ? 'Clustering AST...'
+                          : job.phase === 'completed'
+                          ? `${job.files_indexed} files • ${job.nodes_created} nodes`
+                          : (job.error || 'Failed')}
+                      </span>
+
+                      {/* Elapsed Timer */}
+                      <span
+                        style={{
+                          color: '#94a3b8',
+                          fontSize: '0.64rem',
+                          background: 'rgba(0, 0, 0, 0.3)',
+                          padding: '1px 5px',
+                          borderRadius: 8,
+                          fontFamily: 'monospace',
+                        }}
+                      >
+                        {elapsedSec}s
+                      </span>
+
+                      {/* Explore Action on Complete */}
+                      {isDone && !isFail && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedWorkspace(job.workspace);
+                            loadGraph(job.workspace);
+                            loadGalaxyTopology(job.workspace);
+                            setIsGalaxyDrawerOpen(true);
+                          }}
+                          style={{
+                            background: 'rgba(52, 211, 153, 0.25)',
+                            border: '1px solid rgba(52, 211, 153, 0.5)',
+                            color: '#34d399',
+                            borderRadius: 10,
+                            padding: '2px 7px',
+                            fontSize: '0.65rem',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                          }}
+                          title={`Explore ${job.workspace} in 3D Galaxy Studio`}
+                        >
+                          ✨ Explore
+                        </button>
+                      )}
+
+                      {/* Dismiss Job Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleDismissIngestJob(job.workspace)}
+                        title={`Dismiss ${job.workspace}`}
+                        style={{
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--text-muted)',
+                          cursor: 'pointer',
+                          padding: 0,
+                          marginLeft: 2,
+                          display: 'flex',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Actions */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  borderLeft: '1px solid rgba(255, 255, 255, 0.15)',
+                  paddingLeft: 10,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setIsBrowserModalOpen(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    background: 'rgba(129, 140, 248, 0.15)',
+                    border: '1px solid rgba(129, 140, 248, 0.35)',
+                    borderRadius: 12,
+                    padding: '3px 9px',
+                    color: '#a5b4fc',
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span>+ Ingest Another</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsIngestBarMinimized(true)}
+                  title="Minimize ingestion status HUD"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontSize: '0.75rem',
+                    padding: '2px 4px',
+                  }}
+                >
+                  ─
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsIngestBarMinimized(false)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#818cf8',
+                fontSize: '0.72rem',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {activeIngestions.filter((j) => !j.completed).length > 0
+                ? `${activeIngestions.filter((j) => !j.completed).length} In Motion ↗`
+                : 'Ingestions Complete ↗'}
+            </button>
+          )}
         </div>
       )}
 

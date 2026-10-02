@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info, warn};
 use walkdir::WalkDir;
 
@@ -62,12 +62,38 @@ impl FileCache {
         let map = self.hashes.lock().await;
         map.keys().cloned().collect()
     }
+
+    /// Clear all cached hashes. Used by refresh-ingestion to force full re-scan.
+    pub async fn clear(&self) {
+        let mut map = self.hashes.lock().await;
+        map.clear();
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct IngestionJobStatus {
+    pub workspace: String,
+    pub path: String,
+    pub is_refresh: bool,
+    pub phase: String, // "purging", "scanning", "indexing", "clustering", "completed", "failed"
+    pub files_scanned: usize,
+    pub files_indexed: usize,
+    pub files_skipped: usize,
+    pub total_files: usize,
+    pub nodes_created: usize,
+    pub edges_created: usize,
+    pub clusters_computed: usize,
+    pub started_at: u64,
+    pub elapsed_ms: u64,
+    pub completed: bool,
+    pub error: Option<String>,
 }
 
 pub struct IngestionPipeline {
     db: DbClient,
     embedder: EmbedderClient,
     cache: FileCache,
+    jobs: Arc<RwLock<HashMap<String, IngestionJobStatus>>>,
 }
 
 #[derive(serde::Serialize, Debug)]
@@ -88,13 +114,29 @@ impl IngestionPipeline {
             db,
             embedder,
             cache,
+            jobs: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Retrieve real-time status of all active and recently completed ingestion jobs
+    pub async fn get_status(&self) -> Vec<IngestionJobStatus> {
+        let jobs = self.jobs.read().await;
+        let mut list: Vec<IngestionJobStatus> = jobs.values().cloned().collect();
+        list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        list
+    }
+
+    /// Dismiss a completed or failed ingestion job from the tracker
+    pub async fn dismiss_job(&self, workspace: &str) {
+        let mut jobs = self.jobs.write().await;
+        jobs.remove(workspace);
     }
 
     pub async fn ingest_directory(
         &self,
         root_dir: &str,
         project: Option<&str>,
+        refresh: bool,
     ) -> Result<IngestResult, String> {
         let start_time = std::time::Instant::now();
         info!("Starting ingestion for directory: {}", root_dir);
@@ -122,11 +164,62 @@ impl IngestionPipeline {
             .unwrap_or_else(|_| root_dir.to_string());
         let _ = self.db.record_workspace_root(&workspace_name, &abs_root).await;
 
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+
+        // Register initial in-motion ingestion job in tracker
+        {
+            let mut jobs = self.jobs.write().await;
+            jobs.insert(
+                workspace_name.clone(),
+                IngestionJobStatus {
+                    workspace: workspace_name.clone(),
+                    path: abs_root.clone(),
+                    is_refresh: refresh,
+                    phase: if refresh { "purging".to_string() } else { "scanning".to_string() },
+                    files_scanned: 0,
+                    files_indexed: 0,
+                    files_skipped: 0,
+                    total_files: 0,
+                    nodes_created: 0,
+                    edges_created: 0,
+                    clusters_computed: 0,
+                    started_at: now_ms,
+                    elapsed_ms: 0,
+                    completed: false,
+                    error: None,
+                },
+            );
+        }
+
+        // REFRESH MODE: Purge all existing nodes/edges/galaxies before clean re-scan
+        if refresh {
+            info!("REFRESH mode: purging all existing data for workspace '{}'", workspace_name);
+            match self.db.purge_workspace(&workspace_name).await {
+                Ok(purged) => info!("Purged {} existing nodes from '{}' before fresh re-scan", purged, workspace_name),
+                Err(e) => warn!("Purge warning for '{}': {} — proceeding with ingestion", workspace_name, e),
+            }
+            // Clear the in-memory staleness cache so ALL files get re-indexed
+            self.cache.clear().await;
+            {
+                let mut jobs = self.jobs.write().await;
+                if let Some(job) = jobs.get_mut(&workspace_name) {
+                    job.phase = "scanning".to_string();
+                    job.elapsed_ms = start_time.elapsed().as_millis() as u64;
+                }
+            }
+        }
+
         // Restore staleness cache from persisted database file hashes (Finding #4)
-        if let Ok(persisted_hashes) = self.db.get_file_hashes(&workspace_name).await {
-            if !persisted_hashes.is_empty() {
-                info!("Restored {} persisted file hashes for '{}' from SurrealDB", persisted_hashes.len(), workspace_name);
-                self.cache.populate(persisted_hashes).await;
+        // (Skip if refresh mode — we just purged everything)
+        if !refresh {
+            if let Ok(persisted_hashes) = self.db.get_file_hashes(&workspace_name).await {
+                if !persisted_hashes.is_empty() {
+                    info!("Restored {} persisted file hashes for '{}' from SurrealDB", persisted_hashes.len(), workspace_name);
+                    self.cache.populate(persisted_hashes).await;
+                }
             }
         }
 
@@ -237,10 +330,36 @@ impl IngestionPipeline {
                 }
 
                 files_indexed += 1;
+
+                if files_scanned % 15 == 0 || files_indexed % 10 == 0 {
+                    let mut jobs = self.jobs.write().await;
+                    if let Some(job) = jobs.get_mut(&workspace_name) {
+                        job.phase = "indexing".to_string();
+                        job.files_scanned = files_scanned;
+                        job.files_indexed = files_indexed;
+                        job.files_skipped = files_skipped;
+                        job.nodes_created = total_nodes;
+                        job.edges_created = total_edges;
+                        job.elapsed_ms = start_time.elapsed().as_millis() as u64;
+                    }
+                }
             }
         }
 
         // Auto-cluster upon ingestion: Compute Louvain/Leiden modularity communities
+        {
+            let mut jobs = self.jobs.write().await;
+            if let Some(job) = jobs.get_mut(&workspace_name) {
+                job.phase = "clustering".to_string();
+                job.files_scanned = files_scanned;
+                job.files_indexed = files_indexed;
+                job.files_skipped = files_skipped;
+                job.nodes_created = total_nodes;
+                job.edges_created = total_edges;
+                job.elapsed_ms = start_time.elapsed().as_millis() as u64;
+            }
+        }
+
         let mut clusters_computed = 0;
         if total_nodes > 0 {
             if let Ok((all_nodes, all_links)) = self.db.get_graph(Some(&workspace_name)).await {
@@ -263,6 +382,21 @@ impl IngestionPipeline {
             "Ingestion completed for '{}': {} files scanned, {} indexed, {} skipped, {} clusters in {}ms",
             workspace_name, files_scanned, files_indexed, files_skipped, clusters_computed, duration_ms
         );
+
+        {
+            let mut jobs = self.jobs.write().await;
+            if let Some(job) = jobs.get_mut(&workspace_name) {
+                job.phase = "completed".to_string();
+                job.completed = true;
+                job.files_scanned = files_scanned;
+                job.files_indexed = files_indexed;
+                job.files_skipped = files_skipped;
+                job.nodes_created = total_nodes;
+                job.edges_created = total_edges;
+                job.clusters_computed = clusters_computed;
+                job.elapsed_ms = duration_ms;
+            }
+        }
 
         Ok(IngestResult {
             workspace: workspace_name,

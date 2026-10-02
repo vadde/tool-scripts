@@ -575,7 +575,7 @@ async fn run_watcher(
 }
 
 /// Determine if a notify event should be processed
-fn should_process_event(event: &Event, root: &PathBuf) -> bool {
+fn should_process_event(event: &Event, _root: &PathBuf) -> bool {
     match event.kind {
         EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {}
         _ => return false,

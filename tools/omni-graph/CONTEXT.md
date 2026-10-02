@@ -1,7 +1,7 @@
 ---
 tool: omni-graph
 status: in-progress
-last_session: 2026-09-30
+last_session: 2026-10-02
 last_agent: "@antigravity"
 blockers: []
 ---
@@ -33,10 +33,12 @@ blockers: []
 | Dynamic Live Galaxy Clustering (R-029) | Complete | — | 🟢 Seed-Preserving LPA & Quiescent Re-Clustering |
 | Agent Boundary Contracts (R-030) | Complete | — | 🟢 /api/galaxy/boundary & /api/galaxy/topology Live |
 | Agent Relationship Augmentation (POST /api/relationships) | Complete | — | 🟢 Inferred Runtime Linking & Virtual Component Synthesis |
+| Refresh Ingestion & Non-Blocking Ingest UX | Complete | — | 🟢 Atomic Purge, Clean Re-ingest & Progress Toast |
 | 3-Tier Omniverse Reconnaissance Ladder | Complete | — | 🟢 Live Across Machine & Ephemeral Prompt Banners |
 | UI/UX Macro Topology Hub & Boundary Inspector | Complete | — | 🟢 Live on Port 3000 (Topology Hub & Inspector) |
 | Agent Analytics & LSP Telemetry | Complete | — | 🟢 Live on Port 3000 & 8080 (Dual-Source Telemetry) |
 | Dynamic Live Delta Sync & Watch HUD | Complete | — | 🟢 Live on Port 3000 & 8080 |
+| Active Ingestion HUD & Multi-Repo Tracker | Complete | — | 🟢 Live on Port 3000 & 8080 (Survives Hard Browser Refresh) |
 | Workspace Meta & Path Auto-Resolution | Complete | — | 🟢 Verified & Live in Docker |
 | Workspace Deduplication & Sanitization | Complete | — | 🟢 Live on Port 3000 & 8080 |
 | Session-Scoped Recon Gate & Sequence Enforcer | Complete | — | 🟢 Live Machine-Wide (Workspace & Global) |
@@ -74,6 +76,8 @@ blockers: []
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-10-02 | Nginx 600s Proxy Timeout & 300s SurrealDB Client | Configured 600s proxy timeouts in `nginx.conf` and 300s in `DbClient` with indexed `linked_to` deletion, resolving the "Unknown error" 504 drops on large repos (DSA) |
+| 2026-10-02 | Atomic Workspace Purge & Non-Blocking Ingest UX | Implemented 4-step atomic purge in SurrealDB (`DELETE linked_to -> DELETE node -> DELETE galaxy`), cleared in-memory staleness hashes, replaced blocking modal with instant dismiss into non-blocking progress toast with 5-minute timeout window |
 | 2026-09-30 | Node Inspector Breadcrumbs & Caller Stack | Added `nodeHistory` stack, interactive breadcrumbs, `Back to [prev]` button, and `Return to caller` action in BoundaryContractCard for one-click return from foreign callers |
 | 2026-09-30 | Progressive Windowing & Flexbox Isolation | SubsystemTopologyHub uses `visibleCount` progressive slicing and `flexShrink: 0` to prevent flex collapse on 250+ cluster workspaces (QuarkDock) |
 | 2026-09-30 | Live Watch HUD Consolidation | Unified live file watching and background modularity under single `LIVE WATCH` HUD; removed redundant top-bar chip |
