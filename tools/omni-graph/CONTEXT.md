@@ -39,6 +39,7 @@ blockers: []
 | Agent Analytics & LSP Telemetry | Complete | — | 🟢 Live on Port 3000 & 8080 (Dual-Source Telemetry) |
 | Dynamic Live Delta Sync & Watch HUD | Complete | — | 🟢 Live on Port 3000 & 8080 |
 | Active Ingestion HUD & Multi-Repo Tracker | Complete | — | 🟢 Live on Port 3000 & 8080 (Survives Hard Browser Refresh) |
+| Fail-Safe Directory Browser & Escape Hatch | Complete | — | 🟢 Non-blocking UI, 3.5s Timeout, AbortController & Recovery Actions |
 | Workspace Meta & Path Auto-Resolution | Complete | — | 🟢 Verified & Live in Docker |
 | Workspace Deduplication & Sanitization | Complete | — | 🟢 Live on Port 3000 & 8080 |
 | Session-Scoped Recon Gate & Sequence Enforcer | Complete | — | 🟢 Live Machine-Wide (Workspace & Global) |

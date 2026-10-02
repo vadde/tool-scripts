@@ -191,6 +191,7 @@ export default function App() {
   const [isLoadingDir, setIsLoadingDir] = useState(false);
   const [dirError, setDirError] = useState<string | null>(null);
   const browseDebounceTimer = useRef<any>(null);
+  const browseAbortController = useRef<AbortController | null>(null);
   const [selectedFolderForIngest, setSelectedFolderForIngest] = useState<string>('/workspace');
   const [customProjectName, setCustomProjectName] = useState('');
   const [isIngesting, setIsIngesting] = useState(false);
@@ -617,13 +618,44 @@ export default function App() {
   };
 
   // ─── 5. Dynamic Directory Traversal & Ingestion ───────────────────────────
+  const cancelBrowse = () => {
+    if (browseAbortController.current) {
+      browseAbortController.current.abort();
+      browseAbortController.current = null;
+    }
+    if (browseDebounceTimer.current) {
+      clearTimeout(browseDebounceTimer.current);
+    }
+    setIsLoadingDir(false);
+  };
+
+  const closeBrowserModal = () => {
+    cancelBrowse();
+    setIsBrowserModalOpen(false);
+  };
+
   const fetchDirectory = async (pathTarget?: string, syncTargetInput = true) => {
+    // 1. Abort previous in-flight browse
+    if (browseAbortController.current) {
+      browseAbortController.current.abort();
+    }
+    const controller = new AbortController();
+    browseAbortController.current = controller;
+
+    // 2. Strict 3.5s timeout: network browse should never hang or trap the user
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 3500);
+
     setIsLoadingDir(true);
     setDirError(null);
+
     try {
       const cleanPath = pathTarget ? pathTarget.trim() : undefined;
       const url = cleanPath ? `/api/browse?path=${encodeURIComponent(cleanPath)}` : '/api/browse';
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
       if (res.ok) {
         const data: BrowseResponse = await res.json();
         setBrowsePath(data.current_path);
@@ -640,10 +672,20 @@ export default function App() {
         setDirError(errJson.error || `Unable to access directory: ${pathTarget}`);
       }
     } catch (err: any) {
-      console.error('Failed to browse directory', err);
-      setDirError(`Connection error: ${err.message}`);
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        if (browseAbortController.current === controller) {
+          setDirError(`Directory read timed out (>3.5s). You can still target this path directly or click a bookmark.`);
+        }
+      } else {
+        console.error('Failed to browse directory', err);
+        setDirError(`Connection error: ${err.message}`);
+      }
     } finally {
-      setIsLoadingDir(false);
+      if (browseAbortController.current === controller) {
+        setIsLoadingDir(false);
+        browseAbortController.current = null;
+      }
     }
   };
 
@@ -658,16 +700,18 @@ export default function App() {
       clearTimeout(browseDebounceTimer.current);
     }
 
-    if (newPath.trim().startsWith('/') && newPath.trim().length >= 4) {
+    const trimmed = newPath.trim();
+    if (trimmed.startsWith('/') && (trimmed.endsWith('/') || trimmed.split('/').length >= 3)) {
       browseDebounceTimer.current = setTimeout(() => {
-        fetchDirectory(newPath.trim(), false);
-      }, 400);
+        fetchDirectory(trimmed, false);
+      }, 600);
     }
   };
 
   const handleTargetPathPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     const pasted = e.clipboardData.getData('text').trim();
     if (pasted.startsWith('/')) {
+      e.preventDefault(); // Stop double-firing from onChange
       setSelectedFolderForIngest(pasted);
       const folderName = pasted.split('/').filter(Boolean).pop() || '';
       if (folderName) setCustomProjectName(folderName);
@@ -685,8 +729,11 @@ export default function App() {
   };
 
   const openBrowserModal = () => {
+    cancelBrowse();
     setIsBrowserModalOpen(true);
-    fetchDirectory(selectedFolderForIngest || browsePath || '/workspace', true);
+    // Safe fallback: if dirError existed or selectedFolder was bad, safely default to /workspace
+    const initialTarget = (dirError || !selectedFolderForIngest) ? '/workspace' : selectedFolderForIngest;
+    fetchDirectory(initialTarget, true);
   };
 
   const handleIngestExecution = async (targetPath: string, projectOverride?: string) => {
@@ -2291,7 +2338,7 @@ export default function App() {
             padding: 20,
           }}
           onClick={(e) => {
-            if (e.target === e.currentTarget && !isIngesting) setIsBrowserModalOpen(false);
+            if (e.target === e.currentTarget && !isIngesting) closeBrowserModal();
           }}
         >
           <div
@@ -2334,7 +2381,7 @@ export default function App() {
                 </div>
               </div>
               <button
-                onClick={() => !isIngesting && setIsBrowserModalOpen(false)}
+                onClick={() => !isIngesting && closeBrowserModal()}
                 style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}
               >
                 <X size={18} />
@@ -2476,123 +2523,259 @@ export default function App() {
                   <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)', flexShrink: 0 }}>
                     ({dirEntries.length} subfolders)
                   </span>
+                  {isLoadingDir && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem', color: 'var(--accent-cyan)', marginLeft: 6 }}>
+                      <RefreshCw size={11} className="spinning-icon" />
+                      <span>Scanning...</span>
+                    </span>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedFolderForIngest(browsePath);
-                    const name = browsePath.split('/').filter(Boolean).pop() || '';
-                    setCustomProjectName(name);
-                  }}
-                  style={{
-                    background: selectedFolderForIngest === browsePath ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.06)',
-                    border: '1px solid rgba(56, 189, 248, 0.4)',
-                    color: '#38bdf8',
-                    borderRadius: 4,
-                    padding: '3px 8px',
-                    fontSize: '0.68rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    flexShrink: 0,
-                  }}
-                  title="Target this entire directory for ingestion"
-                >
-                  {selectedFolderForIngest === browsePath ? '✓ Selected as Target' : 'Select This Folder'}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {isLoadingDir && (
+                    <button
+                      type="button"
+                      onClick={cancelBrowse}
+                      style={{
+                        background: 'rgba(239, 68, 68, 0.15)',
+                        border: '1px solid rgba(239, 68, 68, 0.4)',
+                        color: '#f87171',
+                        borderRadius: 4,
+                        padding: '3px 8px',
+                        fontSize: '0.68rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                      title="Cancel background directory scan"
+                    >
+                      Cancel Scan
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedFolderForIngest(browsePath);
+                      const name = browsePath.split('/').filter(Boolean).pop() || '';
+                      setCustomProjectName(name);
+                    }}
+                    style={{
+                      background: selectedFolderForIngest === browsePath ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.06)',
+                      border: '1px solid rgba(56, 189, 248, 0.4)',
+                      color: '#38bdf8',
+                      borderRadius: 4,
+                      padding: '3px 8px',
+                      fontSize: '0.68rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                    }}
+                    title="Target this entire directory for ingestion"
+                  >
+                    {selectedFolderForIngest === browsePath ? '✓ Selected as Target' : 'Select This Folder'}
+                  </button>
+                </div>
               </div>
 
-              {isLoadingDir ? (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, color: 'var(--text-muted)', padding: '24px 0' }}>
-                  <RefreshCw size={18} className="spinning-icon" color="var(--accent-cyan)" />
-                  <span>Loading directory contents...</span>
+              {/* Progress bar shimmer if loading */}
+              {isLoadingDir && (
+                <div
+                  style={{
+                    height: 2,
+                    width: '100%',
+                    background: 'linear-gradient(90deg, #38bdf8, #818cf8, #38bdf8)',
+                    borderRadius: 2,
+                    animation: 'pulse 1s infinite',
+                    marginBottom: 4,
+                  }}
+                />
+              )}
+
+              {/* Error banner with Quick Recovery actions if dirError */}
+              {dirError && (
+                <div
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.12)',
+                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                    borderRadius: 6,
+                    padding: '8px 12px',
+                    fontSize: '0.74rem',
+                    color: '#fca5a5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    marginBottom: 4,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                    <AlertTriangle size={14} color="#ef4444" style={{ flexShrink: 0 }} />
+                    <span style={{ textOverflow: 'ellipsis', overflow: 'hidden' }}>{dirError}</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => fetchDirectory(browsePath || '/workspace')}
+                      className="cyber-button-secondary"
+                      style={{ padding: '2px 8px', fontSize: '0.68rem' }}
+                    >
+                      Retry
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fetchDirectory('/workspace')}
+                      className="cyber-button-secondary"
+                      style={{ padding: '2px 8px', fontSize: '0.68rem', borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8' }}
+                    >
+                      Reset to /workspace
+                    </button>
+                  </div>
                 </div>
-              ) : dirEntries.length > 0 ? (
-                dirEntries.map((entry) => (
-                  <div
-                    key={entry.path}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 12px',
-                      borderRadius: 6,
-                      background: selectedFolderForIngest === entry.path ? 'rgba(56, 189, 248, 0.12)' : 'rgba(255, 255, 255, 0.02)',
-                      border: `1px solid ${
-                        selectedFolderForIngest === entry.path
-                          ? 'rgba(56, 189, 248, 0.5)'
-                          : entry.is_codebase
-                          ? 'rgba(168, 85, 247, 0.35)'
-                          : 'transparent'
-                      }`,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                    onClick={() => {
-                      setSelectedFolderForIngest(entry.path);
-                      setCustomProjectName(entry.name);
-                    }}
-                    onDoubleClick={() => fetchDirectory(entry.path)}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
-                      <Folder
-                        size={17}
-                        color={entry.is_codebase ? 'var(--accent-purple)' : 'var(--accent-cyan)'}
-                        style={{ flexShrink: 0 }}
-                      />
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '0.82rem', color: '#f8fafc' }}>
-                          {entry.name}
-                        </div>
-                        {entry.is_codebase && (
-                          <div style={{ fontSize: '0.68rem', color: 'var(--accent-purple)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Code size={11} />
-                            <span>Detected Codebase {entry.languages.length > 0 ? `(${entry.languages.join(', ')})` : ''}</span>
+              )}
+
+              {/* Directory Entries or Fallback */}
+              {dirEntries.length > 0 ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    opacity: isLoadingDir ? 0.6 : 1,
+                    transition: 'opacity 0.2s ease',
+                  }}
+                >
+                  {dirEntries.map((entry) => (
+                    <div
+                      key={entry.path}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '8px 12px',
+                        borderRadius: 6,
+                        background: selectedFolderForIngest === entry.path ? 'rgba(56, 189, 248, 0.12)' : 'rgba(255, 255, 255, 0.02)',
+                        border: `1px solid ${
+                          selectedFolderForIngest === entry.path
+                            ? 'rgba(56, 189, 248, 0.5)'
+                            : entry.is_codebase
+                            ? 'rgba(168, 85, 247, 0.35)'
+                            : 'transparent'
+                        }`,
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                      onClick={() => {
+                        setSelectedFolderForIngest(entry.path);
+                        setCustomProjectName(entry.name);
+                      }}
+                      onDoubleClick={() => fetchDirectory(entry.path)}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
+                        <Folder
+                          size={17}
+                          color={entry.is_codebase ? 'var(--accent-purple)' : 'var(--accent-cyan)'}
+                          style={{ flexShrink: 0 }}
+                        />
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: '0.82rem', color: '#f8fafc' }}>
+                            {entry.name}
                           </div>
-                        )}
+                          {entry.is_codebase && (
+                            <div style={{ fontSize: '0.68rem', color: 'var(--accent-purple)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <Code size={11} />
+                              <span>Detected Codebase {entry.languages.length > 0 ? `(${entry.languages.join(', ')})` : ''}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedFolderForIngest(entry.path);
+                            setCustomProjectName(entry.name);
+                          }}
+                          style={{
+                            background: selectedFolderForIngest === entry.path ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.05)',
+                            border: '1px solid rgba(56, 189, 248, 0.3)',
+                            borderRadius: 4,
+                            padding: '3px 8px',
+                            color: selectedFolderForIngest === entry.path ? '#38bdf8' : 'var(--text-secondary)',
+                            fontSize: '0.68rem',
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                          }}
+                          title="Select this codebase as target"
+                        >
+                          {selectedFolderForIngest === entry.path ? '✓ Selected' : 'Select'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            fetchDirectory(entry.path);
+                          }}
+                          className="cyber-button-secondary"
+                          style={{ padding: '3px 8px', fontSize: '0.7rem' }}
+                          title="Enter folder"
+                        >
+                          <span>Open</span>
+                          <ChevronRight size={12} />
+                        </button>
                       </div>
                     </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedFolderForIngest(entry.path);
-                          setCustomProjectName(entry.name);
-                        }}
-                        style={{
-                          background: selectedFolderForIngest === entry.path ? 'rgba(56, 189, 248, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-                          border: '1px solid rgba(56, 189, 248, 0.3)',
-                          borderRadius: 4,
-                          padding: '3px 8px',
-                          color: selectedFolderForIngest === entry.path ? '#38bdf8' : 'var(--text-secondary)',
-                          fontSize: '0.68rem',
-                          cursor: 'pointer',
-                          fontWeight: 600,
-                        }}
-                        title="Select this codebase as target"
-                      >
-                        {selectedFolderForIngest === entry.path ? '✓ Selected' : 'Select'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          fetchDirectory(entry.path);
-                        }}
-                        className="cyber-button-secondary"
-                        style={{ padding: '3px 8px', fontSize: '0.7rem' }}
-                        title="Enter folder"
-                      >
-                        <span>Open</span>
-                        <ChevronRight size={12} />
-                      </button>
-                    </div>
+                  ))}
+                </div>
+              ) : isLoadingDir ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, color: 'var(--text-muted)', padding: '28px 0' }}>
+                  <RefreshCw size={22} className="spinning-icon" color="var(--accent-cyan)" />
+                  <span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>Reading directory structure...</span>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <button
+                      type="button"
+                      onClick={cancelBrowse}
+                      className="cyber-button-secondary"
+                      style={{ padding: '3px 10px', fontSize: '0.72rem' }}
+                    >
+                      Stop Loading
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fetchDirectory('/workspace')}
+                      className="cyber-button-secondary"
+                      style={{ padding: '3px 10px', fontSize: '0.72rem' }}
+                    >
+                      Back to Monorepo
+                    </button>
                   </div>
-                ))
+                </div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)', fontSize: '0.8rem', padding: '24px 0' }}>
-                  No subdirectories found in this path.
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 8, color: 'var(--text-muted)', padding: '24px 0' }}>
+                  <AlertCircle size={20} color="var(--text-muted)" />
+                  <span style={{ fontSize: '0.8rem' }}>No subdirectories found under this path</span>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedFolderForIngest(browsePath);
+                        const name = browsePath.split('/').filter(Boolean).pop() || '';
+                        setCustomProjectName(name);
+                      }}
+                      className="cyber-button-secondary"
+                      style={{ padding: '3px 10px', fontSize: '0.72rem', borderColor: 'rgba(56, 189, 248, 0.4)', color: '#38bdf8' }}
+                    >
+                      Ingest Current Directory Directly
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fetchDirectory('/workspace')}
+                      className="cyber-button-secondary"
+                      style={{ padding: '3px 10px', fontSize: '0.72rem' }}
+                    >
+                      Back to Monorepo
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -2719,7 +2902,7 @@ export default function App() {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
                 <button
-                  onClick={() => setIsBrowserModalOpen(false)}
+                  onClick={closeBrowserModal}
                   className="cyber-button-secondary"
                 >
                   Cancel
@@ -3043,7 +3226,7 @@ export default function App() {
               >
                 <button
                   type="button"
-                  onClick={() => setIsBrowserModalOpen(true)}
+                  onClick={openBrowserModal}
                   style={{
                     display: 'flex',
                     alignItems: 'center',

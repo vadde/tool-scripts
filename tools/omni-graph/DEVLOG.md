@@ -4,7 +4,47 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
-### 2026-10-02 — Reactive Path Navigation & Dynamic Subdirectory Palette
+### 2026-10-02 — Fail-Safe, Non-Blocking Directory Browser & Escape Hatch
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Fix: Fail-Safe Directory Traversal & Non-Blocking Modal)
+**Branch**: `main`
+**Duration**: ~20m
+
+#### Problem & User Impact
+- The user reported getting trapped on an infinite `"Loading directory contents..."` spinner when opening or typing paths in the Directory Browser Modal.
+- The UI completely hid all directory contents, provided zero cancel button, and even closing and reopening the modal restored the exact same stuck spinner state, locking the user out indefinitely.
+
+#### Root Causes Identified
+1. **Unbounded Fetch Without Timeout or Abort**: `fetchDirectory` had no `AbortSignal` or timeout. If a network request or filesystem stat call stalled, the promise remained unsettled and `isLoadingDir` stayed `true` forever.
+2. **Debounce & Paste Race Conditions**: In `handleTargetPathChange` and `handleTargetPathPaste`, multiple rapid calls or simultaneous `paste` + `change` events fired overlapping fetches. Without request cancellation, stale responses or delayed errors could clobber state.
+3. **Destructive UI Replacement**: In the JSX, when `isLoadingDir` was true, the entire directory list was unmounted and replaced with a full-height centered spinner with no cancel button, blinding the user.
+4. **Stale Modal State On Reopen**: Closing the modal did not cancel pending background fetches or reset `isLoadingDir`. Reopening the modal directly or via toolbar re-triggered a fetch on the same stuck or problematic path.
+
+#### Solutions Implemented (`ui/src/App.tsx`)
+1. **Strict 3.5s Timeout & AbortController (`browseAbortController`)**:
+   - `fetchDirectory` now cancels any prior in-flight request before dispatching a new one.
+   - Enforces a strict 3.5-second timeout via `setTimeout(() => controller.abort(), 3500)`.
+   - Guaranteed cleanup in `finally { if (browseAbortController.current === controller) setIsLoadingDir(false); }`.
+2. **Non-Blocking UI & Preserved Entries**:
+   - In-flight scans no longer hide or destroy existing directory entries. Previously loaded entries stay visible at `opacity: 0.6` under an elegant top progress shimmer bar.
+   - Added an explicit **"Cancel Scan"** button in the header bar and a **"Stop Loading"** button in empty-state views.
+   - Added quick recovery actions in error banners: **"Retry"** and **"Reset to /workspace"**.
+3. **Safe Modal Lifecycle (`openBrowserModal` & `closeBrowserModal`)**:
+   - `closeBrowserModal()` aborts any active network scan, clears debounce timers, and resets `isLoadingDir = false`.
+   - `openBrowserModal()` guarantees a fresh start, safely falling back to `/workspace` if the previous path caused an error.
+   - Updated all backdrop clicks, modal header `X` buttons, Cancel buttons, and HUD toolbar "+ Ingest Another" buttons to use `closeBrowserModal` and `openBrowserModal`.
+4. **Debounce & Paste Protection**:
+   - `handleTargetPathPaste` calls `e.preventDefault()` to prevent duplicate dispatch from the browser's subsequent `onChange` event.
+   - Only triggers auto-exploration after a 600ms typing pause on valid path prefixes.
+   - The user can press `Enter` or click `Browse ➔` to trigger directory exploration on demand.
+
+#### Verification
+- Built UI bundle (`npm run build`) in 2.91s without warnings.
+- Rebuilt and restarted `graph-ui` container via `docker compose`.
+- Verified `/api/browse` responds in <10ms via Nginx proxy.
+
+---
 
 **Agent/Author**: Antigravity (Google DeepMind)
 **SDLC Phase**: `in-progress` (Feature: Directory Browser Reactive Path Navigation)
