@@ -37,10 +37,27 @@ try:
 
     RECON_TTL = 7200  # 2 hours
 
-    def get_workspace():
+    def is_workspace_indexed(workspace):
+        if not workspace:
+            return False
+        if os.path.exists(f"/tmp/omni_indexed_{workspace}.flag"):
+            return True
+        try:
+            with open("/tmp/omni_indexed_workspaces.json", "r") as f:
+                indexed = json.load(f)
+                return workspace in indexed
+        except Exception:
+            return workspace in {"tool-scripts", "session-explorer", "k8s-eks", "python", "tutor-intelligence", "DSA"}
+
+    def get_workspace(target_path=""):
         ws = os.environ.get("WORKSPACE")
         if ws:
             return ws
+        if target_path:
+            norm = target_path.replace("\\", "/")
+            for part in reversed(norm.split("/")):
+                if part and is_workspace_indexed(part):
+                    return part
         try:
             git_root = subprocess.check_output(
                 ["git", "rev-parse", "--show-toplevel"],
@@ -51,18 +68,9 @@ try:
         except Exception:
             return os.path.basename(os.getcwd()) or "default"
 
-    def is_workspace_indexed(workspace):
-        if os.path.exists(f"/tmp/omni_indexed_{workspace}.flag"):
-            return True
-        try:
-            with open("/tmp/omni_indexed_workspaces.json", "r") as f:
-                indexed = json.load(f)
-                return workspace in indexed
-        except Exception:
-            return workspace in {"tool-scripts", "session-explorer", "k8s-eks", "python", "tutor-intelligence"}
-
     def is_recon_done(workspace):
-        for ws_key in [workspace, "default"]:
+        keys = [workspace] if workspace and workspace != "default" else ["default"]
+        for ws_key in keys:
             marker = f"/tmp/omni_recon_{ws_key}.marker"
             try:
                 with open(marker, "r") as f:
@@ -75,7 +83,7 @@ try:
 
     def record_recon(workspace):
         now = str(int(time.time()))
-        for ws_key in filter(None, [workspace, "default"]):
+        for ws_key in filter(None, [workspace]):
             try:
                 with open(f"/tmp/omni_recon_{ws_key}.marker", "w") as f:
                     f.write(now)
@@ -147,11 +155,11 @@ try:
             }))
             sys.exit(0)
 
-    # 4. Intercept view_file (Recon Gate + 150-line gate on source code)
+    # 4. Intercept view_file (Recon Gate + 150-line gate on source code, 450-line gate on markdown)
     elif tool_name == "view_file":
         target_path = args.get("AbsolutePath", "")
+        ws = get_workspace(target_path)
         if is_source_code(target_path):
-            ws = get_workspace()
             if is_workspace_indexed(ws) and not is_recon_done(ws):
                 print(json.dumps({
                     "decision": "deny",
@@ -188,12 +196,55 @@ try:
             except (ValueError, TypeError):
                 pass
 
+        elif target_path and any(target_path.lower().endswith(ext) for ext in [".md", ".markdown", ".mdown", ".mkd"]):
+            # Markdown file: calibrate threshold to 450 lines
+            start_line = args.get("StartLine")
+            end_line = args.get("EndLine")
+
+            if end_line is None:
+                try:
+                    with open(target_path, "r", encoding="utf-8", errors="ignore") as f:
+                        line_count = sum(1 for _ in f)
+                    if line_count > 450:
+                        print(json.dumps({
+                            "decision": "deny",
+                            "reason": f"BLOCKED: Markdown file '{os.path.basename(target_path)}' has {line_count} lines. Reading >450 lines directly exhausts agent context.\nOmni-Graph indexes all sections via semantic search:\n  curl -s \"http://localhost:8080/api/search?q=<topic>&workspace={ws}&k=5\"\nOr narrow your slice to <= 450 lines (StartLine/EndLine)."
+                        }))
+                        sys.exit(0)
+                except Exception:
+                    pass
+            else:
+                try:
+                    start = int(start_line) if start_line is not None else 1
+                    end = int(end_line)
+                    span = end - start + 1
+                    if span > 450:
+                        print(json.dumps({
+                            "decision": "deny",
+                            "reason": f"BLOCKED: Requested line slice of {span} lines exceeds the 450-line documentation threshold.\nOmni-Graph indexes all sections via semantic search:\n  curl -s \"http://localhost:8080/api/search?q=<topic>&workspace={ws}&k=5\"\nOr narrow your slice to <= 450 lines."
+                        }))
+                        sys.exit(0)
+                except (ValueError, TypeError):
+                    pass
+
     # 5. Intercept grep_search (Recon Gate + empty query check)
     elif tool_name == "grep_search":
-        ws = get_workspace()
-        query = args.get("Query", "").strip()
         search_path = args.get("SearchPath", "")
+        ws = get_workspace(search_path)
+        query = args.get("Query", "").strip()
         includes = args.get("Includes", [])
+
+        # Intercept broad recursive grep on markdown if recon not done
+        is_markdown_grep = any(inc.lower().endswith(ext) for inc in includes for ext in [".md", ".markdown"]) if includes else False
+        if is_markdown_grep and is_workspace_indexed(ws) and not is_recon_done(ws):
+            print(json.dumps({
+                "decision": "deny",
+                "reason": f"🧭 Omni-Graph reconnaissance recommended before recursive markdown search in workspace \"{ws}\".\n"
+                          f"Omni-Graph indexes all sections and headings via vector search:\n"
+                          f"  curl -s \"http://localhost:8080/api/search?q={query}&workspace={ws}&k=5\"\n"
+                          f"This returns exact section boundaries, file paths, and line spans without context exhaustion."
+            }))
+            sys.exit(0)
 
         # Check if search is strictly targeting non-code files or agent meta
         is_non_code_search = False

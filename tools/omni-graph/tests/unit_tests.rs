@@ -243,6 +243,33 @@ def scaled_dot_product_attention(q, k, v):
     }
 
     #[test]
+    fn parse_markdown_links_and_references() {
+        let content = r#"# Modified Binary Search
+
+## Overview
+See prerequisite in [Two Pointers](../02-two-pointers/theory.md) and related [Rotated Array](problem_02_rotated.md).
+The algorithm calls `binary_search` and references `SearchRange.find_bound` to eliminate half the search space.
+"#;
+        let pr = CodeParser::parse_file("dsa-ws", "17-binary-search/theory.md", content).unwrap();
+
+        // Check LINKS_TO edges
+        let links: Vec<&str> = pr.edges.iter()
+            .filter(|e| e.edge_type == "LINKS_TO")
+            .map(|e| e.target_label.as_str())
+            .collect();
+        assert!(links.contains(&"theory.md"), "Should extract relative markdown link to theory.md");
+        assert!(links.contains(&"problem_02_rotated.md"), "Should extract link to problem_02_rotated.md");
+
+        // Check REFERENCES edges
+        let refs: Vec<&str> = pr.edges.iter()
+            .filter(|e| e.edge_type == "REFERENCES")
+            .map(|e| e.target_label.as_str())
+            .collect();
+        assert!(refs.contains(&"binary_search"), "Should extract backticked symbol reference `binary_search`");
+        assert!(refs.contains(&"SearchRange.find_bound"), "Should extract backticked symbol `SearchRange.find_bound`");
+    }
+
+    #[test]
     fn parse_yaml_kubernetes_manifest() {
         let content = r#"apiVersion: apps/v1
 kind: Deployment

@@ -4,6 +4,41 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-10-02 — First-Class Markdown Retrieval, Cross-Modal References & Calibrated Guardrails
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Feature: Markdown Semantic Retrieval & Guardrail Calibration)
+**Branch**: `main`
+**Duration**: ~35m
+
+#### Context & Motivation
+- Feedback from DSA coding agents highlighted context saturation from blind recursive grep over `*.md` files and whole-file 800-line dumps of narrative walkthroughs.
+- Forensic audit revealed Omni-Graph already indexed 3,067 sections and 343 documents in DSA, but:
+  1. `/api/search` omitted `line_start` and `line_end` from its SQL projection.
+  2. `hook_pre_tool.sh` assigned blanket immunity to `.md` files without guiding agents to Omni-Graph.
+  3. `parse_markdown` lacked relative hyperlink (`LINKS_TO`) and backtick code symbol (`REFERENCES`) extraction.
+
+#### Changes Implemented
+1. **Line-Number Precision in Vector Search (`src/db/mod.rs`)**:
+   - Added `line_start: Option<usize>` and `line_end: Option<usize>` with `#[serde(default)]` to `SearchResult`.
+   - Updated `search_vector` SQL projection to select `line_start, line_end`.
+   - Verified live on `/api/search?q=Order-Agnostic+Binary+Search&workspace=DSA`: now returns exact line spans (`Lines: 294 - 303`).
+2. **Hyperlinks & Cross-Modal Grounding (`src/parser/mod.rs`)**:
+   - Extracted relative markdown links (`[text](target.md)`) into `LINKS_TO` edges.
+   - Extracted backticked code identifiers (``` `ident` ```) into `REFERENCES` edges, linking documentation sections directly to AST symbols.
+   - Added unit test `parse_markdown_links_and_references` in `tests/unit_tests.rs`. All 51 unit tests passing.
+3. **Calibrated Documentation Guardrail (`hook_pre_tool.sh`)**:
+   - Differentiated source code ($\le 150$ lines) from documentation ($\le 450$ lines).
+   - Allows reading small documentation files ($\le 450$ lines) without requiring `EndLine`.
+   - Blocks dumping massive $>450$-line markdown documents, nudging agents to `/api/search`.
+   - Intercepts un-reconnoitered recursive `grep_search` on `*.md` across indexed workspaces, recommending `/api/search`.
+   - Synced across `.agents/scripts/`, `tools/omni-graph/scripts/`, and `/Users/aparv/.gemini/config/scripts/`.
+4. **Container Rebuild & Verification**:
+   - Rebuilt `omni-rust-app` via `docker compose up -d --build rust-app`.
+   - Verified `/api/health` and live vector search responses.
+
+---
+
 ### 2026-10-02 — Fail-Safe, Non-Blocking Directory Browser & Escape Hatch
 
 **Agent/Author**: Antigravity (Google DeepMind)

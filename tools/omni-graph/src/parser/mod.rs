@@ -3,6 +3,7 @@
 // Extracts functions, structs, classes, imports, and calls
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::Path;
 use tree_sitter::{Node, Parser};
 
@@ -264,6 +265,7 @@ impl CodeParser {
     pub fn parse_markdown(workspace: &str, file_path: &str, content: &str) -> Option<ParseResult> {
         let mut nodes = Vec::new();
         let mut edges = Vec::new();
+        let mut seen_edges: HashSet<(String, String, String)> = HashSet::new();
 
         let lines: Vec<&str> = content.lines().collect();
         if lines.is_empty() {
@@ -443,6 +445,85 @@ impl CodeParser {
                     node_id: node_id.clone(),
                 });
                 section_stack.push((1, doc_label, node_id));
+            }
+
+            // Extract hyperlinks [text](target) and backtick references `ident`
+            if let Some(cur) = &current_section {
+                // 1. Hyperlinks: [text](target)
+                let mut cursor = *line;
+                while let Some(open_sq) = cursor.find('[') {
+                    if let Some(close_sq) = cursor[open_sq..].find(']') {
+                        let abs_close_sq = open_sq + close_sq;
+                        if cursor[abs_close_sq..].starts_with("](") {
+                            let target_start = abs_close_sq + 2;
+                            if let Some(close_paren) = cursor[target_start..].find(')') {
+                                let target = cursor[target_start..target_start + close_paren].trim();
+                                let clean_target = target.split('#').next().unwrap_or(target).trim();
+                                if clean_target.ends_with(".md")
+                                    || clean_target.ends_with(".markdown")
+                                    || clean_target.ends_with(".py")
+                                    || clean_target.ends_with(".rs")
+                                    || clean_target.ends_with(".go")
+                                    || clean_target.ends_with(".ts")
+                                    || clean_target.ends_with(".js")
+                                    || clean_target.starts_with("./")
+                                    || clean_target.starts_with("../")
+                                {
+                                    let target_label = clean_target.rsplit('/').next().unwrap_or(clean_target);
+                                    if !target_label.is_empty() {
+                                        let key = (cur.node_id.clone(), target_label.to_string(), "LINKS_TO".to_string());
+                                        if seen_edges.insert(key) {
+                                            edges.push(ExtractedEdge {
+                                                workspace: workspace.to_string(),
+                                                source_id: cur.node_id.clone(),
+                                                target_label: target_label.to_string(),
+                                                edge_type: "LINKS_TO".to_string(),
+                                                category: "EXTRACTED".to_string(),
+                                            });
+                                        }
+                                    }
+                                }
+                                cursor = &cursor[target_start + close_paren + 1..];
+                                continue;
+                            }
+                        }
+                    }
+                    cursor = &cursor[open_sq + 1..];
+                }
+
+                // 2. Backtick code symbol references: `ident`
+                let mut bt_start = None;
+                for (i, c) in line.char_indices() {
+                    if c == '`' {
+                        if let Some(s) = bt_start {
+                            let slice = line[s + 1..i].trim();
+                            if slice.len() >= 3 && slice.len() <= 64
+                                && slice.chars().all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '.')
+                                && slice.chars().next().map_or(false, |ch| ch.is_alphabetic() || ch == '_')
+                            {
+                                if !matches!(slice, "true" | "false" | "null" | "none" | "None" | "self" | "this"
+                                    | "str" | "int" | "bool" | "def" | "class" | "fn" | "let" | "mut" | "const"
+                                    | "return" | "git" | "npm" | "cargo" | "pip" | "http" | "https" | "node"
+                                    | "type" | "array" | "float" | "list" | "dict")
+                                {
+                                    let key = (cur.node_id.clone(), slice.to_string(), "REFERENCES".to_string());
+                                    if seen_edges.insert(key) {
+                                        edges.push(ExtractedEdge {
+                                            workspace: workspace.to_string(),
+                                            source_id: cur.node_id.clone(),
+                                            target_label: slice.to_string(),
+                                            edge_type: "REFERENCES".to_string(),
+                                            category: "EXTRACTED".to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            bt_start = None;
+                        } else {
+                            bt_start = Some(i);
+                        }
+                    }
+                }
             }
         }
 

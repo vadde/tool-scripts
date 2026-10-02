@@ -29,7 +29,9 @@ blockers: []
 | Spec Requirements (R-XXX) | 30 | 30 | 🟢 100% Complete |
 | Acceptance Criteria (AC-XXX) | 20 | 20 | 🟢 100% Complete |
 | Non-Functional (NF-XXX) | 11 | 11 | 🟢 100% Complete |
-| Test Coverage | 50/50 Unit & Integration Tests | 50 | 🟢 100% Verified in Docker |
+| Test Coverage | 51/51 Unit & Integration Tests | 51 | 🟢 100% Verified in Docker |
+| First-Class Markdown Retrieval & Hyperlinks | Complete | — | 🟢 Line-Precise Vector Search, LINKS_TO & REFERENCES Edges |
+| Calibrated Documentation Guardrail (450 lines) | Complete | — | 🟢 Live Across Machine & .gemini/config/scripts |
 | Dynamic Live Galaxy Clustering (R-029) | Complete | — | 🟢 Seed-Preserving LPA & Quiescent Re-Clustering |
 | Agent Boundary Contracts (R-030) | Complete | — | 🟢 /api/galaxy/boundary & /api/galaxy/topology Live |
 | Agent Relationship Augmentation (POST /api/relationships) | Complete | — | 🟢 Inferred Runtime Linking & Virtual Component Synthesis |

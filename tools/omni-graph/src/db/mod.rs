@@ -114,6 +114,10 @@ pub struct SearchResult {
     pub text: String,
     pub similarity: f32,
     pub community: Option<i32>,
+    #[serde(default)]
+    pub line_start: Option<usize>,
+    #[serde(default)]
+    pub line_end: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -415,7 +419,7 @@ impl DbClient {
             _ => String::new(),
         };
         let q = format!(
-            "SELECT id, workspace, label, kind, file_path, language, text, community, \
+            "SELECT id, workspace, label, kind, file_path, language, text, community, line_start, line_end, \
              vector::similarity::cosine(embedding, {}) AS similarity \
              FROM node {} ORDER BY similarity DESC LIMIT {};",
             vec_json, where_clause, k
