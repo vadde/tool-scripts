@@ -4,6 +4,30 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-10-02 — Repo-Wide Parity & Machine-Agnostic Agent Enforcement Setup
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Maintenance: Agent Parity & Portable Configuration)
+**Branch**: `main`
+**Duration**: ~10m
+
+#### Context & Objectives
+Ensure absolute parity between repo-level sources (`tools/omni-graph/`, `.agents/`) and machine configurations (`~/.gemini/config/`), and eliminate machine-specific hardcoded paths from `.agents/hooks.json` so collaborators cloning the repo receive an immediate, deterministic, error-free onboarding experience via `make setup-agent`.
+
+#### What Was Done
+1. **Source Parity Synchronization**:
+   - Synchronized `tools/omni-graph/rules/00-omni-graph-mandatory-retrieval.md` with `.agents/rules/` and `~/.gemini/config/rules/` (including 450-line documentation ceiling and search line numbers).
+   - Synchronized `tools/omni-graph/skills/omni-graph/scripts/omni.sh` with the latest CLI subcommands (`relate`, `watch start/stop/status/events`).
+2. **Machine-Agnostic Portable Hook Execution**:
+   - Converted `.agents/hooks.json` from user-specific absolute paths (`/Users/aparv/...`) to portable relative paths (`./scripts/hook_pre_tool.sh`, etc.), which Antigravity evaluates relative to the directory containing `hooks.json`.
+   - Updated `tools/omni-graph/scripts/setup-agent.sh` so `make setup-agent` configures portable `./scripts/...` paths for workspace installations.
+3. **End-to-End Verification**:
+   - Verified `make setup-agent` executes with exit code 0.
+   - Verified lifecycle hooks fire reliably using relative paths.
+   - All 51 unit tests passing (`make test-tool T=omni-graph`).
+
+---
+
 ### 2026-10-02 — Critical Hotfix: Resolve Watcher Self-Deadlock & UI Gateway 504 Timeouts
 
 **Agent/Author**: Antigravity (Google DeepMind)

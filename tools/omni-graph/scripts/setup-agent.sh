@@ -159,8 +159,8 @@ elif [[ "${TARGET}" == "workspace" || "${TARGET}" == "." ]]; then
   cp "${TOOL_DIR}/scripts/hook_stop.sh" "${DEST_DIR}/scripts/hook_stop.sh"
   chmod +x "${DEST_DIR}/scripts/"*.sh
 
-  # 4. Configure hooks.json
-  merge_hooks_json "${DEST_DIR}/scripts" "${DEST_DIR}/hooks.json"
+  # 4. Configure hooks.json with portable relative script paths
+  merge_hooks_json "./scripts" "${DEST_DIR}/hooks.json"
   echo "  ✅ Configured lifecycle hooks: .agents/hooks.json"
 
 else
@@ -261,8 +261,8 @@ else
   cp "${TOOL_DIR}/scripts/hook_stop.sh" "${DEST_DIR}/scripts/hook_stop.sh"
   chmod +x "${DEST_DIR}/scripts/"*.sh
 
-  # 4. Safely merge hooks.json with absolute script paths
-  merge_hooks_json "${DEST_DIR}/scripts" "${DEST_DIR}/hooks.json"
+  # 4. Safely merge hooks.json with portable relative script paths
+  merge_hooks_json "./scripts" "${DEST_DIR}/hooks.json"
   echo "  ✅ Configured lifecycle hooks: ${TARGET_ABS}/.agents/hooks.json"
 
   # 5. Provide or cleanly update AGENTS.md in the target codebase

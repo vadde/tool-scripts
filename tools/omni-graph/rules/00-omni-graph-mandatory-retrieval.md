@@ -21,13 +21,14 @@ Language models frequently suffer from **context exhaustion, cognitive drift, an
 
 ## 2. Active Guardrails & Gated Tool Policies
 
-### A. The 150-Line Source Code Gate (`view_file`)
+### A. The 150-Line Source Code Gate & 450-Line Documentation Ceiling (`view_file`)
 - **Active PreToolUse Interception**: Any call to `view_file` on a source code file without `EndLine` specified or spanning **more than 150 lines** is **automatically BLOCKED** by the guardrail.
+- **Calibrated Documentation Ceiling**: For Markdown files (`.md`, `.markdown`), reading without `EndLine` on files $>450$ lines or requesting line spans $>450$ lines is intercepted to prevent context exhaustion, guiding agents to `/api/search`. Small documentation files ($\le 450$ lines) or targeted chapter/section slices ($\le 450$ lines) are permitted.
 - **Allowed Actions**:
   - ✅ Query symbol definition: `curl -s "http://localhost:8080/api/symbol?name=<symbol>&workspace=<ws>"`
   - ✅ Extract topological subgraph slice: `curl -s "http://localhost:8080/api/condense?symbol=<symbol>&workspace=<ws>&hops=2"`
-  - ✅ View focused line slice: `view_file` with `StartLine: X, EndLine: Y` where `(Y - X + 1) <= 150` lines.
-  - ✅ Reading non-code documentation (`.md`, `.txt`, `.json`, `.yaml`, `.toml`, `.csv`) is unbounded and permitted.
+  - ✅ View focused line slice: `view_file` with `StartLine: X, EndLine: Y` where `(Y - X + 1) <= 150` lines for code or `<= 450` lines for documentation.
+  - ✅ Reading non-code configs (`.txt`, `.json`, `.yaml`, `.toml`, `.csv`) is unbounded and permitted.
 
 ### B. Prohibited Brute-Force Shell & Grep Scans
 - **Recursive Grep Blocked**: `grep -r`, `grep -rn`, `find . -name`, `ag`, `rg` with blanket patterns are actively blocked by PreToolUse.
