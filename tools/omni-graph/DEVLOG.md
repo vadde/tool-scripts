@@ -4,6 +4,37 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-10-02 — Critical Hotfix: Resolve Watcher Self-Deadlock & UI Gateway 504 Timeouts
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Hotfix: WatchManager Deadlock & Polling Recovery)
+**Branch**: `main`
+**Duration**: ~15m
+
+#### Problem & Symptoms
+- Nginx reverse proxy logged persistent `504 Gateway Timeout` errors when requesting `GET /api/watch/status`.
+- The Web UI froze completely: unable to refresh, start/stop watchers, or ingest new repositories.
+
+#### Root Cause Analysis
+1. **Unscoped `status.write()` Self-Deadlock (`src/watcher/mod.rs:518`)**:
+   - In `run_watcher`, the 3-second periodic sweep acquired `let mut s = status.write().await;` at line 518 without an enclosing scope block.
+   - When background file changes occurred, execution flowed directly into quiescent auto-clustering (lines 538–569), which attempted to acquire `let mut s = status.write().await;` a second time at line 556 on the exact same task.
+   - Because `tokio::sync::RwLock` write locks are not re-entrant, the background watcher task deadlocked itself.
+2. **Cascading Lock Contention in `WatchManager`**:
+   - `get_status()` held `self.watchers.lock().await` while sequentially calling `.read().await` on each watcher's status lock.
+   - Because `watcher.status` was permanently held by the deadlocked write lock, `get_status()` stalled indefinitely while holding `watchers.lock()`.
+   - Every subsequent request to `/api/watch/status`, `/api/watch/start`, or `/api/watch/stop` piled up behind the mutex until Nginx timed out after 600s.
+3. **Hyperactive Periodic Disk Sweep**:
+   - A 3-second sweep interval was repeatedly invoking `prune_missing_files` and `count_tracked_files` (`WalkDir`) over mounted filesystems, causing excessive I/O contention.
+
+#### Fixes Implemented
+1. **Scoped Lock Retention**: Enclosed the line 518 status write lock in an explicit `{ let mut s = status.write().await; ... }` block, guaranteeing the write guard drops before quiescent auto-clustering executes.
+2. **Decoupled Mutex Retention**: Rewrote `get_status` and `get_workspace_status` to clone the `Arc<RwLock<WatcherStatus>>` handles and release `self.watchers.lock()` immediately before awaiting reader locks.
+3. **Calibrated Sweep Cadence**: Extended `sweep_interval` from 3s to 30s to prevent unnecessary disk thrashing.
+4. **Verified Live**: Rebuilt `omni-rust-app` container; confirmed `GET /api/watch/status` responds in <5ms through Nginx on port 3000. All 51 unit tests passing.
+
+---
+
 ### 2026-10-02 — First-Class Markdown Retrieval, Cross-Modal References & Calibrated Guardrails
 
 **Agent/Author**: Antigravity (Google DeepMind)

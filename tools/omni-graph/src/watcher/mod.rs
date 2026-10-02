@@ -222,20 +222,25 @@ impl WatchManager {
 
     /// Get status of all active watchers
     pub async fn get_status(&self) -> Vec<WatcherStatus> {
-        let watchers = self.watchers.lock().await;
-        let mut statuses = Vec::new();
-        for (_, watcher) in watchers.iter() {
-            let status = watcher.status.read().await;
-            statuses.push(status.clone());
+        let status_locks: Vec<Arc<RwLock<WatcherStatus>>> = {
+            let watchers = self.watchers.lock().await;
+            watchers.values().map(|w| w.status.clone()).collect()
+        };
+        let mut statuses = Vec::with_capacity(status_locks.len());
+        for status_lock in status_locks {
+            statuses.push(status_lock.read().await.clone());
         }
         statuses
     }
 
     /// Get status of a specific workspace watcher
     pub async fn get_workspace_status(&self, workspace: &str) -> Option<WatcherStatus> {
-        let watchers = self.watchers.lock().await;
-        if let Some(watcher) = watchers.get(workspace) {
-            Some(watcher.status.read().await.clone())
+        let status_lock = {
+            let watchers = self.watchers.lock().await;
+            watchers.get(workspace).map(|w| w.status.clone())
+        };
+        if let Some(status_lock) = status_lock {
+            Some(status_lock.read().await.clone())
         } else {
             None
         }
@@ -319,7 +324,7 @@ async fn run_watcher(
     let debounce_duration = Duration::from_millis(debounce_ms);
     let mut pending_events: Vec<Event> = Vec::new();
     let mut last_batch_time = Instant::now();
-    let mut sweep_interval = tokio::time::interval(Duration::from_secs(3));
+    let mut sweep_interval = tokio::time::interval(Duration::from_secs(30));
     sweep_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let root_path = PathBuf::from(&path);
     let mut total_sync_ms: u64 = 0;
@@ -515,12 +520,16 @@ async fn run_watcher(
             _ = sweep_interval.tick() => {
                 let pruned = pipeline.prune_missing_files(&workspace, &path).await;
                 let tracked = count_tracked_files(&path);
-                let mut s = status.write().await;
-                s.files_tracked = tracked;
+                {
+                    let mut s = status.write().await;
+                    s.files_tracked = tracked;
+                    if !pruned.is_empty() {
+                        s.files_deleted += pruned.len() as u64;
+                        s.events_processed += pruned.len() as u64;
+                        s.last_sync = Some(chrono::Utc::now().to_rfc3339());
+                    }
+                }
                 if !pruned.is_empty() {
-                    s.files_deleted += pruned.len() as u64;
-                    s.events_processed += pruned.len() as u64;
-                    s.last_sync = Some(chrono::Utc::now().to_rfc3339());
                     for p in &pruned {
                         let _ = event_tx.send(WatchEvent {
                             workspace: workspace.clone(),
