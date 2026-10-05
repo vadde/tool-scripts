@@ -4,6 +4,46 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-10-05 — Fix Clippy CI Failures & Provide Local CI Make Targets
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Maintenance: CI Hardening & Clippy Compliance)
+**Branch**: `main`
+**Duration**: ~15m
+
+#### Problem & Symptoms
+- GitHub Actions CI workflow run `37072950720` (job `111056422594`) failed during `make lint` on `cargo clippy -- -D warnings` with 20 errors.
+- Developers lacked granular, modular make commands to reproduce and verify CI steps locally (individual lint, test, build, and combined CI pipeline) prior to pushing.
+
+#### Root Cause Analysis
+- Code written in recent features contained patterns flagged by modern Clippy when `-D warnings` is enforced:
+  1. `src/watcher/mod.rs`: `manual_checked_ops` on average sync ms division, `too_many_arguments` on `run_watcher`, unused fields in `ActiveWatcher`.
+  2. `src/analysis/mod.rs`: `contains_key` followed by `insert` in seed label mapping, single pattern match on community assignments, dead code on `infer_neighbor_community`.
+  3. `src/analytics/mod.rs`: manual char comparison in query param parsing, infinite error risk in `lines().filter_map` (replaced with `map_while`), map keys iteration, `sort_by` instead of `sort_by_key`, dead code on `scan_analytics`.
+  4. `src/condenser/mod.rs`: unnecessary `format!` on string literal truncation banner.
+  5. `src/db/mod.rs`: `results.get(0)` and `arr.get(0)` instead of `.first()`, dead code on `get_api_recent_calls`.
+  6. `src/ingestion/mod.rs`: `clone` on `Copy` `u64` inside `sort_by_key`.
+  7. `src/parser/mod.rs`: `too_many_arguments` on `traverse_node`, manual range contains on heading level and slice length, collapsible `if`, and `map_or` on first char.
+- Local `make lint` lacked fallback to install clippy in the Docker fallback container, causing local developers to miss clippy warnings before pushing.
+
+#### Solutions & Improvements
+1. **Resolved All 20 Clippy Lints**: Refactored all affected locations to satisfy modern Clippy with zero warnings under `-D warnings`.
+2. **Modular Make Commands in `tools/omni-graph/Makefile`**:
+   - `make lint-rust`: Runs `cargo clippy -- -D warnings` (with automatic Docker fallback if local rustup lacks clippy).
+   - `make lint-ui`: Runs `tsc --noEmit` via npm in `ui/`.
+   - `make lint`: Composite target running `lint-rust` and `lint-ui`.
+   - `make test-rust`: Runs Rust unit test suite (`cargo test --all -- --test-threads=1`).
+   - `make test-ui`: Runs UI test suite (`npm test`).
+   - `make test`: Composite target running `test-rust` and `test-ui`.
+   - `make build-rust`: Compiles release binary locally or via Docker.
+   - `make build-ui`: Builds static UI assets.
+   - `make build`: Builds full 4-container Docker Compose stack.
+   - `make ci`: Comprehensive local pipeline running `lint`, `test`, and `validate-specs`.
+3. **Monorepo Integration**: Added `make ci-tool T=omni-graph` to root `Makefile`.
+4. **Verification**: `make ci` and `make ci-tool T=omni-graph` executed cleanly (51/51 tests passing, 0 clippy warnings).
+
+---
+
 ### 2026-10-02 — Repo-Wide Parity & Machine-Agnostic Agent Enforcement Setup
 
 **Agent/Author**: Antigravity (Google DeepMind)

@@ -461,7 +461,7 @@ impl DbClient {
         let mut links = Vec::new();
 
         if let Some(results) = resp.as_array() {
-            if let Some(node_arr) = results.get(0).and_then(|r| r.get("result")).and_then(|v| v.as_array()) {
+            if let Some(node_arr) = results.first().and_then(|r| r.get("result")).and_then(|v| v.as_array()) {
                 for n in node_arr {
                     if let Ok(node) = serde_json::from_value::<DbNode>(n.clone()) {
                         nodes.push(node);
@@ -494,7 +494,7 @@ impl DbClient {
         let mut workspaces = HashMap::new();
 
         if let Some(arr) = resp.as_array() {
-            if let Some(n) = arr.get(0).and_then(|r| r.get("result")).and_then(|res| res.as_array()).and_then(|a| a.first()).and_then(|o| o.get("count")).and_then(|c| c.as_i64()) {
+            if let Some(n) = arr.first().and_then(|r| r.get("result")).and_then(|res| res.as_array()).and_then(|a| a.first()).and_then(|o| o.get("count")).and_then(|c| c.as_i64()) {
                 total_nodes = n;
             }
             if let Some(e) = arr.get(1).and_then(|r| r.get("result")).and_then(|res| res.as_array()).and_then(|a| a.first()).and_then(|o| o.get("count")).and_then(|c| c.as_i64()) {
@@ -885,6 +885,7 @@ impl DbClient {
     }
 
     /// Retrieve recent live agent API telemetry records
+    #[allow(dead_code)]
     pub async fn get_api_recent_calls(&self, limit: usize) -> Result<Vec<serde_json::Value>, String> {
         let q = format!(
             "SELECT endpoint, workspace, capability, query_param, caller, duration_ms, created_at FROM agent_api_call ORDER BY created_at DESC LIMIT {};",

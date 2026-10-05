@@ -143,8 +143,8 @@ impl CommunityDetector {
         // Reserve existing seed IDs first
         if let Some(seed_map) = seeds {
             for &seed_id in seed_map.values() {
-                if !label_map.contains_key(&seed_id) {
-                    label_map.insert(seed_id, seed_id);
+                if let std::collections::hash_map::Entry::Vacant(e) = label_map.entry(seed_id) {
+                    e.insert(seed_id);
                     if seed_id >= next_id {
                         next_id = seed_id + 1;
                     }
@@ -188,16 +188,13 @@ impl CommunityDetector {
             let src_comm = assignments.get(&link.source);
             let tgt_comm = assignments.get(&link.target);
 
-            match (src_comm, tgt_comm) {
-                (Some(&src_c), Some(&tgt_c)) => {
-                    if src_c == tgt_c {
-                        *internal_edges_map.entry(src_c).or_insert(0) += 1;
-                    } else {
-                        *efferent_coupling_map.entry(src_c).or_insert(0) += 1;
-                        *afferent_coupling_map.entry(tgt_c).or_insert(0) += 1;
-                    }
+            if let (Some(&src_c), Some(&tgt_c)) = (src_comm, tgt_comm) {
+                if src_c == tgt_c {
+                    *internal_edges_map.entry(src_c).or_insert(0) += 1;
+                } else {
+                    *efferent_coupling_map.entry(src_c).or_insert(0) += 1;
+                    *afferent_coupling_map.entry(tgt_c).or_insert(0) += 1;
                 }
-                _ => {}
             }
         }
 
@@ -295,6 +292,7 @@ impl CommunityDetector {
     }
 
     /// Infer community for a newly created AST node based on modal connection to existing graph
+    #[allow(dead_code)]
     pub fn infer_neighbor_community(
         node_id: &str,
         all_links: &[DbLink],

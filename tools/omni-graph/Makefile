@@ -6,8 +6,8 @@
 # Infrastructure: Docker Compose (SurrealDB, HuggingFace TEI)
 # ============================================================================
 
-.PHONY: help setup test lint run build clean up down logs health \
-        ingest cluster workspaces search query symbol references condense galaxies relate-graph setup-agent
+.PHONY: help setup test test-rust test-ui lint lint-rust lint-ui run build build-rust build-ui ci clean up down logs health \
+        ingest cluster workspaces search query symbol references condense galaxies relate-graph setup-agent validate-specs
 
 .DEFAULT_GOAL := help
 
@@ -167,36 +167,72 @@ relate-graph: ## Augment graph with relationship: make relate-graph SRC=<name> T
 	@./scripts/omni.sh relate "$(SRC)" "$(TGT)" "$(if $(TYPE),$(TYPE),CALLS)" "$(PROJECT)"
 
 # ─── Test ───────────────────────────────────────────────────────────────────
-test: ## Run test suite
-	@echo "🧪 Running tests for $(TOOL_NAME)..."
+# ─── Test ───────────────────────────────────────────────────────────────────
+test: test-rust test-ui ## Run all test suites (Rust + UI)
+
+test-rust: ## Run Rust unit test suite
+	@echo "🧪 Running Rust unit tests for $(TOOL_NAME)..."
 	@if command -v cargo >/dev/null && cargo --version | grep -v 'cargo 1\.[0-5]' >/dev/null; then \
 		cargo test --all -- --test-threads=1; \
 	elif docker info >/dev/null 2>&1; then \
 		docker run --rm -e CARGO_INCREMENTAL=0 -v "$$(pwd)":/app -w /app rust:latest cargo test --all -- --test-threads=1; \
 	else \
 		echo "⚠️ Modern Rust/Cargo (>= 1.56) or Docker required to run tests."; \
+		exit 1; \
 	fi
+	@echo "✅ Rust unit tests complete."
+
+test-ui: ## Run UI tests
+	@echo "🧪 Running UI tests for $(TOOL_NAME)..."
 	@if [ -d ui ] && [ -f ui/package.json ]; then cd ui && npm test 2>/dev/null || true; fi
-	@echo "✅ Tests complete."
+	@echo "✅ UI tests complete."
 
 # ─── Lint ───────────────────────────────────────────────────────────────────
-lint: ## Run linters
-	@echo "🔍 Linting $(TOOL_NAME)..."
-	@if command -v cargo >/dev/null && cargo --version | grep -v 'cargo 1\.[0-5]' >/dev/null; then \
+lint: lint-rust lint-ui ## Run all linters (Rust Clippy + UI ESLint)
+
+lint-rust: ## Run Rust clippy linter with strict warning enforcement
+	@echo "🔍 Linting Rust code with Clippy..."
+	@if command -v cargo >/dev/null && cargo --version | grep -v 'cargo 1\.[0-5]' >/dev/null && cargo clippy --version >/dev/null 2>&1; then \
 		cargo clippy -- -D warnings; \
 	elif docker info >/dev/null 2>&1; then \
-		docker run --rm -v "$$(pwd)":/app -w /app rust:latest cargo clippy -- -D warnings; \
+		docker run --rm -v "$$(pwd)":/app -w /app rust:latest sh -c "rustup component add clippy >/dev/null 2>&1 && cargo clippy -- -D warnings"; \
 	else \
 		echo "⚠️ Modern Rust/Cargo (>= 1.56) or Docker required to run clippy."; \
+		exit 1; \
 	fi
+	@echo "✅ Rust lint complete."
+
+lint-ui: ## Run UI linter
+	@echo "🔍 Linting UI code..."
 	@if [ -d ui ] && [ -f ui/package.json ]; then cd ui && npm run lint 2>/dev/null || true; fi
-	@echo "✅ Lint complete."
+	@echo "✅ UI lint complete."
 
 # ─── Build ──────────────────────────────────────────────────────────────────
-build: ## Build the Rust binary and UI
-	@echo "📦 Building $(TOOL_NAME)..."
+build: ## Build the full Docker container stack (SurrealDB, TEI, Rust, UI)
+	@echo "📦 Building $(TOOL_NAME) container stack..."
 	@$(COMPOSE) build
 	@echo "✅ Build complete."
+
+build-rust: ## Compile the Rust binary locally or via Docker
+	@echo "📦 Building Rust binary..."
+	@if command -v cargo >/dev/null && cargo --version | grep -v 'cargo 1\.[0-5]' >/dev/null; then \
+		cargo build --release; \
+	elif docker info >/dev/null 2>&1; then \
+		docker run --rm -v "$$(pwd)":/app -w /app rust:latest cargo build --release; \
+	else \
+		echo "⚠️ Modern Rust/Cargo (>= 1.56) or Docker required to build."; \
+		exit 1; \
+	fi
+	@echo "✅ Rust build complete."
+
+build-ui: ## Build the UI static assets
+	@echo "📦 Building UI bundle..."
+	@if [ -d ui ] && [ -f ui/package.json ]; then cd ui && npm run build; fi
+	@echo "✅ UI build complete."
+
+# ─── CI Pipeline (Local Runner) ─────────────────────────────────────────────
+ci: lint test validate-specs ## Run full CI pipeline locally (lint, test, validate-specs)
+	@echo "🎉 All $(TOOL_NAME) local CI checks passed!"
 
 # ─── Run (local, no Docker) ────────────────────────────────────────────────
 run: ## Run the Rust orchestrator locally (requires SurrealDB + TEI running)

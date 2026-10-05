@@ -415,7 +415,7 @@ impl AnalyticsEngine {
         if detected_ws.is_none() {
             if let Some(pos) = clean.find("workspace=") {
                 let rest = &clean[pos + 10..];
-                let val = rest.split(|c| c == '&' || c == '"' || c == '\'' || c == ' ' || c == '}').next().unwrap_or("").trim();
+                let val = rest.split(['&', '"', '\'', ' ', '}']).next().unwrap_or("").trim();
                 detected_ws = Self::resolve_canonical_workspace(val);
             }
         }
@@ -450,6 +450,7 @@ impl AnalyticsEngine {
     }
 
     /// Synchronous scan of transcripts (backward-compatible)
+    #[allow(dead_code)]
     pub fn scan_analytics() -> AnalyticsResponse {
         Self::scan_analytics_internal(None)
     }
@@ -519,7 +520,7 @@ impl AnalyticsEngine {
                 let mut sess_langs = HashSet::new();
                 let mut sess_tool_freq: HashMap<String, usize> = HashMap::new();
 
-                for line in reader.lines().filter_map(|l| l.ok()) {
+                for line in reader.lines().map_while(Result::ok) {
                     if line.trim().is_empty() {
                         continue;
                     }
@@ -639,7 +640,7 @@ impl AnalyticsEngine {
                 // Dynamic primary workspace selection based on recorded activity frequency
                 let primary_ws = Self::select_primary_workspace(&sess_workspace_counts, &sess_prompt);
 
-                let mut top_tools: Vec<String> = sess_tool_freq.into_iter().map(|(t, _)| t).collect();
+                let mut top_tools: Vec<String> = sess_tool_freq.into_keys().collect();
                 top_tools.sort();
                 top_tools.truncate(5);
 
@@ -768,7 +769,7 @@ impl AnalyticsEngine {
                 description: desc.to_string(),
             });
         }
-        tools_breakdown.sort_by(|a, b| b.count.cmp(&a.count));
+        tools_breakdown.sort_by_key(|t| std::cmp::Reverse(t.count));
 
         // Format language telemetry
         let mut languages_telemetry = Vec::new();
@@ -795,7 +796,7 @@ impl AnalyticsEngine {
                 lsp_engine: lsp_engine.to_string(),
             });
         }
-        languages_telemetry.sort_by(|a, b| b.files_inspected.cmp(&a.files_inspected));
+        languages_telemetry.sort_by_key(|l| std::cmp::Reverse(l.files_inspected));
 
         // Format workspaces breakdown
         let mut workspaces_breakdown = Vec::new();
@@ -869,7 +870,7 @@ impl AnalyticsEngine {
         let mut created_at = String::new();
         let mut first_prompt = String::new();
 
-        for (idx, line) in reader.lines().filter_map(|l| l.ok()).enumerate() {
+        for (idx, line) in reader.lines().map_while(Result::ok).enumerate() {
             let entry: serde_json::Value = match serde_json::from_str(&line) {
                 Ok(v) => v,
                 Err(_) => continue,

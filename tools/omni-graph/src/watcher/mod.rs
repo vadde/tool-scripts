@@ -55,6 +55,7 @@ pub struct WatchEvent {
 }
 
 /// Internal state for a single active watcher
+#[allow(dead_code)]
 struct ActiveWatcher {
     workspace: String,
     path: String,
@@ -273,6 +274,7 @@ fn count_tracked_files(path: &str) -> usize {
 }
 
 /// Core watcher loop running in a background tokio task
+#[allow(clippy::too_many_arguments)]
 async fn run_watcher(
     path: String,
     workspace: String,
@@ -417,7 +419,7 @@ async fn run_watcher(
                             s.files_deleted += changeset.events.iter()
                                 .filter(|e| matches!(e.kind, DeltaKind::Deleted))
                                 .count() as u64;
-                            s.avg_sync_ms = if sync_count > 0 { total_sync_ms / sync_count } else { 0 };
+                            s.avg_sync_ms = total_sync_ms.checked_div(sync_count).unwrap_or(0);
                             s.files_tracked = count_tracked_files(&path);
 
                             // Mark clusters as stale if enough files changed
@@ -501,7 +503,7 @@ async fn run_watcher(
                             s.files_deleted += changeset.events.iter()
                                 .filter(|e| matches!(e.kind, DeltaKind::Deleted))
                                 .count() as u64;
-                            s.avg_sync_ms = if sync_count > 0 { total_sync_ms / sync_count } else { 0 };
+                            s.avg_sync_ms = total_sync_ms.checked_div(sync_count).unwrap_or(0);
                             s.files_tracked = count_tracked_files(&path);
                             if files_changed_since_cluster >= 10 {
                                 s.cluster_status = "stale".to_string();

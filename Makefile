@@ -259,6 +259,19 @@ lint-tool: ## Lint a specific tool (T=tool-name)
 		exit 1; \
 	fi
 
+ci-tool: ## Run complete CI validation pipeline for a tool (T=tool-name)
+	@if [ -z "$(T)" ]; then \
+		echo "❌ Usage: make ci-tool T=<tool-name>"; \
+		exit 1; \
+	fi
+	@printf "$(BLUE)🚀 Running full CI pipeline for: $(T)...$(NC)\n"
+	@if [ -f "$(TOOLS_DIR)/$(T)/Makefile" ]; then \
+		$(MAKE) -C "$(TOOLS_DIR)/$(T)" ci; \
+	else \
+		echo "❌ No Makefile found in tools/$(T)/"; \
+		exit 1; \
+	fi
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  SDD Specifications & Governance
 # ═══════════════════════════════════════════════════════════════════════════

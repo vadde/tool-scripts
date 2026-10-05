@@ -122,7 +122,7 @@ impl IngestionPipeline {
     pub async fn get_status(&self) -> Vec<IngestionJobStatus> {
         let jobs = self.jobs.read().await;
         let mut list: Vec<IngestionJobStatus> = jobs.values().cloned().collect();
-        list.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+        list.sort_by_key(|j| std::cmp::Reverse(j.started_at));
         list
     }
 

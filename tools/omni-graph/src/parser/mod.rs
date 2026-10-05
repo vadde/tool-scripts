@@ -112,6 +112,7 @@ impl CodeParser {
         Some(ParseResult { nodes, edges })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn traverse_node(
         node: Node,
         content: &str,
@@ -375,7 +376,7 @@ impl CodeParser {
             let is_heading = trimmed.starts_with('#');
             if is_heading {
                 let level = trimmed.chars().take_while(|&c| c == '#').count();
-                if level >= 1 && level <= 4 {
+                if (1..=4).contains(&level) {
                     let heading_text = trimmed[level..].trim();
                     let clean_label = heading_text.trim_matches(&['*', '_', '`'][..]).trim().to_string();
 
@@ -497,25 +498,23 @@ impl CodeParser {
                     if c == '`' {
                         if let Some(s) = bt_start {
                             let slice = line[s + 1..i].trim();
-                            if slice.len() >= 3 && slice.len() <= 64
+                            if (3..=64).contains(&slice.len())
                                 && slice.chars().all(|ch| ch.is_alphanumeric() || ch == '_' || ch == '.')
-                                && slice.chars().next().map_or(false, |ch| ch.is_alphabetic() || ch == '_')
-                            {
-                                if !matches!(slice, "true" | "false" | "null" | "none" | "None" | "self" | "this"
+                                && slice.chars().next().is_some_and(|ch| ch.is_alphabetic() || ch == '_')
+                                && !matches!(slice, "true" | "false" | "null" | "none" | "None" | "self" | "this"
                                     | "str" | "int" | "bool" | "def" | "class" | "fn" | "let" | "mut" | "const"
                                     | "return" | "git" | "npm" | "cargo" | "pip" | "http" | "https" | "node"
                                     | "type" | "array" | "float" | "list" | "dict")
-                                {
+                            {
                                     let key = (cur.node_id.clone(), slice.to_string(), "REFERENCES".to_string());
                                     if seen_edges.insert(key) {
-                                        edges.push(ExtractedEdge {
-                                            workspace: workspace.to_string(),
-                                            source_id: cur.node_id.clone(),
-                                            target_label: slice.to_string(),
-                                            edge_type: "REFERENCES".to_string(),
-                                            category: "EXTRACTED".to_string(),
-                                        });
-                                    }
+                                    edges.push(ExtractedEdge {
+                                        workspace: workspace.to_string(),
+                                        source_id: cur.node_id.clone(),
+                                        target_label: slice.to_string(),
+                                        edge_type: "REFERENCES".to_string(),
+                                        category: "EXTRACTED".to_string(),
+                                    });
                                 }
                             }
                             bt_start = None;

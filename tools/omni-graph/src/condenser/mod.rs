@@ -110,9 +110,9 @@ impl ContextCondenser {
             ));
             // Hard cap on output length (~1500 tokens at 4 chars/token = 6000 chars)
             if md.len() > 6000 {
-                md.push_str(&format!(
+                md.push_str(
                     "\n> ⚠️ Output truncated at ~1500 tokens. Use smaller HOPS or narrower workspace filter.\n"
-                ));
+                );
                 break;
             }
         }
