@@ -25,6 +25,8 @@ pub struct ExtractedEdge {
     pub workspace: String,
     pub source_id: String,
     pub target_label: String,
+    #[serde(default)]
+    pub target_id: Option<String>,
     pub edge_type: String, // CALLS, IMPORTS, CONTAINS, IMPLEMENTS
     pub category: String,  // EXTRACTED
 }
@@ -158,6 +160,7 @@ impl CodeParser {
                         workspace: workspace.to_string(),
                         source_id: parent.to_string(),
                         target_label: name.to_string(),
+                        target_id: Some(id.clone()),
                         edge_type: "CONTAINS".to_string(),
                         category: "EXTRACTED".to_string(),
                     });
@@ -217,6 +220,7 @@ impl CodeParser {
                             workspace: workspace.to_string(),
                             source_id: caller_id.to_string(),
                             target_label: clean_callee.to_string(),
+                            target_id: None,
                             edge_type: "CALLS".to_string(),
                             category: "EXTRACTED".to_string(),
                         });
@@ -350,6 +354,7 @@ impl CodeParser {
                             workspace: workspace.to_string(),
                             source_id: cur.node_id.clone(),
                             target_label: label.clone(),
+                            target_id: Some(snippet_id),
                             edge_type: "CONTAINS".to_string(),
                             category: "EXTRACTED".to_string(),
                         });
@@ -413,6 +418,7 @@ impl CodeParser {
                                 workspace: workspace.to_string(),
                                 source_id: parent_id.clone(),
                                 target_label: clean_label.clone(),
+                                target_id: Some(node_id.clone()),
                                 edge_type: "CONTAINS".to_string(),
                                 category: "EXTRACTED".to_string(),
                             });
@@ -478,6 +484,7 @@ impl CodeParser {
                                                 workspace: workspace.to_string(),
                                                 source_id: cur.node_id.clone(),
                                                 target_label: target_label.to_string(),
+                                                target_id: None,
                                                 edge_type: "LINKS_TO".to_string(),
                                                 category: "EXTRACTED".to_string(),
                                             });
@@ -512,6 +519,7 @@ impl CodeParser {
                                         workspace: workspace.to_string(),
                                         source_id: cur.node_id.clone(),
                                         target_label: slice.to_string(),
+                                        target_id: None,
                                         edge_type: "REFERENCES".to_string(),
                                         category: "EXTRACTED".to_string(),
                                     });
@@ -595,6 +603,7 @@ impl CodeParser {
                 workspace: workspace.to_string(),
                 source_id: file_root_id.clone(),
                 target_label: n,
+                target_id: Some(res_id),
                 edge_type: "CONTAINS".to_string(),
                 category: "EXTRACTED".to_string(),
             });
@@ -649,7 +658,7 @@ impl CodeParser {
                     let key_id = format!("node:{}_{}_{}", workspace, file_path, key);
                     let snippet = serde_json::to_string(v).unwrap_or_default();
                     nodes.push(ExtractedNode {
-                        id: key_id,
+                        id: key_id.clone(),
                         workspace: workspace.to_string(),
                         label: format!("{}:{}", filename, key),
                         kind: "property".to_string(),
@@ -663,6 +672,7 @@ impl CodeParser {
                         workspace: workspace.to_string(),
                         source_id: file_root_id.clone(),
                         target_label: format!("{}:{}", filename, key),
+                        target_id: Some(key_id),
                         edge_type: "CONTAINS".to_string(),
                         category: "EXTRACTED".to_string(),
                     });
@@ -712,7 +722,7 @@ impl CodeParser {
                 let snippet_lines: Vec<&str> = lines[idx..idx + 25.min(lines.len() - idx)].to_vec();
                 let snippet = snippet_lines.join("\n");
                 nodes.push(ExtractedNode {
-                    id: fn_id,
+                    id: fn_id.clone(),
                     workspace: workspace.to_string(),
                     label: name.to_string(),
                     kind: "function".to_string(),
@@ -726,6 +736,7 @@ impl CodeParser {
                     workspace: workspace.to_string(),
                     source_id: file_root_id.clone(),
                     target_label: name.to_string(),
+                    target_id: Some(fn_id),
                     edge_type: "CONTAINS".to_string(),
                     category: "EXTRACTED".to_string(),
                 });
@@ -784,7 +795,7 @@ impl CodeParser {
                 let snippet_lines: Vec<&str> = lines[idx..idx + 30.min(lines.len() - idx)].to_vec();
                 let snippet = snippet_lines.join("\n");
                 nodes.push(ExtractedNode {
-                    id: obj_id,
+                    id: obj_id.clone(),
                     workspace: workspace.to_string(),
                     label: name.to_string(),
                     kind: k.to_string(),
@@ -798,6 +809,7 @@ impl CodeParser {
                     workspace: workspace.to_string(),
                     source_id: file_root_id.clone(),
                     target_label: name.to_string(),
+                    target_id: Some(obj_id),
                     edge_type: "CONTAINS".to_string(),
                     category: "EXTRACTED".to_string(),
                 });
@@ -838,7 +850,7 @@ impl CodeParser {
                     let snippet_lines: Vec<&str> = lines[idx..idx + 20.min(lines.len() - idx)].to_vec();
                     let snippet = snippet_lines.join("\n");
                     nodes.push(ExtractedNode {
-                        id: sec_id,
+                        id: sec_id.clone(),
                         workspace: workspace.to_string(),
                         label: format!("{}:[{}]", filename, section_name),
                         kind: "section".to_string(),
@@ -852,6 +864,7 @@ impl CodeParser {
                         workspace: workspace.to_string(),
                         source_id: file_root_id.clone(),
                         target_label: format!("{}:[{}]", filename, section_name),
+                        target_id: Some(sec_id),
                         edge_type: "CONTAINS".to_string(),
                         category: "EXTRACTED".to_string(),
                     });
@@ -905,11 +918,13 @@ impl CodeParser {
             text: Self::safe_truncate(content, 1000).to_string(),
         });
 
-        // Chunk lines if > 40 lines
+        // Chunk lines if > 40 lines (cap at MAX_FALLBACK_BLOCKS to prevent computational explosion)
+        const MAX_FALLBACK_BLOCKS: usize = 25;
         if lines.len() > 40 {
             let chunk_size = 40;
             let mut start = 0;
-            while start < lines.len() {
+            let mut block_count = 0;
+            while start < lines.len() && block_count < MAX_FALLBACK_BLOCKS {
                 let end = (start + chunk_size).min(lines.len());
                 let block_lines = &lines[start..end];
                 let block_text = block_lines.join("\n");
@@ -917,7 +932,7 @@ impl CodeParser {
                 let block_id = format!("node:{}_{}#L{}-L{}", workspace, file_path, start + 1, end);
 
                 nodes.push(ExtractedNode {
-                    id: block_id,
+                    id: block_id.clone(),
                     workspace: workspace.to_string(),
                     label: block_label.clone(),
                     kind: "block".to_string(),
@@ -932,11 +947,13 @@ impl CodeParser {
                     workspace: workspace.to_string(),
                     source_id: file_root_id.clone(),
                     target_label: block_label,
+                    target_id: Some(block_id),
                     edge_type: "CONTAINS".to_string(),
                     category: "EXTRACTED".to_string(),
                 });
 
                 start += chunk_size;
+                block_count += 1;
             }
         }
 

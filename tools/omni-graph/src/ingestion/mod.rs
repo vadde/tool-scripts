@@ -233,13 +233,30 @@ impl IngestionPipeline {
             .into_iter()
             .filter_entry(|e| {
                 let name = e.file_name().to_string_lossy();
-                // Exclude common noise directories
+                // Exclude common noise, output, and data directories
                 !name.starts_with('.')
                     && name != "node_modules"
                     && name != "target"
                     && name != "dist"
                     && name != "build"
                     && name != "vendor"
+                    && name != "solutions"
+                    && name != "data"
+                    && name != "datasets"
+                    && name != "log"
+                    && name != "logs"
+                    && name != "output"
+                    && name != "outputs"
+                    && name != "coverage"
+                    && name != "tmp"
+                    && name != "temp"
+                    && name != "cache"
+                    && name != ".cache"
+                    && name != "bin"
+                    && name != "obj"
+                    && name != "debug"
+                    && name != "release"
+                    && name != "testdata"
             })
             .filter_map(|e| e.ok())
         {
@@ -248,8 +265,18 @@ impl IngestionPipeline {
                 continue;
             }
 
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if file_name == ".DS_Store" || file_name == ".gitignore" || file_name == "Thumbs.db" {
+                continue;
+            }
+
+            // Skip oversized files (> 512 KB) to prevent OOM / computational explosion
+            if entry.metadata().map(|m| m.len()).unwrap_or(0) > 512 * 1024 {
+                continue;
+            }
+
             let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-            // Skip common binary artifacts and noise
+            // Skip common binary artifacts, data dumps, and noise
             if matches!(
                 ext,
                 "png" | "jpg" | "jpeg" | "gif" | "webp" | "ico" | "svg" | "pdf"
@@ -257,11 +284,23 @@ impl IngestionPipeline {
                     | "exe" | "bin" | "dll" | "dylib" | "so" | "a" | "o" | "obj"
                     | "wasm" | "pyc" | "pyo" | "pyd" | "class" | "jar"
                     | "lock" | "map" | "rlib" | "rmeta" | "timestamp"
+                    | "out" | "parquet" | "arrow" | "npy" | "npz" | "h5" | "pkl" | "pt" | "pth"
             ) {
                 continue;
             }
 
-            let content = match fs::read_to_string(path) {
+            // For extensionless files or scripts, peek first 512 bytes for binary null bytes
+            let raw_bytes = match fs::read(path) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            let peek_len = raw_bytes.len().min(512);
+            if raw_bytes[..peek_len].contains(&0) {
+                // Binary file containing null bytes (ELF, Mach-O, raw data), skip cleanly
+                continue;
+            }
+
+            let content = match String::from_utf8(raw_bytes) {
                 Ok(c) => c,
                 Err(_) => {
                     // Non-UTF-8 binary or unreadable file, skip cleanly
@@ -331,7 +370,7 @@ impl IngestionPipeline {
 
                 files_indexed += 1;
 
-                if files_scanned % 15 == 0 || files_indexed % 10 == 0 {
+                if files_scanned % 5 == 0 || files_indexed % 2 == 0 {
                     let mut jobs = self.jobs.write().await;
                     if let Some(job) = jobs.get_mut(&workspace_name) {
                         job.phase = "indexing".to_string();

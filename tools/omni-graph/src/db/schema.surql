@@ -38,6 +38,7 @@ DEFINE INDEX IF NOT EXISTS idx_node_file      ON TABLE node FIELDS file_path;
 DEFINE INDEX IF NOT EXISTS idx_node_language  ON TABLE node FIELDS language;
 DEFINE INDEX IF NOT EXISTS idx_node_kind      ON TABLE node FIELDS kind;
 DEFINE INDEX IF NOT EXISTS idx_node_label     ON TABLE node FIELDS label;
+DEFINE INDEX IF NOT EXISTS idx_node_ws_label  ON TABLE node FIELDS workspace, label;
 
 -- ─── 4. Typed Graph Relation Edges ────────────────────────────────────────────
 -- First-class graph relations: in (source node) -> linked_to -> out (target node)

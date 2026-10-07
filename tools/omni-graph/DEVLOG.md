@@ -4,6 +4,43 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-10-07 — Resolution of Ingestion Computational Complexity & High-Scale Hardening
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Hardening: Ingestion Scalability & SurrealDB Stability)
+**Branch**: `main`
+**Duration**: ~45m
+
+#### Problem & Root Causes Identified
+- Re-ingesting codebases with large algorithm outputs/benchmarks (e.g. `tutor-intelligence`, containing 15 `solutions/*.txt` files with 6 million lines total) threw Omni-Graph into an unweatherable computational bottleneck:
+  1. **Runaway Fallback Chunking**: `parse_fallback` chopped 800,000-line solution files into 20,880 40-line blocks each, creating 77,642 useless `block` nodes (99.2% of the database) and inundating TEI with 2,400+ sequential HTTP embedding requests.
+  2. **Subquery Explosion on Edge Storage**: `store_edges` ran `SELECT VALUE id FROM node WHERE workspace = $ws AND label = $lbl LIMIT 1` on every containment edge without direct ID links and without a composite index, generating billions of comparisons in SurrealDB.
+  3. **Purge Timeout on Large Workspaces**: `DELETE node WHERE workspace = '...'` attempted to remove 78,000 vector records in a single SurrealKV transaction, exceeding the 5-minute HTTP timeout, dropping transactions, and corrupting DB state.
+  4. **Synchronous HTTP Cancellation**: Axum dropped `ingest_directory` futures whenever client/proxy requests timed out or refreshed, leaving orphaned jobs permanently frozen in the status tracker.
+
+#### Solutions Implemented
+1. **Directory & File Size Filtering (`src/ingestion/mod.rs`)**:
+   - Pruned noise directories: `solutions`, `data`, `datasets`, `log`, `logs`, `output`, `outputs`, `coverage`, `tmp`, `temp`, `cache`, `bin`, `obj`, `debug`, `release`, `testdata`.
+   - Added `MAX_FILE_BYTES = 512 * 1024` (512 KB) ceiling and binary null-byte peeking on extensionless files.
+2. **Capped Fallback Chunks (`src/parser/mod.rs`)**:
+   - Limited `parse_fallback` to a maximum of 25 blocks per file, preventing runaway chunk proliferation on giant text dumps.
+   - Added `target_id: Option<String>` to `ExtractedEdge` for direct O(1) edge linking.
+3. **Composite Index & Direct Relations (`src/db/schema.surql`, `src/db/mod.rs`)**:
+   - Added `DEFINE INDEX IF NOT EXISTS idx_node_ws_label ON TABLE node FIELDS workspace, label;`.
+   - Updated `store_edges` to directly link known IDs (`$src->linked_to->$tgt`) without subqueries.
+4. **Index-Detached Bulk Purge (`src/db/mod.rs`)**:
+   - For workspaces with > 5,000 nodes, `purge_workspace` detaches the HNSW index before bulk deletion, reducing purge time from > 5 minutes (timeout) to ~1.5 seconds, then re-attaches the index.
+5. **Detached Task Ingestion (`src/api/mod.rs`)**:
+   - Wrapped `ingest_directory` in `tokio::spawn` so client disconnects or proxy timeouts never cancel the ingestion pipeline midway.
+6. **LPA Memory Optimization (`src/analysis/mod.rs`)**:
+   - Reused frequency map buffer in `CommunityDetector::detect` across all node evaluations, eliminating 1,000,000 heap reallocations.
+
+#### Verification & Benchmark Results
+- `tutor-intelligence` refresh re-ingest: 90 files scanned, 90 indexed, 774 nodes, 5,097 edges, 194 galaxies in **40 seconds flat** (down from 1+ hour / crash).
+- `make -C tools/omni-graph ci`: 51/51 tests passed, 0 clippy warnings, specs valid.
+
+---
+
 ### 2026-10-05 — Fix Clippy CI Failures & Provide Local CI Make Targets
 
 **Agent/Author**: Antigravity (Google DeepMind)

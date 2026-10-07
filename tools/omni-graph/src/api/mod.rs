@@ -599,7 +599,19 @@ async fn ingest_handler(
     let refresh = payload.refresh.unwrap_or(false);
     info!("Ingest request received for path: {}, project: {:?}, refresh: {}", path, project, refresh);
 
-    let res = state.pipeline.ingest_directory(&path, project.as_deref(), refresh).await;
+    let pipeline = state.pipeline.clone();
+    let path_clone = path.clone();
+    let project_clone = project.clone();
+
+    // Run ingestion in a spawned task so client aborts/timeouts do not cancel mid-flight
+    let join_handle = tokio::spawn(async move {
+        pipeline.ingest_directory(&path_clone, project_clone.as_deref(), refresh).await
+    });
+
+    let res = match join_handle.await {
+        Ok(inner_res) => inner_res,
+        Err(e) => Err(format!("Ingestion task terminated unexpectedly: {}", e)),
+    };
     let duration_ms = start.elapsed().as_millis() as i64;
 
     // Record telemetry asynchronously

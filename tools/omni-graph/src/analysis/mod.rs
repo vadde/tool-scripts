@@ -102,6 +102,7 @@ impl CommunityDetector {
         let mut rng = SimpleRng::new(0x4d595f5345454431);
         let mut node_indices: Vec<usize> = (0..nodes.len()).collect();
 
+        let mut freq: HashMap<i32, f32> = HashMap::with_capacity(32);
         for _ in 0..max_iterations {
             let mut changed = false;
             rng.shuffle(&mut node_indices);
@@ -113,7 +114,7 @@ impl CommunityDetector {
                 };
 
                 // Accumulate weighted label frequencies
-                let mut freq: HashMap<i32, f32> = HashMap::new();
+                freq.clear();
                 for (neighbor_id, weight) in neighbors {
                     if let Some(lbl) = labels.get(neighbor_id) {
                         *freq.entry(*lbl).or_insert(0.0) += *weight;
