@@ -114,6 +114,46 @@ impl CodeParser {
         Some(ParseResult { nodes, edges })
     }
 
+    /// Extracts the receiver type identifier from a Go `method_declaration` receiver parameter list.
+    /// In Go AST: (parameter_list (parameter_declaration type: (pointer_type (type_identifier))))
+    /// or for value receivers: (parameter_list (parameter_declaration type: (type_identifier)))
+    fn extract_go_receiver_type<'a>(recv_param_list: Node<'a>, content: &'a str) -> Option<&'a str> {
+        let mut cursor = recv_param_list.walk();
+        for child in recv_param_list.children(&mut cursor) {
+            if child.kind() == "parameter_declaration" {
+                if let Some(type_node) = child.child_by_field_name("type") {
+                    return match type_node.kind() {
+                        "type_identifier" => Some(&content[type_node.byte_range()]),
+                        "pointer_type" => {
+                            let mut p_cursor = type_node.walk();
+                            for p_child in type_node.children(&mut p_cursor) {
+                                if p_child.kind() == "type_identifier" {
+                                    return Some(&content[p_child.byte_range()]);
+                                }
+                            }
+                            None
+                        }
+                        _ => None,
+                    };
+                }
+            }
+        }
+        None
+    }
+
+    /// Infers whether a Go `type_spec` is a struct, interface, or type alias based on its child type AST node.
+    fn infer_go_type_kind(node: Node) -> &'static str {
+        if let Some(type_child) = node.child_by_field_name("type") {
+            match type_child.kind() {
+                "interface_type" => "interface",
+                "struct_type" => "struct",
+                _ => "type",
+            }
+        } else {
+            "struct"
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn traverse_node(
         node: Node,
@@ -132,22 +172,33 @@ impl CodeParser {
         let mut node_id: Option<String> = None;
 
         // Extract functions and methods
+        // Go: function_declaration (top-level func), method_declaration (receiver method)
+        // Rust: function_item
+        // Python: function_definition
+        // JS/TS: function_declaration, method_definition
         if kind == "function_item"
             || kind == "function_definition"
             || kind == "function_declaration"
             || kind == "method_definition"
+            || kind == "method_declaration"
         {
             if let Some(name_node) = node.child_by_field_name("name") {
                 let name = &content[name_node.byte_range()];
                 let snippet = &content[node.byte_range()];
                 let text = Self::safe_truncate(snippet, 1000);
 
+                let node_kind = if kind == "method_declaration" || kind == "method_definition" {
+                    "method"
+                } else {
+                    "function"
+                };
+
                 let id = format!("{}:{}:{}:{}", workspace, file_path, name, start_pos.row + 1);
                 nodes.push(ExtractedNode {
                     id: id.clone(),
                     workspace: workspace.to_string(),
                     label: name.to_string(),
-                    kind: "function".to_string(),
+                    kind: node_kind.to_string(),
                     file_path: file_path.to_string(),
                     language: language.to_string(),
                     line_start: start_pos.row + 1,
@@ -166,15 +217,69 @@ impl CodeParser {
                     });
                 }
 
+                // Go method_declaration: extract receiver type and emit DECLARES edge
+                // AST: (method_declaration receiver: (parameter_list
+                //         (parameter_declaration type: (pointer_type (type_identifier)))))
+                if kind == "method_declaration" {
+                    if let Some(recv_param_list) = node.child_by_field_name("receiver") {
+                        if let Some(receiver_type) = Self::extract_go_receiver_type(recv_param_list, content) {
+                            edges.push(ExtractedEdge {
+                                workspace: workspace.to_string(),
+                                source_id: format!("{}:{}:{}", workspace, file_path, receiver_type),
+                                target_label: name.to_string(),
+                                target_id: Some(id.clone()),
+                                edge_type: "DECLARES".to_string(),
+                                category: "EXTRACTED".to_string(),
+                            });
+                        }
+                    }
+                }
+
                 node_id = Some(id);
             }
         }
         // Extract structs, classes, and types
+        // Go: type_spec (inside type_declaration) — covers struct_type, interface_type, etc.
+        // Rust: struct_item, type_item
+        // Python/JS: class_definition, class_declaration
         else if kind == "struct_item"
             || kind == "class_definition"
             || kind == "class_declaration"
             || kind == "type_item"
+            || kind == "type_spec"
         {
+            if let Some(name_node) = node.child_by_field_name("name") {
+                let name = &content[name_node.byte_range()];
+                let snippet = &content[node.byte_range()];
+                let text = Self::safe_truncate(snippet, 1000);
+
+                // Determine kind: check if Go type_spec wraps an interface_type
+                let struct_kind = if kind == "type_spec" {
+                    Self::infer_go_type_kind(node)
+                } else if kind == "class_definition" || kind == "class_declaration" {
+                    "class"
+                } else {
+                    "struct"
+                };
+
+                let id = format!("{}:{}:{}:{}", workspace, file_path, name, start_pos.row + 1);
+                nodes.push(ExtractedNode {
+                    id: id.clone(),
+                    workspace: workspace.to_string(),
+                    label: name.to_string(),
+                    kind: struct_kind.to_string(),
+                    file_path: file_path.to_string(),
+                    language: language.to_string(),
+                    line_start: start_pos.row + 1,
+                    line_end: end_pos.row + 1,
+                    text: text.to_string(),
+                });
+
+                node_id = Some(id);
+            }
+        }
+        // Extract Go constants and enums (const_spec inside const_declaration)
+        else if kind == "const_spec" {
             if let Some(name_node) = node.child_by_field_name("name") {
                 let name = &content[name_node.byte_range()];
                 let snippet = &content[node.byte_range()];
@@ -185,7 +290,7 @@ impl CodeParser {
                     id: id.clone(),
                     workspace: workspace.to_string(),
                     label: name.to_string(),
-                    kind: "struct".to_string(),
+                    kind: "constant".to_string(),
                     file_path: file_path.to_string(),
                     language: language.to_string(),
                     line_start: start_pos.row + 1,
@@ -229,9 +334,13 @@ impl CodeParser {
             }
         }
         // Extract imports and uses
+        // Go: import_spec (inside import_declaration) — path: (interpreted_string_literal)
+        // Rust: use_declaration
+        // Python: import_statement, import_from_statement
         else if kind == "use_declaration"
             || kind == "import_statement"
             || kind == "import_from_statement"
+            || kind == "import_spec"
         {
             let snippet = &content[node.byte_range()];
             let id = format!("{}:{}:import:{}", workspace, file_path, start_pos.row + 1);

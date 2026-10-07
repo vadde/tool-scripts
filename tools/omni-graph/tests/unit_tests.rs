@@ -105,9 +105,75 @@ func Add(a int, b int) int {
         assert!(result.is_some(), "Parser should handle Go");
         let pr = result.unwrap();
         let fns: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "function").collect();
-        assert!(fns.len() >= 1);
+        assert!(!fns.is_empty());
         assert_eq!(fns[0].label, "Add");
         assert_eq!(fns[0].language, "go");
+    }
+
+    #[test]
+    fn parse_go_full_grammar_methods_structs_constants_imports() {
+        let content = r#"
+package solver
+
+import (
+    "fmt"
+    "math"
+)
+
+const (
+    ActionFulfill = 1
+    ActionPick    = 2
+)
+
+type OptimizedSolver struct {
+    iterations int
+}
+
+type Evaluator interface {
+    Eval(score float64) bool
+}
+
+func (s *OptimizedSolver) executeFulfill(orderId string) error {
+    return nil
+}
+
+func (s OptimizedSolver) GetIterations() int {
+    return s.iterations
+}
+"#;
+        let result = CodeParser::parse_file("go-ws", "solver.go", content);
+        assert!(result.is_some(), "Parser should handle full Go grammar");
+        let pr = result.unwrap();
+
+        // 1. Check constants
+        let consts: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "constant").collect();
+        assert_eq!(consts.len(), 2);
+        assert!(consts.iter().any(|c| c.label == "ActionFulfill"));
+        assert!(consts.iter().any(|c| c.label == "ActionPick"));
+
+        // 2. Check struct and interface
+        let structs: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "struct").collect();
+        assert_eq!(structs.len(), 1);
+        assert_eq!(structs[0].label, "OptimizedSolver");
+
+        let ifaces: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "interface").collect();
+        assert_eq!(ifaces.len(), 1);
+        assert_eq!(ifaces[0].label, "Evaluator");
+
+        // 3. Check methods
+        let methods: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "method").collect();
+        assert_eq!(methods.len(), 2);
+        assert!(methods.iter().any(|m| m.label == "executeFulfill"));
+        assert!(methods.iter().any(|m| m.label == "GetIterations"));
+
+        // 4. Check imports
+        let imports: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "import").collect();
+        assert_eq!(imports.len(), 2);
+
+        // 5. Check DECLARES edges from struct to methods
+        let declares: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "DECLARES").collect();
+        assert_eq!(declares.len(), 2);
+        assert!(declares.iter().all(|e| e.source_id == "go-ws:solver.go:OptimizedSolver"));
     }
 
     #[test]

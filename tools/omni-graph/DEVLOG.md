@@ -4,6 +4,39 @@
 > **Append-only** — never delete entries, only add new ones at the top.
 > Each entry captures what happened, what changed, and what to do next.
 
+### 2026-10-07 — Full Tree-Sitter Go AST Support (Methods, Types, Constants, Imports)
+
+**Agent/Author**: Antigravity (Google DeepMind)
+**SDLC Phase**: `in-progress` (Parser Enhancement: Tree-sitter Go AST Grammar)
+**Branch**: `main`
+**Duration**: ~15m
+
+#### Problem & Symptoms
+- Agents operating on Go codebases (e.g. `tutor-intelligence`) reported that Omni-Graph was dropping Go methods, structs, interfaces, constants/enums, and imports.
+- `GET /api/symbol?name=executeFulfill` returned 0 matches because Go receiver methods use `method_declaration` rather than `function_declaration` or `method_definition`.
+- `GET /api/symbol?name=ActionFulfill` returned 0 matches because Go constants use `const_spec`.
+- `GET /api/symbol?name=OptimizedSolver` returned 0 matches because Go structs use `type_spec`.
+
+#### Implementation & Architecture
+- Omni-Graph utilizes the official `tree-sitter-go` grammar compiled into native Rust.
+- Rather than using heuristic regex or string splitting, implemented full AST structural extraction:
+  1. `method_declaration`: Extracted methods (`kind: "method"`). Implemented AST traversal `extract_go_receiver_type` on `receiver: parameter_list -> parameter_declaration -> type (pointer_type / type_identifier)` to emit `DECLARES` edge linking the struct to its method.
+  2. `type_spec`: Extracted Go structs, interfaces, and types (`kind: "struct"`, `"interface"`). Implemented `infer_go_type_kind` inspecting the AST child node (`struct_type` vs `interface_type`).
+  3. `const_spec`: Extracted Go constants and enums (`kind: "constant"`).
+  4. `import_spec`: Extracted Go package imports (`kind: "import"`).
+- Added comprehensive unit test `parse_go_full_grammar_methods_structs_constants_imports` covering methods (pointer & value receivers), structs, interfaces, constants, and imports.
+
+#### Verification & Live Results
+- Rebuilt Docker container `omni-rust-app` and re-ingested `tutor-intelligence`.
+- Total AST nodes increased from 774 to **1,192** (+418 Go symbols indexed).
+- Symbol queries verified live:
+  - `executeFulfill`: 2 matches found (`greedy.go:330`, `optimized.go:2346`, kind `method`).
+  - `ActionFulfill`: 1 match found (`types.go:215`, kind `constant`).
+  - `OptimizedSolver`: 2 matches found (struct at `optimized.go:46`, constructor func at `optimized.go:340`).
+- Test suite: 52/52 tests passed, 0 Clippy warnings.
+
+---
+
 ### 2026-10-07 — Resolution of Ingestion Computational Complexity & High-Scale Hardening
 
 **Agent/Author**: Antigravity (Google DeepMind)
