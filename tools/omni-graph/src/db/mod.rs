@@ -28,6 +28,18 @@ pub fn surql_escape(input: &str) -> String {
     out
 }
 
+/// Cleans SurrealDB record ID representations (e.g. node:⟨abc⟩, node:`abc`, `abc`, ⟨abc⟩)
+/// down to bare identifier string for safe SurrealQL querying and hashing (R-050).
+pub fn clean_record_id(raw: &str) -> &str {
+    raw.strip_prefix("node:")
+        .unwrap_or(raw)
+        .trim_matches('`')
+        .trim_matches('⟨')
+        .trim_matches('⟩')
+        .trim_matches('"')
+        .trim_matches('\'')
+}
+
 #[derive(Clone, Debug)]
 pub struct DbClient {
     base_url: String,
@@ -358,7 +370,8 @@ impl DbClient {
                 let escaped_label = surql_escape(&node.label);
                 let escaped_path = surql_escape(&node.file_path);
                 let escaped_ws = surql_escape(&node.workspace);
-                let escaped_id = surql_escape(&node.id);
+                let clean_id = clean_record_id(&node.id);
+                let escaped_id = surql_escape(clean_id);
                 let escaped_kind = surql_escape(&node.kind);
                 let escaped_lang = surql_escape(&node.language);
 
@@ -385,28 +398,49 @@ impl DbClient {
             for edge in chunk {
                 let escaped_ws = surql_escape(&edge.workspace);
                 let escaped_label = surql_escape(&edge.target_label);
-                let escaped_source = surql_escape(&edge.source_id);
                 let escaped_type = surql_escape(&edge.edge_type);
                 let escaped_cat = surql_escape(&edge.category);
 
+                let src_parts: Vec<&str> = edge.source_id.split(':').collect();
+                let src_resolution_surql = if src_parts.len() == 3 {
+                    // 3-part ID: ws:file:label (e.g. emitted by impl_item or receiver type without line number - R-039, R-045)
+                    let s_ws = surql_escape(src_parts[0]);
+                    let s_file = surql_escape(src_parts[1]);
+                    let s_label = surql_escape(src_parts[2]);
+                    format!(
+                        "LET $local_src = (SELECT VALUE id FROM node WHERE workspace = '{}' AND file_path = '{}' AND label = '{}' LIMIT 1);\n\
+                         LET $src = IF array::len($local_src) > 0 THEN $local_src ELSE (SELECT VALUE id FROM node WHERE workspace = '{}' AND label = '{}' LIMIT 1) END;\n",
+                        s_ws, s_file, s_label, s_ws, s_label
+                    )
+                } else {
+                    let clean_src = clean_record_id(&edge.source_id);
+                    format!("LET $src = [type::thing('node', '{}')];\n", surql_escape(clean_src))
+                };
+
+                query.push_str(&src_resolution_surql);
+
                 if let Some(target_id) = &edge.target_id {
-                    let escaped_target = surql_escape(target_id);
+                    let clean_tgt = clean_record_id(target_id);
+                    let escaped_target = surql_escape(clean_tgt);
                     query.push_str(&format!(
-                        "LET $src = type::thing('node', '{}');\n\
-                         LET $tgt = type::thing('node', '{}');\n\
+                        "LET $tgt = [type::thing('node', '{}')];\n\
                          RELATE $src->linked_to->$tgt SET workspace = '{}', type = '{}', category = '{}';\n",
-                        escaped_source,
                         escaped_target,
                         escaped_ws,
                         escaped_type,
                         escaped_cat
                     ));
                 } else {
+                    // Scoped edge resolution: check local source file first to avoid cross-package collisions (R-035)
+                    let source_file = edge.source_id.split(':').nth(1).unwrap_or("");
+                    let escaped_file = surql_escape(source_file);
                     query.push_str(&format!(
-                        "LET $src = type::thing('node', '{}');\n\
-                         LET $targets = (SELECT VALUE id FROM node WHERE workspace = '{}' AND label = '{}' LIMIT 1);\n\
+                        "LET $local_targets = (SELECT VALUE id FROM node WHERE workspace = '{}' AND file_path = '{}' AND label = '{}' LIMIT 1);\n\
+                         LET $targets = IF array::len($local_targets) > 0 THEN $local_targets ELSE (SELECT VALUE id FROM node WHERE workspace = '{}' AND label = '{}' LIMIT 1) END;\n\
                          RELATE $src->linked_to->$targets SET workspace = '{}', type = '{}', category = '{}';\n",
-                        escaped_source,
+                        escaped_ws,
+                        escaped_file,
+                        escaped_label,
                         escaped_ws,
                         escaped_label,
                         escaped_ws,
@@ -492,6 +526,78 @@ impl DbClient {
         }
 
         Ok((nodes, links))
+    }
+
+    /// Efficient localized subgraph retrieval around a target symbol (R-043)
+    /// Performs localized 1-2 hop BFS expansion in SurrealDB rather than loading full workspace topology.
+    pub async fn get_symbol_subgraph(
+        &self,
+        symbol: &str,
+        workspace: Option<&str>,
+        _hops: usize,
+    ) -> Result<(Vec<DbNode>, Vec<DbLink>), String> {
+        let roots = self.find_symbols(symbol, workspace).await?;
+        if roots.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        let esc_ws = workspace.map(surql_escape).unwrap_or_default();
+        let ws_clause = if !esc_ws.is_empty() {
+            format!("AND workspace = '{}'", esc_ws)
+        } else {
+            String::new()
+        };
+
+        // Collect root ID representations for SurrealQL
+        let root_id_exprs: Vec<String> = roots
+            .iter()
+            .map(|r| {
+                let clean = clean_record_id(&r.id);
+                format!("type::thing('node', '{}')", surql_escape(clean))
+            })
+            .collect();
+        let roots_surql_array = format!("[{}]", root_id_exprs.join(", "));
+
+        // Query 1-hop and 2-hop edges + distinct member nodes directly in SurrealDB
+        let q = format!(
+            "LET $roots = {};\n\
+             LET $hop1_links = (SELECT id, workspace, in AS source, out AS target, type, category FROM linked_to WHERE (in IN $roots OR out IN $roots) {});\n\
+             LET $hop1_nodes = array::distinct(array::concat($hop1_links.source, $hop1_links.target));\n\
+             LET $hop2_links = (SELECT id, workspace, in AS source, out AS target, type, category FROM linked_to WHERE (in IN $hop1_nodes OR out IN $hop1_nodes) {});\n\
+             LET $all_links = array::distinct(array::concat($hop1_links, $hop2_links));\n\
+             LET $all_node_ids = array::slice(array::distinct(array::concat($all_links.source, $all_links.target, $roots)), 0, 60);\n\
+             SELECT id, workspace, label, kind, file_path, language, line_start, line_end, text, community FROM node WHERE id IN $all_node_ids;\n\
+             SELECT id, workspace, source, target, type, category FROM $all_links;\n",
+            roots_surql_array, ws_clause, ws_clause
+        );
+
+        let resp = self.query_sql(&q).await?;
+        let mut nodes = Vec::new();
+        let mut links = Vec::new();
+
+        if let Some(arr) = resp.as_array() {
+            if let Some(node_res) = arr.get(5).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+                for item in node_res {
+                    if let Ok(n) = serde_json::from_value::<DbNode>(item.clone()) {
+                        nodes.push(n);
+                    }
+                }
+            }
+            if let Some(link_res) = arr.get(6).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+                for item in link_res {
+                    if let Ok(l) = serde_json::from_value::<DbLink>(item.clone()) {
+                        links.push(l);
+                    }
+                }
+            }
+        }
+
+        // If localized query returned nodes, return immediately; else fall back to full graph
+        if !nodes.is_empty() {
+            Ok((nodes, links))
+        } else {
+            self.get_graph(workspace).await
+        }
     }
 
     /// Aggregated stats (R-023)
@@ -647,9 +753,11 @@ impl DbClient {
             _ => String::new(),
         };
         let q = format!(
-            "SELECT id, workspace, label, kind, file_path, language, line_start, line_end, text, community \
-             FROM node WHERE (label = '{}' OR label CONTAINS '{}') {} LIMIT 20;",
-            escaped, escaped, ws_filter
+            "SELECT id, workspace, label, kind, file_path, language, line_start, line_end, text, community, \
+             (label = '{}') AS is_exact \
+             FROM node WHERE (label = '{}' OR label CONTAINS '{}') {} \
+             ORDER BY is_exact DESC, label ASC LIMIT 20;",
+            escaped, escaped, escaped, ws_filter
         );
 
         let resp = self.query_sql(&q).await?;
@@ -728,14 +836,7 @@ impl DbClient {
         for chunk in entries.chunks(150) {
             let mut query = String::new();
             for (node_id, comm_id) in chunk {
-                let clean_id = node_id
-                    .strip_prefix("node:")
-                    .unwrap_or(node_id)
-                    .trim_matches('`')
-                    .trim_matches('⟨')
-                    .trim_matches('⟩')
-                    .trim_matches('"')
-                    .trim_matches('\'');
+                let clean_id = clean_record_id(node_id);
                 let escaped_id = surql_escape(clean_id);
                 query.push_str(&format!(
                     "UPDATE type::thing('node', '{}') SET community = {};\n",
@@ -752,6 +853,7 @@ impl DbClient {
 
     /// Server-side galaxy aggregation query — avoids fetching all nodes (Finding #7)
     /// Returns community-level aggregates directly from SurrealDB.
+    #[allow(dead_code)]
     pub async fn get_galaxy_aggregation(&self, workspace: Option<&str>) -> Result<Vec<serde_json::Value>, String> {
         let ws_filter = match workspace {
             Some(ws) if !ws.is_empty() => format!("WHERE workspace = '{}' AND community IS NOT NONE", surql_escape(ws)),
@@ -796,7 +898,7 @@ impl DbClient {
         Ok(map)
     }
 
-    /// Atomic prune of file nodes and connected edges (R-011 / Delta Sync)
+    /// Atomic prune of file nodes and connected edges (R-011, R-046 / Delta Sync)
     pub async fn delete_file(&self, workspace: &str, file_path: &str) -> Result<(), String> {
         let esc_ws = surql_escape(workspace);
         let esc_path = surql_escape(file_path);

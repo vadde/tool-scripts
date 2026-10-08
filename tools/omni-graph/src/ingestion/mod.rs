@@ -337,8 +337,13 @@ impl IngestionPipeline {
                     continue;
                 }
 
-                // Batch vector embeddings via TEI (R-004)
-                let text_refs: Vec<&str> = parse_res.nodes.iter().map(|n| n.text.as_str()).collect();
+                // Batch vector embeddings via TEI with context-enriched header (R-004, R-037)
+                let enriched_texts: Vec<String> = parse_res
+                    .nodes
+                    .iter()
+                    .map(|n| format!("[{}] {} {} in {}\n{}", n.language, n.kind, n.label, n.file_path, n.text))
+                    .collect();
+                let text_refs: Vec<&str> = enriched_texts.iter().map(|s| s.as_str()).collect();
                 let embeddings = match self.embedder.embed_batch(&text_refs).await {
                     Ok(embs) => embs,
                     Err(e) => {
@@ -347,6 +352,9 @@ impl IngestionPipeline {
                         vec![vec![0.0f32; 384]; parse_res.nodes.len()]
                     }
                 };
+
+                // Prune any prior nodes/edges for this file to avoid zombie duplicates across shifted lines (R-047)
+                let _ = self.db.delete_file(&workspace_name, &rel_path).await;
 
                 let mut stored_nodes_ok = false;
                 // Store nodes with workspace namespace and file hash (R-005, Finding #4)

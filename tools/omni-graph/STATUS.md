@@ -1,11 +1,11 @@
 ---
 tool: omni-graph
 status: in-progress
-version: 0.1.0
+version: 0.1.1
 language: rust
 category: GenAI
 created: 2026-09-24
-last_updated: 2026-09-24
+last_updated: 2026-10-07
 owner: "@vadde"
 spec: ../../specs/catalog/omni-graph.md
 ---
@@ -33,6 +33,8 @@ spec: ../../specs/catalog/omni-graph.md
 | 2026-09-24 | — | `draft` | Tool created. Full spec written with research from Graphify, CodeGraph, Serena, ECC |
 | 2026-09-24 | `draft` | `spec-review` | Spec expanded with 28 requirements, agent enforcement shield & Antigravity hooks |
 | 2026-09-24 | `spec-review` | `in-progress` | Spec approved with Dual Setup strategy; implementation begins |
+| 2026-10-07 | `in-progress` | `in-progress` | Forensic audit & hardening: Polyglot AST grammar, relational integrity, exact sorting, deterministic LPA, scoped edge resolution, and Graph-RAG galaxy records (R-031 to R-038) |
+| 2026-10-07 | `in-progress` | `in-progress` | Second-round forensic audit: Cross-file receiver/impl scoping, cascading edge pruning, batch stale file pruning, trait/class inheritance, Rust macro indexing, clean record ID normalization, achieving 0 orphaned edges (R-039 to R-050) |
 
 ---
 
@@ -40,8 +42,8 @@ spec: ../../specs/catalog/omni-graph.md
 
 | Category | Done | Total | Percentage |
 |----------|------|-------|------------|
-| Requirements (R-XXX) | 30 | 30 | 100% |
-| Acceptance Criteria (AC-XXX) | 20 | 20 | 100% |
+| Requirements (R-XXX) | 50 | 50 | 100% |
+| Acceptance Criteria (AC-XXX) | 24 | 24 | 100% |
 | Non-Functional (NF-XXX) | 11 | 11 | 100% |
 
 ---
@@ -82,6 +84,26 @@ spec: ../../specs/catalog/omni-graph.md
 | R-028 | Subgraph Context Condenser (<1500 tokens AST slice) | `src/condenser/` | `tests/condenser/` | ✅ |
 | R-029 | Dynamic Live Galaxy Clustering & LPA Seed Persistence | `src/watcher/`, `src/analysis/` | `tests/unit_tests.rs` | ✅ |
 | R-030 | Subsystem Boundary Contracts & Agent Actionable Advice | `src/api/`, `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-031 | Comprehensive Polyglot AST Grammar (Go/TS/Rust/Python) | `src/parser/` | `tests/unit_tests.rs` | ✅ |
+| R-032 | Inbound Edge Preservation in Delta Sync | `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-033 | Two-Tier Exact Symbol Retrieval (ORDER BY is_exact) | `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-034 | Deterministic LPA Tie-Breaking (Ordered IDs) | `src/analysis/` | `tests/unit_tests.rs` | ✅ |
+| R-035 | Scoped Call-Edge Resolution (File -> Dir -> Fallback) | `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-036 | Pre-Computed Galaxy Graph-RAG Retrieval | `src/analysis/` | `tests/unit_tests.rs` | ✅ |
+| R-037 | Context-Enriched Embedding Payloads | `src/ingestion/`, `src/watcher/` | `tests/unit_tests.rs` | ✅ |
+| R-038 | Galaxy Subsystem Disambiguation | `src/analysis/` | `tests/unit_tests.rs` | ✅ |
+| R-039 | Scoped Source Node Resolution in Edge Persistence | `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-040 | Universal Invocation Dispatch (Python, Rust, JS/TS) | `src/parser/` | `tests/unit_tests.rs` | ✅ |
+| R-041 | Go Interface Method AST Extraction | `src/parser/` | `tests/unit_tests.rs` | ✅ |
+| R-042 | Direct Pre-Computed Galaxy Delivery | `src/api/`, `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-043 | Localized Subgraph Neighborhood in Condenser | `src/condenser/`, `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-044 | First-Class Import Structural Linking | `src/parser/` | `tests/unit_tests.rs` | ✅ |
+| R-045 | Cross-File Receiver & Impl Target Scoping | `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-046 | Cascade Edge Deletion on Node Pruning (Zero Dangling Pointers) | `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-047 | Stale File Pruning in Batch Ingestion (Zero Duplicate Nodes) | `src/ingestion/` | `tests/unit_tests.rs` | ✅ |
+| R-048 | Trait & Class Inheritance Relationship Extraction | `src/parser/` | `tests/unit_tests.rs` | ✅ |
+| R-049 | Rust Macro Definition & Invocation Indexing | `src/parser/` | `tests/unit_tests.rs` | ✅ |
+| R-050 | Unified Record ID Normalization (clean_record_id) | `src/db/` | `tests/unit_tests.rs` | ✅ |
 
 **Status Legend**: ⬜ Not started · 🔨 In progress · ✅ Implemented · 🧪 Tested · ❌ Blocked
 

@@ -162,18 +162,21 @@ func (s OptimizedSolver) GetIterations() int {
 
         // 3. Check methods
         let methods: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "method").collect();
-        assert_eq!(methods.len(), 2);
+        assert_eq!(methods.len(), 3);
         assert!(methods.iter().any(|m| m.label == "executeFulfill"));
         assert!(methods.iter().any(|m| m.label == "GetIterations"));
+        assert!(methods.iter().any(|m| m.label == "Eval"));
 
         // 4. Check imports
         let imports: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "import").collect();
         assert_eq!(imports.len(), 2);
 
-        // 5. Check DECLARES edges from struct to methods
-        let declares: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "DECLARES").collect();
-        assert_eq!(declares.len(), 2);
-        assert!(declares.iter().all(|e| e.source_id == "go-ws:solver.go:OptimizedSolver"));
+        // 5. Check DECLARES edges from struct and interface to methods
+        let struct_declares: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "DECLARES" && e.source_id == "go-ws:solver.go:OptimizedSolver").collect();
+        assert_eq!(struct_declares.len(), 2);
+
+        let iface_declares: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "DECLARES" && e.target_label == "Eval").collect();
+        assert_eq!(iface_declares.len(), 1);
     }
 
     #[test]
@@ -235,6 +238,261 @@ function greet(name: string): string {
             id.contains("src/lib.rs"),
             "Node ID should contain file path"
         );
+    }
+
+    #[test]
+    fn parse_typescript_arrow_functions_and_interfaces() {
+        let content = r#"
+export const loadWorkspaces = async () => {
+    return fetch('/api/workspaces');
+};
+
+const handleFilter = (query: string) => {
+    console.log(query);
+};
+
+export interface UserConfig {
+    host: string;
+    port: number;
+}
+
+export type UserID = string;
+
+export enum TaskState {
+    Pending,
+    Active,
+    Done,
+}
+"#;
+        let pr = CodeParser::parse_file("ui-ws", "App.tsx", content).unwrap();
+
+        // 1. Functions (arrow functions)
+        let fns: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "function").collect();
+        assert_eq!(fns.len(), 2);
+        assert!(fns.iter().any(|f| f.label == "loadWorkspaces"));
+        assert!(fns.iter().any(|f| f.label == "handleFilter"));
+
+        // 2. Interface
+        let ifaces: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "interface").collect();
+        assert_eq!(ifaces.len(), 1);
+        assert_eq!(ifaces[0].label, "UserConfig");
+
+        // 3. Type alias
+        let types: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "type").collect();
+        assert_eq!(types.len(), 1);
+        assert_eq!(types[0].label, "UserID");
+
+        // 4. Enum
+        let enums: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "enum").collect();
+        assert_eq!(enums.len(), 1);
+        assert_eq!(enums[0].label, "TaskState");
+    }
+
+    #[test]
+    fn parse_rust_impl_and_enums() {
+        let content = r#"
+pub struct CodeParser;
+
+pub enum DeltaKind {
+    Create,
+    Modify,
+    Delete,
+}
+
+pub trait IngestionStrategy {
+    fn ingest(&self);
+}
+
+impl CodeParser {
+    pub fn parse_file(path: &str) -> bool {
+        true
+    }
+}
+"#;
+        let pr = CodeParser::parse_file("rust-ws", "lib.rs", content).unwrap();
+
+        // 1. Struct
+        assert!(pr.nodes.iter().any(|n| n.label == "CodeParser" && n.kind == "struct"));
+
+        // 2. Enum
+        assert!(pr.nodes.iter().any(|n| n.label == "DeltaKind" && n.kind == "enum"));
+
+        // 3. Trait
+        assert!(pr.nodes.iter().any(|n| n.label == "IngestionStrategy" && n.kind == "trait"));
+
+        // 4. Method
+        assert!(pr.nodes.iter().any(|n| n.label == "parse_file" && n.kind == "function"));
+
+        // 5. DECLARES edge linking struct to method inside impl
+        let declares: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "DECLARES").collect();
+        assert!(!declares.is_empty(), "impl block should emit DECLARES edge from struct to method");
+        assert!(declares.iter().any(|e| e.source_id == "rust-ws:lib.rs:CodeParser" && e.target_label == "parse_file"));
+    }
+
+    #[test]
+    fn parse_python_async_functions() {
+        let content = r#"
+async def fetch_remote_data(endpoint: str):
+    return await http_get(endpoint)
+
+def sync_process():
+    pass
+"#;
+        let pr = CodeParser::parse_file("py-ws", "async_worker.py", content).unwrap();
+        let fns: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "function").collect();
+        assert_eq!(fns.len(), 2);
+        assert!(fns.iter().any(|f| f.label == "fetch_remote_data"));
+        assert!(fns.iter().any(|f| f.label == "sync_process"));
+    }
+
+    #[test]
+    fn parse_go_interface_methods() {
+        let content = r#"
+package solver
+
+type Solver interface {
+    Solve(orders []int) error
+    Reset()
+}
+"#;
+        let pr = CodeParser::parse_file("go-ws", "solver.go", content).unwrap();
+
+        // 1. Interface node
+        assert!(pr.nodes.iter().any(|n| n.label == "Solver" && n.kind == "interface"));
+
+        // 2. Interface methods (method_spec)
+        let methods: Vec<_> = pr.nodes.iter().filter(|n| n.kind == "method").collect();
+        assert_eq!(methods.len(), 2);
+        assert!(methods.iter().any(|m| m.label == "Solve"));
+        assert!(methods.iter().any(|m| m.label == "Reset"));
+
+        // 3. DECLARES edge linking interface to method
+        let declares: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "DECLARES").collect();
+        assert_eq!(declares.len(), 2);
+        assert!(declares.iter().any(|e| e.target_label == "Solve"));
+        assert!(declares.iter().any(|e| e.target_label == "Reset"));
+    }
+
+    #[test]
+    fn parse_python_calls_and_methods() {
+        let content = r#"
+class Worker:
+    def execute(self):
+        self.run_task()
+        process_data()
+"#;
+        let pr = CodeParser::parse_file("py-ws", "worker.py", content).unwrap();
+
+        // Check CALLS edges emitted from Python calls
+        let calls: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "CALLS").collect();
+        assert!(!calls.is_empty(), "Python call expressions should emit CALLS edges");
+        assert!(calls.iter().any(|c| c.target_label == "run_task"));
+        assert!(calls.iter().any(|c| c.target_label == "process_data"));
+    }
+
+    #[test]
+    fn parse_rust_method_calls() {
+        let content = r#"
+fn orchestrate(client: &DbClient) {
+    client.query_sql("SELECT 1;");
+    format_output();
+}
+"#;
+        let pr = CodeParser::parse_file("rs-ws", "orch.rs", content).unwrap();
+
+        // Check CALLS edges emitted from Rust method_call_expression and call_expression
+        let calls: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "CALLS").collect();
+        assert!(!calls.is_empty(), "Rust calls should emit CALLS edges");
+        assert!(calls.iter().any(|c| c.target_label == "query_sql"));
+        assert!(calls.iter().any(|c| c.target_label == "format_output"));
+    }
+
+    #[test]
+    fn parse_import_edges() {
+        let pr_rs = CodeParser::parse_file("rs-ws", "lib.rs", "use crate::db::DbClient;").unwrap();
+        assert!(pr_rs.edges.iter().any(|e| e.edge_type == "IMPORTS" && e.target_label == "DbClient"));
+
+        let pr_py = CodeParser::parse_file("py-ws", "main.py", "from solver import GreedySolver").unwrap();
+        assert!(pr_py.edges.iter().any(|e| e.edge_type == "IMPORTS" && e.target_label == "GreedySolver"));
+    }
+
+    #[test]
+    fn parse_rust_trait_implementation() {
+        let content = r#"
+pub struct CustomSolver;
+
+pub trait Solvable {
+    fn solve(&self);
+}
+
+impl Solvable for CustomSolver {
+    fn solve(&self) {
+        println!("solved");
+    }
+}
+"#;
+        let pr = CodeParser::parse_file("rs-ws", "solver.rs", content).unwrap();
+        let impl_edges: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "IMPLEMENTS").collect();
+        assert_eq!(impl_edges.len(), 1, "Must emit IMPLEMENTS edge for impl Trait for Struct");
+        assert_eq!(impl_edges[0].target_label, "Solvable");
+        assert!(impl_edges[0].source_id.ends_with("CustomSolver"));
+    }
+
+    #[test]
+    fn parse_python_class_inheritance() {
+        let content = r#"
+class Animal:
+    pass
+
+class Dog(Animal):
+    def bark(self):
+        pass
+"#;
+        let pr = CodeParser::parse_file("py-ws", "models.py", content).unwrap();
+        let extends_edges: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "EXTENDS").collect();
+        assert_eq!(extends_edges.len(), 1, "Must emit EXTENDS edge for Python class inheritance");
+        assert_eq!(extends_edges[0].target_label, "Animal");
+    }
+
+    #[test]
+    fn parse_typescript_class_heritage() {
+        let content = r#"
+export interface Runnable {
+    run(): void;
+}
+
+export class TaskRunner extends BaseRunner implements Runnable {
+    run() {
+        console.log("running");
+    }
+}
+"#;
+        let pr = CodeParser::parse_file("ts-ws", "runner.ts", content).unwrap();
+        let extends_edges: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "EXTENDS").collect();
+        assert_eq!(extends_edges.len(), 1, "Must emit EXTENDS edge for TS class");
+        assert_eq!(extends_edges[0].target_label, "BaseRunner");
+
+        let impl_edges: Vec<_> = pr.edges.iter().filter(|e| e.edge_type == "IMPLEMENTS").collect();
+        assert_eq!(impl_edges.len(), 1, "Must emit IMPLEMENTS edge for TS class implements clause");
+        assert_eq!(impl_edges[0].target_label, "Runnable");
+    }
+
+    #[test]
+    fn parse_rust_macro_definition_and_invocation() {
+        let content = r#"
+macro_rules! my_telemetry {
+    ($msg:expr) => {
+        println!("{}", $msg);
+    };
+}
+
+fn track() {
+    my_telemetry!("ping");
+}
+"#;
+        let pr = CodeParser::parse_file("rs-ws", "macro_test.rs", content).unwrap();
+        assert!(pr.nodes.iter().any(|n| n.label == "my_telemetry" && n.kind == "macro"));
+        assert!(pr.edges.iter().any(|e| e.edge_type == "CALLS" && e.target_label == "my_telemetry"));
     }
 
     #[test]
@@ -813,6 +1071,17 @@ mod escape_tests {
         assert_eq!(escaped, "\\' OR \\'1\\'=\\'1\\' --; DROP TABLE node;");
         assert!(escaped.starts_with("\\'"));
     }
+
+    #[test]
+    fn clean_record_id_variants() {
+        use omni_graph::db::clean_record_id;
+        assert_eq!(clean_record_id("node:`ws:file:func:10`"), "ws:file:func:10");
+        assert_eq!(clean_record_id("node:⟨ws:file:func:10⟩"), "ws:file:func:10");
+        assert_eq!(clean_record_id("node:ws:file:func:10"), "ws:file:func:10");
+        assert_eq!(clean_record_id("`ws:file:func:10`"), "ws:file:func:10");
+        assert_eq!(clean_record_id("⟨ws:file:func:10⟩"), "ws:file:func:10");
+        assert_eq!(clean_record_id("ws:file:func:10"), "ws:file:func:10");
+    }
 }
 
 mod lpa_rng_tests {
@@ -901,9 +1170,13 @@ mod analytics_tests {
     use omni_graph::analytics::AnalyticsEngine;
     use std::fs::{self, File};
     use std::io::Write;
+    use std::sync::Mutex;
+
+    static BRAIN_ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_analytics_scan_and_detail_with_synthetic_session() {
+        let _guard = BRAIN_ENV_MUTEX.lock().unwrap();
         let temp_dir = std::env::temp_dir().join(format!("omni_test_brain_{}", std::process::id()));
         let session_id = "test-session-12345";
         let session_dir = temp_dir.join(session_id).join(".system_generated").join("logs");
@@ -993,6 +1266,7 @@ mod analytics_tests {
 
     #[test]
     fn test_dynamic_workspace_selection_dominance() {
+        let _guard = BRAIN_ENV_MUTEX.lock().unwrap();
         let temp_dir = std::env::temp_dir().join(format!("omni_test_dominance_{}", std::process::id()));
         let session_id = "test-session-quarkdock-dom";
         let session_dir = temp_dir.join(session_id).join(".system_generated").join("logs");

@@ -171,24 +171,38 @@ impl CodeParser {
 
         let mut node_id: Option<String> = None;
 
-        // Extract functions and methods
-        // Go: function_declaration (top-level func), method_declaration (receiver method)
-        // Rust: function_item
-        // Python: function_definition
+        // Extract functions, methods, and macros
+        // Go: function_declaration (top-level func), method_declaration (receiver method), method_elem / method_spec (interface)
+        // Rust: function_item, macro_definition
+        // Python: function_definition, async_function_definition
         // JS/TS: function_declaration, method_definition
         if kind == "function_item"
             || kind == "function_definition"
+            || kind == "async_function_definition"
             || kind == "function_declaration"
             || kind == "method_definition"
             || kind == "method_declaration"
+            || kind == "method_spec"
+            || kind == "method_elem"
+            || kind == "macro_definition"
         {
-            if let Some(name_node) = node.child_by_field_name("name") {
+            let name_opt = node.child_by_field_name("name").or_else(|| {
+                if kind == "method_spec" || kind == "method_elem" {
+                    node.child(0)
+                } else {
+                    None
+                }
+            });
+
+            if let Some(name_node) = name_opt {
                 let name = &content[name_node.byte_range()];
                 let snippet = &content[node.byte_range()];
                 let text = Self::safe_truncate(snippet, 1000);
 
-                let node_kind = if kind == "method_declaration" || kind == "method_definition" {
+                let node_kind = if kind == "method_declaration" || kind == "method_definition" || kind == "method_spec" || kind == "method_elem" {
                     "method"
+                } else if kind == "macro_definition" {
+                    "macro"
                 } else {
                     "function"
                 };
@@ -207,12 +221,17 @@ impl CodeParser {
                 });
 
                 if let Some(parent) = current_parent_id {
+                    let edge_type = if parent.ends_with(&name.to_string()) {
+                        "CONTAINS"
+                    } else {
+                        "DECLARES"
+                    };
                     edges.push(ExtractedEdge {
                         workspace: workspace.to_string(),
                         source_id: parent.to_string(),
                         target_label: name.to_string(),
                         target_id: Some(id.clone()),
-                        edge_type: "CONTAINS".to_string(),
+                        edge_type: edge_type.to_string(),
                         category: "EXTRACTED".to_string(),
                     });
                 }
@@ -238,28 +257,111 @@ impl CodeParser {
                 node_id = Some(id);
             }
         }
-        // Extract structs, classes, and types
+        // Extract JS/TS lexical / variable declarations with arrow functions or function expressions
+        // e.g. const loadWorkspaces = async () => { ... } or export const queryGraph = ...
+        else if (kind == "lexical_declaration" || kind == "variable_declaration")
+            && (language == "javascript" || language == "typescript")
+        {
+            let mut cursor = node.walk();
+            for child in node.children(&mut cursor) {
+                if child.kind() == "variable_declarator" {
+                    if let (Some(name_node), Some(value_node)) = (
+                        child.child_by_field_name("name"),
+                        child.child_by_field_name("value"),
+                    ) {
+                        let val_kind = value_node.kind();
+                        if val_kind == "arrow_function" || val_kind == "function_expression" {
+                            let name = &content[name_node.byte_range()];
+                            let snippet = &content[child.byte_range()];
+                            let text = Self::safe_truncate(snippet, 1000);
+                            let v_start = child.start_position();
+                            let v_end = child.end_position();
+
+                            let id = format!("{}:{}:{}:{}", workspace, file_path, name, v_start.row + 1);
+                            nodes.push(ExtractedNode {
+                                id: id.clone(),
+                                workspace: workspace.to_string(),
+                                label: name.to_string(),
+                                kind: "function".to_string(),
+                                file_path: file_path.to_string(),
+                                language: language.to_string(),
+                                line_start: v_start.row + 1,
+                                line_end: v_end.row + 1,
+                                text: text.to_string(),
+                            });
+
+                            if let Some(parent) = current_parent_id {
+                                edges.push(ExtractedEdge {
+                                    workspace: workspace.to_string(),
+                                    source_id: parent.to_string(),
+                                    target_label: name.to_string(),
+                                    target_id: Some(id.clone()),
+                                    edge_type: "DECLARES".to_string(),
+                                    category: "EXTRACTED".to_string(),
+                                });
+                            }
+
+                            node_id = Some(id);
+                        }
+                    }
+                }
+            }
+        }
+        // Rust: impl_item (e.g. impl CodeParser { ... } or impl Trait for CodeParser { ... })
+        else if kind == "impl_item" && language == "rust" {
+            if let Some(type_node) = node.child_by_field_name("type") {
+                let struct_raw = &content[type_node.byte_range()];
+                let clean_name = struct_raw.split('<').next().unwrap_or(struct_raw).trim();
+                let impl_id = format!("{}:{}:{}", workspace, file_path, clean_name);
+
+                // If this is an `impl Trait for Struct`, extract trait and emit IMPLEMENTS edge (R-048)
+                if let Some(trait_node) = node.child_by_field_name("trait") {
+                    let trait_raw = &content[trait_node.byte_range()];
+                    let clean_trait = trait_raw.split('<').next().unwrap_or(trait_raw).trim();
+                    if !clean_trait.is_empty() {
+                        edges.push(ExtractedEdge {
+                            workspace: workspace.to_string(),
+                            source_id: impl_id.clone(),
+                            target_label: clean_trait.to_string(),
+                            target_id: None,
+                            edge_type: "IMPLEMENTS".to_string(),
+                            category: "EXTRACTED".to_string(),
+                        });
+                    }
+                }
+
+                node_id = Some(impl_id);
+            }
+        }
+        // Extract structs, classes, types, interfaces, traits, and enums
         // Go: type_spec (inside type_declaration) — covers struct_type, interface_type, etc.
-        // Rust: struct_item, type_item
-        // Python/JS: class_definition, class_declaration
+        // Rust: struct_item, type_item, enum_item, trait_item
+        // Python: class_definition
+        // JS/TS: class_definition, class_declaration, interface_declaration, type_alias_declaration, enum_declaration
         else if kind == "struct_item"
             || kind == "class_definition"
             || kind == "class_declaration"
             || kind == "type_item"
             || kind == "type_spec"
+            || kind == "interface_declaration"
+            || kind == "type_alias_declaration"
+            || kind == "enum_declaration"
+            || kind == "enum_item"
+            || kind == "trait_item"
         {
             if let Some(name_node) = node.child_by_field_name("name") {
                 let name = &content[name_node.byte_range()];
                 let snippet = &content[node.byte_range()];
                 let text = Self::safe_truncate(snippet, 1000);
 
-                // Determine kind: check if Go type_spec wraps an interface_type
-                let struct_kind = if kind == "type_spec" {
-                    Self::infer_go_type_kind(node)
-                } else if kind == "class_definition" || kind == "class_declaration" {
-                    "class"
-                } else {
-                    "struct"
+                let struct_kind = match kind {
+                    "type_spec" => Self::infer_go_type_kind(node),
+                    "class_definition" | "class_declaration" => "class",
+                    "interface_declaration" => "interface",
+                    "type_alias_declaration" | "type_item" => "type",
+                    "enum_declaration" | "enum_item" => "enum",
+                    "trait_item" => "trait",
+                    _ => "struct",
                 };
 
                 let id = format!("{}:{}:{}:{}", workspace, file_path, name, start_pos.row + 1);
@@ -274,6 +376,75 @@ impl CodeParser {
                     line_end: end_pos.row + 1,
                     text: text.to_string(),
                 });
+
+                // Python: extract class inheritance (R-048)
+                if kind == "class_definition" && language == "python" {
+                    if let Some(superclasses) = node.child_by_field_name("superclasses") {
+                        let mut s_cursor = superclasses.walk();
+                        for child in superclasses.children(&mut s_cursor) {
+                            let c_kind = child.kind();
+                            if c_kind == "identifier" || c_kind == "attribute" {
+                                let base_name = &content[child.byte_range()];
+                                let clean_base = base_name.rsplit('.').next().unwrap_or(base_name).trim();
+                                if !clean_base.is_empty() {
+                                    edges.push(ExtractedEdge {
+                                        workspace: workspace.to_string(),
+                                        source_id: id.clone(),
+                                        target_label: clean_base.to_string(),
+                                        target_id: None,
+                                        edge_type: "EXTENDS".to_string(),
+                                        category: "EXTRACTED".to_string(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // JS/TS: extract class heritage (extends and implements) (R-048)
+                if (kind == "class_declaration" || kind == "class_definition") && (language == "javascript" || language == "typescript") {
+                    let mut c_cursor = node.walk();
+                    for child in node.children(&mut c_cursor) {
+                        if child.kind() == "class_heritage" {
+                            let mut h_cursor = child.walk();
+                            for clause in child.children(&mut h_cursor) {
+                                let clause_kind = clause.kind();
+                                if clause_kind == "extends_clause" {
+                                    if let Some(val) = clause.child_by_field_name("value") {
+                                        let base_name = &content[val.byte_range()].trim();
+                                        if !base_name.is_empty() {
+                                            edges.push(ExtractedEdge {
+                                                workspace: workspace.to_string(),
+                                                source_id: id.clone(),
+                                                target_label: base_name.to_string(),
+                                                target_id: None,
+                                                edge_type: "EXTENDS".to_string(),
+                                                category: "EXTRACTED".to_string(),
+                                            });
+                                        }
+                                    }
+                                } else if clause_kind == "implements_clause" {
+                                    let mut i_cursor = clause.walk();
+                                    for type_child in clause.children(&mut i_cursor) {
+                                        if type_child.kind() == "type_identifier" {
+                                            let iface_name = &content[type_child.byte_range()].trim();
+                                            if !iface_name.is_empty() {
+                                                edges.push(ExtractedEdge {
+                                                    workspace: workspace.to_string(),
+                                                    source_id: id.clone(),
+                                                    target_label: iface_name.to_string(),
+                                                    target_id: None,
+                                                    edge_type: "IMPLEMENTS".to_string(),
+                                                    category: "EXTRACTED".to_string(),
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 node_id = Some(id);
             }
@@ -301,11 +472,23 @@ impl CodeParser {
                 node_id = Some(id);
             }
         }
-        // Extract function call expressions
-        else if kind == "call_expression" {
+        // Extract function call expressions, method calls, coroutine calls, constructors, and macros
+        // Go: call_expression
+        // Python: call
+        // Rust: call_expression, method_call_expression, macro_invocation
+        // JS/TS: call_expression, new_expression
+        else if kind == "call_expression"
+            || kind == "method_call_expression"
+            || kind == "call"
+            || kind == "new_expression"
+            || kind == "macro_invocation"
+        {
             if let Some(caller_id) = current_parent_id {
                 let callee_opt = node
                     .child_by_field_name("function")
+                    .or_else(|| node.child_by_field_name("name"))
+                    .or_else(|| node.child_by_field_name("constructor"))
+                    .or_else(|| node.child_by_field_name("macro"))
                     .or_else(|| node.child(0));
 
                 if let Some(callee_node) = callee_opt {
@@ -337,6 +520,7 @@ impl CodeParser {
         // Go: import_spec (inside import_declaration) — path: (interpreted_string_literal)
         // Rust: use_declaration
         // Python: import_statement, import_from_statement
+        // JS/TS: import_statement
         else if kind == "use_declaration"
             || kind == "import_statement"
             || kind == "import_from_statement"
@@ -355,6 +539,32 @@ impl CodeParser {
                 line_end: end_pos.row + 1,
                 text: snippet.trim().to_string(),
             });
+
+            // Extract target imported symbol or module name (R-044)
+            let trimmed = snippet.trim().trim_end_matches(';');
+            let imported_sym = if language == "python" {
+                trimmed.rsplit("import ").next().and_then(|s| s.split(',').next()).map(|s| s.trim())
+            } else if language == "rust" {
+                trimmed.rsplit("::").next().and_then(|s| s.split(' ').next()).map(|s| s.trim())
+            } else if language == "go" {
+                trimmed.trim_matches('"').rsplit('/').next().map(|s| s.trim())
+            } else {
+                trimmed.rsplit("from ").next().map(|s| s.trim().trim_matches('\'').trim_matches('"'))
+            };
+
+            if let Some(target_sym) = imported_sym {
+                let clean_sym = target_sym.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                if !clean_sym.is_empty() {
+                    edges.push(ExtractedEdge {
+                        workspace: workspace.to_string(),
+                        source_id: id.clone(),
+                        target_label: clean_sym.to_string(),
+                        target_id: None,
+                        edge_type: "IMPORTS".to_string(),
+                        category: "EXTRACTED".to_string(),
+                    });
+                }
+            }
         }
 
         // Recurse down children, passing down enclosing node id if present
@@ -672,7 +882,7 @@ impl CodeParser {
         let mut edges = Vec::new();
 
         let filename = Path::new(file_path).file_name()?.to_string_lossy().to_string();
-        let file_root_id = format!("node:{}_{}", workspace, file_path);
+        let file_root_id = format!("{}:{}", workspace, file_path);
 
         nodes.push(ExtractedNode {
             id: file_root_id.clone(),
@@ -695,7 +905,7 @@ impl CodeParser {
             if lines.is_empty() { return; }
             let k = kind.unwrap_or_else(|| "resource".to_string());
             let n = name.unwrap_or_else(|| format!("{}:L{}", filename, start));
-            let res_id = format!("node:{}_{}_{}", workspace, file_path, n);
+            let res_id = format!("{}:{}:{}", workspace, file_path, n);
             let text = lines.join("\n");
             nodes.push(ExtractedNode {
                 id: res_id.clone(),
@@ -747,7 +957,7 @@ impl CodeParser {
         let mut edges = Vec::new();
 
         let filename = Path::new(file_path).file_name()?.to_string_lossy().to_string();
-        let file_root_id = format!("node:{}_{}", workspace, file_path);
+        let file_root_id = format!("{}:{}", workspace, file_path);
 
         nodes.push(ExtractedNode {
             id: file_root_id.clone(),
@@ -764,7 +974,7 @@ impl CodeParser {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(content) {
             if let Some(obj) = val.as_object() {
                 for (key, v) in obj {
-                    let key_id = format!("node:{}_{}_{}", workspace, file_path, key);
+                    let key_id = format!("{}:{}:{}", workspace, file_path, key);
                     let snippet = serde_json::to_string(v).unwrap_or_default();
                     nodes.push(ExtractedNode {
                         id: key_id.clone(),
@@ -798,7 +1008,7 @@ impl CodeParser {
         let mut edges = Vec::new();
 
         let filename = Path::new(file_path).file_name()?.to_string_lossy().to_string();
-        let file_root_id = format!("node:{}_{}", workspace, file_path);
+        let file_root_id = format!("{}:{}", workspace, file_path);
 
         nodes.push(ExtractedNode {
             id: file_root_id.clone(),
@@ -827,7 +1037,7 @@ impl CodeParser {
             }
 
             if let Some(name) = fn_name {
-                let fn_id = format!("node:{}_{}_{}", workspace, file_path, name);
+                let fn_id = format!("{}:{}:{}", workspace, file_path, name);
                 let snippet_lines: Vec<&str> = lines[idx..idx + 25.min(lines.len() - idx)].to_vec();
                 let snippet = snippet_lines.join("\n");
                 nodes.push(ExtractedNode {
@@ -861,7 +1071,7 @@ impl CodeParser {
         let mut edges = Vec::new();
 
         let filename = Path::new(file_path).file_name()?.to_string_lossy().to_string();
-        let file_root_id = format!("node:{}_{}", workspace, file_path);
+        let file_root_id = format!("{}:{}", workspace, file_path);
 
         nodes.push(ExtractedNode {
             id: file_root_id.clone(),
@@ -900,7 +1110,7 @@ impl CodeParser {
             }
 
             if let (Some(k), Some(name)) = (obj_kind, obj_name) {
-                let obj_id = format!("node:{}_{}_{}", workspace, file_path, name);
+                let obj_id = format!("{}:{}:{}", workspace, file_path, name);
                 let snippet_lines: Vec<&str> = lines[idx..idx + 30.min(lines.len() - idx)].to_vec();
                 let snippet = snippet_lines.join("\n");
                 nodes.push(ExtractedNode {
@@ -934,7 +1144,7 @@ impl CodeParser {
         let mut edges = Vec::new();
 
         let filename = Path::new(file_path).file_name()?.to_string_lossy().to_string();
-        let file_root_id = format!("node:{}_{}", workspace, file_path);
+        let file_root_id = format!("{}:{}", workspace, file_path);
 
         nodes.push(ExtractedNode {
             id: file_root_id.clone(),
@@ -955,7 +1165,7 @@ impl CodeParser {
             if trimmed.starts_with('[') && trimmed.ends_with(']') {
                 let section_name = trimmed.trim_matches(|c| c == '[' || c == ']').trim();
                 if !section_name.is_empty() {
-                    let sec_id = format!("node:{}_{}_{}", workspace, file_path, section_name);
+                    let sec_id = format!("{}:{}:{}", workspace, file_path, section_name);
                     let snippet_lines: Vec<&str> = lines[idx..idx + 20.min(lines.len() - idx)].to_vec();
                     let snippet = snippet_lines.join("\n");
                     nodes.push(ExtractedNode {
@@ -999,7 +1209,7 @@ impl CodeParser {
             .file_name()
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_else(|| file_path.to_string());
-        let file_root_id = format!("node:{}_{}", workspace, file_path);
+        let file_root_id = format!("{}:{}", workspace, file_path);
 
         let ext = file_path.rsplit('.').next().unwrap_or("text");
         let language = match ext {
@@ -1038,7 +1248,7 @@ impl CodeParser {
                 let block_lines = &lines[start..end];
                 let block_text = block_lines.join("\n");
                 let block_label = format!("{}: L{}-L{}", filename, start + 1, end);
-                let block_id = format!("node:{}_{}#L{}-L{}", workspace, file_path, start + 1, end);
+                let block_id = format!("{}:{}#L{}-L{}", workspace, file_path, start + 1, end);
 
                 nodes.push(ExtractedNode {
                     id: block_id.clone(),

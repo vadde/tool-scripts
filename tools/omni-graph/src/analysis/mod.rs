@@ -121,8 +121,13 @@ impl CommunityDetector {
                     }
                 }
 
-                // Select label with maximum accumulated edge weight
-                if let Some((&best_label, _)) = freq.iter().max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal)) {
+                // Select label with maximum accumulated edge weight, with deterministic tie-breaking on label ID
+                if let Some((&best_label, _)) = freq.iter().max_by(|a, b| {
+                    match a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal) {
+                        std::cmp::Ordering::Equal => a.0.cmp(b.0),
+                        other => other,
+                    }
+                }) {
                     if let Some(curr_label) = labels.get_mut(&node.id) {
                         if *curr_label != best_label {
                             *curr_label = best_label;
@@ -233,8 +238,11 @@ impl CommunityDetector {
                     members.first().map(|m| m.file_path.clone()).unwrap_or_else(|| "root".to_string())
                 });
 
+            let primary_symbol = top_symbols.first().map(|s| s.as_str()).unwrap_or("");
             let name = if dominant.is_empty() || dominant == "." {
                 format!("Galaxy #{}", cid)
+            } else if !primary_symbol.is_empty() && primary_symbol != dominant {
+                format!("{} ({})", dominant, primary_symbol)
             } else {
                 dominant.clone()
             };
@@ -433,18 +441,33 @@ impl GraphRagEngine {
             ));
         }
 
-        // 6. Community summaries for touched clusters
-        let mut comm_assignments = HashMap::new();
-        for n in &all_nodes {
-            if let Some(c) = n.community {
-                comm_assignments.insert(n.id.clone(), c);
+        // 6. Community summaries for touched clusters from pre-computed galaxy table (R-036)
+        let all_galaxy_records = db.get_galaxies_records(workspace).await.unwrap_or_default();
+        let relevant_summaries: Vec<CommunitySummary> = if !all_galaxy_records.is_empty() {
+            all_galaxy_records
+                .into_iter()
+                .filter(|g| touched_communities.contains(&g.galaxy_id))
+                .map(|g| CommunitySummary {
+                    id: g.galaxy_id,
+                    node_count: g.node_count,
+                    name: g.name,
+                    top_symbols: g.key_symbols,
+                    files: vec![g.dominant_path],
+                })
+                .collect()
+        } else {
+            let mut comm_assignments = HashMap::new();
+            for n in &all_nodes {
+                if let Some(c) = n.community {
+                    comm_assignments.insert(n.id.clone(), c);
+                }
             }
-        }
-        let all_summaries = CommunityDetector::summarize(&all_nodes, &comm_assignments);
-        let relevant_summaries: Vec<CommunitySummary> = all_summaries
-            .into_iter()
-            .filter(|s| touched_communities.contains(&s.id))
-            .collect();
+            let all_summaries = CommunityDetector::summarize(&all_nodes, &comm_assignments);
+            all_summaries
+                .into_iter()
+                .filter(|s| touched_communities.contains(&s.id))
+                .collect()
+        };
 
         let mut macro_summary = String::new();
         macro_summary.push_str(&format!(

@@ -78,8 +78,13 @@ impl IncrementalPipeline {
             warn!("Failed to prune previous nodes for '{}': {}", rel_path, e);
         }
 
-        // 2. Generate vector embeddings for newly parsed nodes
-        let text_refs: Vec<&str> = parse_res.nodes.iter().map(|n| n.text.as_str()).collect();
+        // 2. Generate vector embeddings for newly parsed nodes with context-enriched header (R-037)
+        let enriched_texts: Vec<String> = parse_res
+            .nodes
+            .iter()
+            .map(|n| format!("[{}] {} {} in {}\n{}", n.language, n.kind, n.label, n.file_path, n.text))
+            .collect();
+        let text_refs: Vec<&str> = enriched_texts.iter().map(|s| s.as_str()).collect();
         let embeddings = match self.embedder.embed_batch(&text_refs).await {
             Ok(embs) => embs,
             Err(e) => {

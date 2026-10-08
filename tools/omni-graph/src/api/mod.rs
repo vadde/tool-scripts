@@ -313,56 +313,25 @@ async fn galaxies_handler(
         ).await;
     });
 
-    // Try server-side aggregation first for instant response without loading full topology (Finding #7)
-    if let Ok(agg_rows) = state.db.get_galaxy_aggregation(ws.as_deref()).await {
-        if !agg_rows.is_empty() {
-            let mut galaxies: Vec<serde_json::Value> = Vec::new();
-            for row in agg_rows {
-                let cid = row.get("community").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-                let count = row.get("node_count").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                if count < min_size {
-                    continue; // Skip singletons/small clusters if min_size filter applied (Finding #6)
-                }
-
-                let files: Vec<String> = row.get("files")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|str| str.to_string())).collect())
-                    .unwrap_or_default();
-
-                let mut dir_counts: HashMap<String, usize> = HashMap::new();
-                for f in &files {
-                    if let Some(parent) = std::path::Path::new(f).parent() {
-                        let p = parent.to_string_lossy().to_string();
-                        if !p.is_empty() && p != "." {
-                            *dir_counts.entry(p).or_insert(0) += 1;
-                        }
-                    }
-                }
-                let dominant = dir_counts
-                    .into_iter()
-                    .max_by_key(|(_, c)| *c)
-                    .map(|(d, _)| d)
-                    .unwrap_or_else(|| "root".to_string());
-
-                let sample_symbols: Vec<String> = row.get("sample_symbols")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|str| str.to_string())).collect())
-                    .unwrap_or_default();
-
-                let languages: Vec<String> = row.get("languages")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|s| s.as_str().map(|str| str.to_string())).collect())
-                    .unwrap_or_default();
-
-                galaxies.push(serde_json::json!({
-                    "id": cid,
-                    "name": dominant.clone(),
-                    "dominant_path": dominant,
-                    "node_count": count,
-                    "languages": languages,
-                    "sample_symbols": sample_symbols
-                }));
-            }
+    // 1. Try pre-computed galaxy table records first (R-042)
+    if let Ok(records) = state.db.get_galaxies_records(ws.as_deref()).await {
+        if !records.is_empty() {
+            let mut galaxies: Vec<serde_json::Value> = records
+                .into_iter()
+                .filter(|g| g.node_count >= min_size)
+                .map(|g| serde_json::json!({
+                    "id": g.galaxy_id,
+                    "name": g.name,
+                    "dominant_path": g.dominant_path,
+                    "node_count": g.node_count,
+                    "role": g.role,
+                    "instability": g.instability,
+                    "afferent_coupling": g.afferent_coupling,
+                    "efferent_coupling": g.efferent_coupling,
+                    "languages": g.languages,
+                    "sample_symbols": g.key_symbols
+                }))
+                .collect();
 
             galaxies.sort_by(|a, b| {
                 b.get("node_count")
@@ -557,7 +526,7 @@ async fn condense_handler(
     let start = std::time::Instant::now();
     let hops = params.hops.unwrap_or(2);
     let ws = normalize_workspace(params.workspace.as_deref());
-    let res = state.db.get_graph(ws.as_deref()).await;
+    let res = state.db.get_symbol_subgraph(&params.symbol, ws.as_deref(), hops).await;
     let duration_ms = start.elapsed().as_millis() as i64;
 
     // Record telemetry asynchronously

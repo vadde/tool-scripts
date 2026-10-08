@@ -5,10 +5,38 @@ All notable changes to this tool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - 2026-10-07
 
 ### Added
-- Full Go AST grammar extraction (`tree-sitter-go`): methods (`method_declaration`) with receiver `DECLARES` edge linking, structs and interfaces (`type_spec`), constants/enums (`const_spec`), and package imports (`import_spec`).
+- **Full Polyglot AST Grammar (R-031)**:
+  - Go: method declarations (`method_declaration`) with receiver `DECLARES` edges, structs and interfaces (`type_spec`), constants (`const_spec`), and imports (`import_spec`).
+  - TypeScript/JavaScript: lexical arrow functions (`const x = () => ...`) and function expressions under `variable_declarator`.
+  - TypeScript: interfaces (`interface_declaration`), type aliases (`type_alias_declaration`), and enums (`enum_declaration`).
+  - Rust: `impl_item` blocks emitting `DECLARES` edges from target structs to methods, `enum_item`, and `trait_item`.
+  - Python: coroutines (`async_function_definition`).
+- **Relational Delta Sync Integrity (R-032)**: Single-file delta re-indexing only deletes outbound edges (`in IN $nodes`), preserving inbound caller edges to eliminate graph island dissolution.
+- **Two-Tier Exact Symbol Retrieval (R-033)**: SurrealQL `ORDER BY (label = $name) DESC, label ASC LIMIT 20` prioritizes exact symbol matches over substrings.
+- **Deterministic LPA Tie-Breaking (R-034)**: Tie-break equal community edge weights using minimum label ID for 100% deterministic galaxy assignments across runs.
+- **Scoped Call-Edge Resolution (R-035)**: AST call edges resolve against local source file and directory before falling back to workspace, eliminating cross-package collisions.
+- **Pre-Computed Galaxy Graph-RAG Retrieval (R-036)**: `GraphRagEngine::query` reads pre-computed `galaxy` table records directly instead of re-summarizing entire workspace in-memory.
+- **Context-Enriched Embedding Payloads (R-037)**: Prepend structured header `[{language}] {kind} {label} in {file_path}\n{text}` before generating TEI vector embeddings.
+- **Unified Record ID Normalization (R-050)**: Standardized SurrealDB ID sanitization via `clean_record_id`, stripping `node:`, `⟨...⟩`, and backticks across all storage/query paths, eliminating all 114 orphaned edges in SurrealDB.
+- **Cross-File Receiver & Impl Target Scoping (R-045)**: Resolved 3-part source IDs (`ws:file:Struct`) locally in file, then workspace scope; falls back to empty relation array `[]` instead of creating phantom node records.
+- **Cascade Edge Deletion on Node Pruning (R-046)**: Cascaded edge deletion across both inbound (`out IN $nodes`) and outbound (`in IN $nodes`) directions during file re-indexing/deletion, ensuring zero dangling graph pointers.
+- **Stale File Pruning in Batch Ingestion (R-047)**: Pre-prune file records before batch insertion in `ingest_directory` to prevent duplicate zombie nodes when file contents shift.
+- **Trait & Class Inheritance Relationship Extraction (R-048)**:
+  - Rust: `impl Trait for Struct` emits `IMPLEMENTS` edges.
+  - Python: class inheritance from `superclasses` emits `EXTENDS` edges.
+  - TypeScript/JavaScript: `class_heritage` clauses emit `EXTENDS` and `IMPLEMENTS` edges.
+- **Rust Macro Definition & Invocation Indexing (R-049)**: Tree-sitter `macro_definition` emits `kind: "macro"`; `macro_invocation` emits `CALLS` edge.
+- **Universal Invocation Dispatch (R-040)**: Extracted Python `call`, Rust `method_call_expression`, and TS/JS `new_expression` as `CALLS` edges.
+- **Go Interface Method AST Extraction (R-041)**: Extracted `method_spec` inside Go `interface_type` as `kind: "method"` with `DECLARES` edge from parent interface.
+- **Direct Pre-Computed Galaxy Delivery (R-042)**: Served `/api/galaxies` directly from `galaxy` table with zero runtime graph deserialization overhead.
+- **Localized Subgraph Neighborhood in Condenser (R-043)**: `/api/condense` queries localized 1-2 hop neighborhood in SurrealDB instead of whole-graph deserialization.
+- **First-Class Import Structural Linking (R-044)**: Emitted `CONTAINS` edge from parent file to `import` node and `IMPORTS` edge to imported module/symbol.
+- **Galaxy Subsystem Disambiguation (R-038)**: Automatically append primary cohesive symbol on directory name collisions to eliminate duplicate galaxy titles.
+
+## [0.1.0] - 2026-09-24
 
 ### Fixed
 - Fixed ingestion bottleneck on large datasets/dumps by pruning non-code directories (`solutions`, `data`, `logs`), applying 512KB file limit, and capping fallback blocks.

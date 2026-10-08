@@ -1,7 +1,7 @@
 ---
 tool: omni-graph
 status: in-progress
-last_session: 2026-10-02
+last_session: 2026-10-07
 last_agent: "@antigravity"
 blockers: []
 ---
@@ -17,7 +17,7 @@ blockers: []
 ## Current State
 
 - **SDLC Phase**: `in-progress`
-- **Version**: 0.1.0
+- **Version**: 0.1.1
 - **Language**: Rust (backend orchestrator) + React/TypeScript (frontend UI)
 - **Category**: GenAI
 - **Architecture**: Multi-container Docker microservices (4 services on `omni-net`)
@@ -26,10 +26,23 @@ blockers: []
 
 | Metric | Done | Total | Status |
 |--------|------|-------|--------|
-| Spec Requirements (R-XXX) | 30 | 30 | 🟢 100% Complete |
-| Acceptance Criteria (AC-XXX) | 20 | 20 | 🟢 100% Complete |
+| Spec Requirements (R-XXX) | 50 | 50 | 🟢 100% Complete |
+| Acceptance Criteria (AC-XXX) | 24 | 24 | 🟢 100% Complete |
 | Non-Functional (NF-XXX) | 11 | 11 | 🟢 100% Complete |
-| Test Coverage | 51/51 Unit & Integration Tests | 51 | 🟢 100% Verified in Docker |
+| Test Coverage | 64/64 Unit & Integration Tests | 64 | 🟢 100% Verified in Docker |
+| Zero Orphaned Edges (R-045, R-046, R-050) | Complete | — | 🟢 Verified in SurrealDB (`in.id IS NONE OR out.id IS NONE` = 0) |
+| Polyglot AST Grammar (R-031, R-040, R-041) | Complete | — | 🟢 Go methods/structs/consts/imports, TS arrow fns/types, Rust impl/enum/trait, Python async |
+| Trait & Class Inheritance (R-048) | Complete | — | 🟢 Rust `impl Trait for Struct`, Python inheritance, TS `extends`/`implements` |
+| Rust Macros (R-049) | Complete | — | 🟢 `macro_definition` and `macro_invocation` call graph indexing |
+| Cascading Node Pruning (R-046) | Complete | — | 🟢 Symmetric inbound and outbound edge pruning eliminating dangling pointers |
+| Stale File Batch Ingestion (R-047) | Complete | — | 🟢 Pre-delete stale file records before re-inserting to prevent ghost nodes |
+| Relational Delta Sync Integrity (R-032) | Complete | — | 🟢 Inbound Call Edges Preserved Across Single-File Edits |
+| Two-Tier Exact Symbol Retrieval (R-033) | Complete | — | 🟢 SurrealQL `ORDER BY is_exact DESC, label ASC` Pre-Limit |
+| Deterministic LPA Tie-Breaking (R-034) | Complete | — | 🟢 Cluster Stability via Minimum Label ID Tie-Breaks |
+| Scoped Call-Edge Resolution (R-035) | Complete | — | 🟢 File -> Dir -> Workspace Fallback Resolution |
+| Pre-Computed Galaxy Graph-RAG Retrieval (R-036) | Complete | — | 🟢 Direct DB Table Query without Full-Graph Re-Summarization |
+| Context-Enriched Vector Embeddings (R-037) | Complete | — | 🟢 `[lang] kind label in path\ntext` Header Payload |
+| Galaxy Subsystem Disambiguation (R-038) | Complete | — | 🟢 Primary Member Symbol Appended on Dir Collisions |
 | First-Class Markdown Retrieval & Hyperlinks | Complete | — | 🟢 Line-Precise Vector Search, LINKS_TO & REFERENCES Edges |
 | Calibrated Documentation Guardrail (450 lines) | Complete | — | 🟢 Live Across Machine & .gemini/config/scripts |
 | Dynamic Live Galaxy Clustering (R-029) | Complete | — | 🟢 Seed-Preserving LPA & Quiescent Re-Clustering |
@@ -79,6 +92,18 @@ blockers: []
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-10-07 | Unified Record ID Normalization (R-050) | Centralized `clean_record_id` stripping `node:`, `⟨...⟩`, and backticks across all storage/edge queries; standardizes fallback/config parser node IDs to `{}:{}:{}` format, eliminating all 114 orphaned edges in SurrealDB |
+| 2026-10-07 | Scoped Cross-File Receiver & Impl Target Scoping (R-045) | 3-part source IDs (`ws:file:Struct`) resolve locally in file, then workspace scope; falls back to empty relation array `[]` instead of creating phantom node IDs |
+| 2026-10-07 | Cascading Edge Pruning on Node Pruning (R-046) | In `delete_file`, cascade delete both outbound (`in IN $nodes`) and inbound (`out IN $nodes`) edges, eliminating dangling pointers and WebGL UI crashes |
+| 2026-10-07 | Stale File Pruning in Batch Ingestion (R-047) | Call `delete_file` prior to re-indexing stale files in `ingest_directory` to prevent duplicate symbol nodes and shifted line numbers |
+| 2026-10-07 | Trait & Class Inheritance Graph Extraction (R-048) | Rust `impl Trait for Struct` emits `IMPLEMENTS`; Python `class A(B)` emits `EXTENDS`; TS/JS `extends` and `implements` emit `EXTENDS` and `IMPLEMENTS` |
+| 2026-10-07 | Rust Macro Definition & Invocation (R-049) | Tree-sitter `macro_definition` emits `kind: "macro"`; `macro_invocation` emits `CALLS` edge |
+| 2026-10-07 | Polyglot Tree-sitter AST Hardening (R-031) | Added Go struct methods, structs, interfaces, consts, TS arrow functions, type aliases, interfaces, Rust `impl_item` (`DECLARES` edge), `enum_item`, `trait_item`, and Python async coroutines |
+| 2026-10-07 | Relational Delta Sync Outbound Only (R-032) | Reindexing a single file prunes only `in IN $nodes` (outbound edges), preserving inbound caller edges to prevent graph fragmentation |
+| 2026-10-07 | SurrealQL Pre-Limit Exact Ordering (R-033) | Injected `(label = $name) AS is_exact` with `ORDER BY is_exact DESC, label ASC LIMIT 20` directly in query to ensure exact matches are never masked by substring hits |
+| 2026-10-07 | Scoped Call-Edge Resolution (R-035) | Resolved AST call links locally within the source file first, preventing common function names from cross-linking into foreign packages |
+| 2026-10-07 | Pre-Computed Galaxy Graph-RAG Retrieval (R-036) | Switched `GraphRagEngine::query` to read pre-computed `galaxy` table records instead of pulling the entire workspace graph over HTTP |
+| 2026-10-07 | Context-Enriched Vector Embeddings (R-037) | Prepended structured header `[{language}] {kind} {label} in {file_path}\n{text}` before passing to TEI, boosting semantic relevance |
 | 2026-10-02 | Nginx 600s Proxy Timeout & 300s SurrealDB Client | Configured 600s proxy timeouts in `nginx.conf` and 300s in `DbClient` with indexed `linked_to` deletion, resolving the "Unknown error" 504 drops on large repos (DSA) |
 | 2026-10-02 | Atomic Workspace Purge & Non-Blocking Ingest UX | Implemented 4-step atomic purge in SurrealDB (`DELETE linked_to -> DELETE node -> DELETE galaxy`), cleared in-memory staleness hashes, replaced blocking modal with instant dismiss into non-blocking progress toast with 5-minute timeout window |
 | 2026-09-30 | Node Inspector Breadcrumbs & Caller Stack | Added `nodeHistory` stack, interactive breadcrumbs, `Back to [prev]` button, and `Return to caller` action in BoundaryContractCard for one-click return from foreign callers |
@@ -99,12 +124,10 @@ blockers: []
 
 > _What to do when you pick this tool up. Updated at the end of every session._
 
-1. Multi-container stack (SurrealDB, TEI, Rust API, React UI) active and healthy
-2. Dynamic Live Galaxy Clustering & Modularity Re-Indexing live on port 8080
-3. Agent Boundary Contracts (`/api/galaxy/boundary` & `/api/galaxy/topology`) live and verified
-4. Dual-source live agent telemetry and dynamic workspace capability attribution live on ports 3000 & 8080
-5. 50/50 unit & integration tests passing in Docker
-6. Ready for human review and validation on feature branch `feat/dynamic-galaxy-clustering-agent-primitives`
+1. Multi-container stack (SurrealDB, TEI, Rust API, React UI) fully operational, zero orphaned edges verified across all workspaces.
+2. 64/64 unit tests passing, strict Clippy clean (`-D warnings`), UI typecheck clean (`tsc --noEmit`).
+3. Requirements R-001 through R-050 100% complete with full traceability.
+4. Ready for human review and validation on feature branch `feat/dynamic-galaxy-clustering-agent-primitives`.
 
 ---
 
