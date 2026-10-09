@@ -1339,30 +1339,52 @@ tr:hover td {
 
 .simulator-controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 18px;
   margin-bottom: 28px;
 }
 
-.control-item label {
+.control-item {
   display: flex;
-  justify-content: space-between;
-  font-size: 0.85rem;
+  flex-direction: column;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid var(--bg-card-border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.control-item:hover {
+  border-color: rgba(0, 242, 254, 0.35);
+  box-shadow: 0 6px 22px rgba(0, 242, 254, 0.08);
+}
+
+.control-item .control-title {
+  font-size: 0.82rem;
+  font-weight: 600;
   color: var(--text-muted);
-  margin-bottom: 8px;
-  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
 }
 
-.control-item span.val {
-  color: var(--accent-cyan);
+.control-item .control-value {
   font-family: var(--font-mono);
+  font-size: 1.18rem;
   font-weight: 700;
+  color: var(--accent-cyan);
+  margin-bottom: 12px;
+  letter-spacing: -0.01em;
 }
 
-input[type="range"] {
+.control-item input[type="range"] {
   width: 100%;
   accent-color: var(--accent-cyan);
   cursor: pointer;
+  margin-top: auto;
 }
 
 .simulator-results {
