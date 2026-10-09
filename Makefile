@@ -359,3 +359,6 @@ docs-serve: docs ## Build and serve living documentation portal on http://localh
 		exit 1; \
 	fi
 
+docs-test: ## Run automated headless verification for documentation portal
+	@bash .agents/skills/docs-portal/scripts/test-docs.sh
+

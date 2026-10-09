@@ -79,6 +79,7 @@ Skills are composable capabilities for common workflows:
 | [`debug-tool`](skills/debug-tool/SKILL.md) | Systematic debugging | Investigating failures |
 | [`release-tool`](skills/release-tool/SKILL.md) | Prepare for release | Finalizing a tool version |
 | [`omni-graph`](skills/omni-graph/SKILL.md) | AST search & call graph trace | Exploring code architecture & symbols |
+| [`docs-portal`](skills/docs-portal/SKILL.md) | Living Docs architecture & testing | Maintaining, styling & extending docs portal |
 
 ### 4. SDLC Status Guide
 
