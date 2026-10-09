@@ -223,13 +223,14 @@ What becomes easier or harder as a result of this change?
 
 ---
 
-## Documentation Quality Checklist
-
 - [ ] README has all required sections
 - [ ] All CLI flags/options documented
 - [ ] All public API functions documented
 - [ ] At least one runnable example exists
 - [ ] CHANGELOG is up to date
+- [ ] Living Documentation Portal (`docs/site/index.html`) updated with new endpoints/architectures
+- [ ] Static documentation builds cleanly via `scripts/build-docs.sh` (`make docs`)
+- [ ] SDLC Quad (`STATUS.md`, `CONTEXT.md`, `CHANGELOG.md`, `DEVLOG.md`) synchronized
 - [ ] No broken links
 - [ ] No placeholder text (TODO, TBD, etc.)
 - [ ] Screenshots/diagrams for visual tools

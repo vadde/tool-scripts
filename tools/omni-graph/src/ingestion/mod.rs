@@ -1,6 +1,10 @@
 // Ingestion pipeline: Walk directory, parse AST, embed vectors, store in SurrealDB
 // Implements: R-010, R-011
 
+pub mod worktree;
+#[allow(unused_imports)]
+pub use worktree::{detect_git_worktree, discover_parent_worktrees, WorktreeInfo};
+
 use crate::analysis::CommunityDetector;
 use crate::db::DbClient;
 use crate::embedder::EmbedderClient;
@@ -106,6 +110,9 @@ pub struct IngestResult {
     pub edges_created: usize,
     pub clusters_computed: usize,
     pub duration_ms: u64,
+    pub is_worktree: bool,
+    pub parent_workspace: Option<String>,
+    pub branch: Option<String>,
 }
 
 impl IngestionPipeline {
@@ -146,23 +153,37 @@ impl IngestionPipeline {
             return Err(format!("Directory does not exist or is not a dir: {}", root_dir));
         }
 
-        let workspace_name = match project {
-            Some(p) if !p.trim().is_empty() => p.trim().to_string(),
-            _ => {
-                let abs_path = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-                abs_path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "default".to_string())
-            }
+        let worktree_info = detect_git_worktree(root);
+        let (is_worktree, parent_ws, branch, default_ws) = if let Some(ref wt) = worktree_info {
+            (true, Some(wt.parent_workspace.clone()), wt.branch.clone(), wt.worktree_name.clone())
+        } else {
+            let abs_path = fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+            let name = abs_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "default".to_string());
+            (false, None, None, name)
         };
 
-        info!("Ingestion assigned workspace namespace: '{}'", workspace_name);
+        let workspace_name = match project {
+            Some(p) if !p.trim().is_empty() => p.trim().to_string(),
+            _ => default_ws,
+        };
+
+        info!("Ingestion assigned workspace namespace: '{}' (worktree: {})", workspace_name, is_worktree);
 
         let abs_root = fs::canonicalize(root)
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| root_dir.to_string());
-        let _ = self.db.record_workspace_root(&workspace_name, &abs_root).await;
+
+        let _ = self.db.record_workspace_meta(
+            &workspace_name,
+            &abs_root,
+            is_worktree,
+            parent_ws.as_deref(),
+            branch.as_deref(),
+            worktree_info.as_ref().map(|w| w.worktree_name.as_str()),
+        ).await;
 
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -411,7 +432,20 @@ impl IngestionPipeline {
         if total_nodes > 0 {
             if let Ok((all_nodes, all_links)) = self.db.get_graph(Some(&workspace_name)).await {
                 if !all_nodes.is_empty() {
-                    let assignments = CommunityDetector::detect(&all_nodes, &all_links, 15);
+                    let seeds = if let Some(ref p_ws) = parent_ws {
+                        // R-053: Seed-Preserving Galaxy Inheritance
+                        match self.db.get_community_seeds_for_parent(p_ws, &workspace_name).await {
+                            Ok(s) if !s.is_empty() => {
+                                info!("Inherited {} community seed priors from parent workspace '{}'", s.len(), p_ws);
+                                Some(s)
+                            },
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                    let assignments = CommunityDetector::detect_with_seeds(&all_nodes, &all_links, 15, seeds.as_ref());
                     let (summaries, galaxy_records) = CommunityDetector::compute_galaxy_metrics(&workspace_name, &all_nodes, &all_links, &assignments);
                     clusters_computed = summaries.len();
                     if let Err(e) = self.db.update_communities(&assignments).await {
@@ -454,6 +488,9 @@ impl IngestionPipeline {
             edges_created: total_edges,
             clusters_computed,
             duration_ms,
+            is_worktree,
+            parent_workspace: parent_ws,
+            branch,
         })
     }
 }

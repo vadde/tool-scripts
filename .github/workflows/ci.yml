@@ -126,3 +126,23 @@ jobs:
           else
             echo "ℹ️  No tools to validate yet."
           fi
+
+  # ─── Docs Validation ────────────────────────────────────────────────────
+  docs-validation:
+    name: Documentation Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build documentation portal
+        run: |
+          chmod +x scripts/build-docs.sh
+          bash scripts/build-docs.sh
+
+      - name: Verify site bundle integrity
+        run: |
+          test -f _site/index.html
+          test -f _site/style.css
+          test -f _site/app.js
+          echo "✅ Documentation site integrity verified."
+

@@ -54,9 +54,11 @@ struct Config {
 }
 "#;
         let result = CodeParser::parse_file("test-ws", "config.rs", content).unwrap();
-        assert_eq!(result.nodes.len(), 1);
+        assert_eq!(result.nodes.len(), 3, "Should extract struct plus 2 fields");
         assert_eq!(result.nodes[0].label, "Config");
         assert_eq!(result.nodes[0].kind, "struct");
+        assert!(result.nodes.iter().any(|n| n.label == "host" && n.kind == "field"));
+        assert!(result.nodes.iter().any(|n| n.label == "port" && n.kind == "field"));
     }
 
     #[test]
@@ -409,11 +411,19 @@ fn orchestrate(client: &DbClient) {
 
     #[test]
     fn parse_import_edges() {
-        let pr_rs = CodeParser::parse_file("rs-ws", "lib.rs", "use crate::db::DbClient;").unwrap();
+        let pr_rs = CodeParser::parse_file("rs-ws", "lib.rs", "use crate::db::{DbClient, Payload};").unwrap();
         assert!(pr_rs.edges.iter().any(|e| e.edge_type == "IMPORTS" && e.target_label == "DbClient"));
+        assert!(pr_rs.edges.iter().any(|e| e.edge_type == "IMPORTS" && e.target_label == "Payload"));
 
-        let pr_py = CodeParser::parse_file("py-ws", "main.py", "from solver import GreedySolver").unwrap();
+        let pr_py = CodeParser::parse_file("py-ws", "main.py", "from solver import GreedySolver, ExactSolver, Heuristic").unwrap();
         assert!(pr_py.edges.iter().any(|e| e.edge_type == "IMPORTS" && e.target_label == "GreedySolver"));
+        assert!(pr_py.edges.iter().any(|e| e.edge_type == "IMPORTS" && e.target_label == "ExactSolver"));
+        assert!(pr_py.edges.iter().any(|e| e.edge_type == "IMPORTS" && e.target_label == "Heuristic"));
+
+        let pr_ts = CodeParser::parse_file("ts-ws", "index.ts", "import { executeFulfill, ActionFulfill as AF } from './actions';").unwrap();
+        assert!(pr_ts.edges.iter().any(|e| e.edge_type == "IMPORTS" && e.target_label == "executeFulfill"));
+        assert!(pr_ts.edges.iter().any(|e| e.edge_type == "IMPORTS" && e.target_label == "ActionFulfill"));
+        assert!(pr_ts.edges.iter().any(|e| e.edge_type == "IMPORTS" && e.target_label == "actions"));
     }
 
     #[test]
@@ -826,6 +836,56 @@ mod condenser_tests {
         // Token estimate = len / 4
         assert!(result.token_estimate > 0);
         assert_eq!(result.token_estimate, result.formatted_markdown.len() / 4);
+    }
+
+    #[test]
+    fn condense_strict_token_budget_guarantees_call_traces() {
+        let mut nodes = Vec::new();
+        let mut links = Vec::new();
+        nodes.push(DbNode {
+            id: "root".to_string(),
+            workspace: Some("test".to_string()),
+            label: "core_root".to_string(),
+            kind: "function".to_string(),
+            file_path: "src/root.rs".to_string(),
+            language: "rust".to_string(),
+            line_start: 1,
+            line_end: 20,
+            text: "pub fn core_root() {\n    // Large root implementation\n}".to_string(),
+            community: None,
+            file_hash: None,
+        });
+
+        for i in 1..=20 {
+            let id = format!("n{}", i);
+            let lbl = format!("neighbor_{}", i);
+            nodes.push(DbNode {
+                id: id.clone(),
+                workspace: Some("test".to_string()),
+                label: lbl,
+                kind: "function".to_string(),
+                file_path: format!("src/file_{}.rs", i),
+                language: "rust".to_string(),
+                line_start: 1,
+                line_end: 50,
+                text: format!("pub fn neighbor_{}() {{\n{}\n}}", i, "    let x = 1;\n".repeat(30)),
+                community: None,
+                file_hash: None,
+            });
+            links.push(make_link("root", &id, "CALLS"));
+        }
+
+        let result = ContextCondenser::condense("core_root", &nodes, &links, 1);
+
+        // Budget guarantee: token estimate must not exceed 1500 tokens (6000 chars)
+        assert!(result.token_estimate <= 1500, "Token estimate must be <= 1500");
+        assert!(result.formatted_markdown.len() <= 6000, "Markdown length must be <= 6000 chars");
+
+        // Structural trace guarantee: Call trace section must contain actual CALLS edges!
+        assert!(
+            result.formatted_markdown.contains("`root` ──[EXTRACTED: CALLS]──▶ `n1`"),
+            "Must output structural call traces despite numerous large neighbor nodes"
+        );
     }
 }
 
@@ -1358,6 +1418,186 @@ mod analytics_tests {
         // Cleanup
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::remove_var("BRAIN_DIR");
+    }
+}
+
+mod worktree_tests {
+    use omni_graph::ingestion::worktree::{detect_git_worktree, discover_parent_worktrees};
+    use std::fs;
+
+    #[test]
+    fn test_detect_git_worktree_valid() {
+        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("og_test_wt_{}", ts));
+        let parent_repo = temp_dir.join("parent-project");
+        let worktree_dir = temp_dir.join("wt-feature");
+
+        let parent_git_wt = parent_repo.join(".git").join("worktrees").join("wt-feature");
+        fs::create_dir_all(&parent_git_wt).unwrap();
+        fs::write(parent_git_wt.join("gitdir"), worktree_dir.join(".git").to_string_lossy().to_string()).unwrap();
+        fs::write(parent_git_wt.join("HEAD"), "ref: refs/heads/feature-alpha\n").unwrap();
+
+        fs::create_dir_all(&worktree_dir).unwrap();
+        let git_file_content = format!("gitdir: {}\n", parent_git_wt.to_string_lossy());
+        fs::write(worktree_dir.join(".git"), git_file_content).unwrap();
+
+        let info = detect_git_worktree(&worktree_dir);
+        assert!(info.is_some(), "Should successfully detect valid git worktree");
+        let wt = info.unwrap();
+        assert!(wt.is_worktree);
+        assert_eq!(wt.worktree_name, "wt-feature");
+        assert_eq!(wt.branch.as_deref(), Some("feature-alpha"));
+        assert_eq!(wt.parent_workspace, "parent-project");
+
+        // Clean up
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_detect_git_worktree_regular_repo() {
+        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("og_test_reg_{}", ts));
+        let git_dir = temp_dir.join(".git");
+        fs::create_dir_all(&git_dir).unwrap();
+
+        let info = detect_git_worktree(&temp_dir);
+        assert!(info.is_none(), "Regular git directory should not be detected as worktree");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_discover_parent_worktrees() {
+        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let temp_dir = std::env::temp_dir().join(format!("og_test_disc_{}", ts));
+        let parent_repo = temp_dir.join("core-app");
+        let parent_git_wts = parent_repo.join(".git").join("worktrees");
+
+        let wt1_meta = parent_git_wts.join("branch-one");
+        let wt2_meta = parent_git_wts.join("branch-two");
+        fs::create_dir_all(&wt1_meta).unwrap();
+        fs::create_dir_all(&wt2_meta).unwrap();
+
+        let wt1_dir = temp_dir.join("branch-one");
+        let wt2_dir = temp_dir.join("branch-two");
+        fs::create_dir_all(&wt1_dir).unwrap();
+        fs::create_dir_all(&wt2_dir).unwrap();
+
+        fs::write(wt1_meta.join("gitdir"), wt1_dir.join(".git").to_string_lossy().to_string()).unwrap();
+        fs::write(wt1_meta.join("HEAD"), "ref: refs/heads/one\n").unwrap();
+
+        fs::write(wt2_meta.join("gitdir"), wt2_dir.join(".git").to_string_lossy().to_string()).unwrap();
+        fs::write(wt2_meta.join("HEAD"), "ref: refs/heads/two\n").unwrap();
+
+        let discovered = discover_parent_worktrees(&parent_repo);
+        assert_eq!(discovered.len(), 2, "Should discover two worktrees for parent repo");
+
+        let names: Vec<String> = discovered.into_iter().map(|w| w.worktree_name).collect();
+        assert!(names.contains(&"branch-one".to_string()));
+        assert!(names.contains(&"branch-two".to_string()));
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_extract_sql_arrays_filters_null_let_statements() {
+        use serde_json::json;
+        let mock_surreal_resp = json!([
+            {"result": null, "status": "OK"},
+            {"result": null, "status": "OK"},
+            {"result": null, "status": "OK"},
+            {"result": [{"id": "node:1", "label": "test_fn"}], "status": "OK"},
+            {"result": [{"id": "linked_to:1", "source": "node:1", "target": "node:2"}], "status": "OK"}
+        ]);
+
+        let arrays = omni_graph::db::extract_sql_arrays(&mock_surreal_resp);
+        assert_eq!(arrays.len(), 2, "Should safely extract exactly 2 SELECT array results");
+        assert_eq!(arrays[0].len(), 1);
+        assert_eq!(arrays[0][0]["label"], "test_fn");
+        assert_eq!(arrays[1].len(), 1);
+        assert_eq!(arrays[1][0]["source"], "node:1");
+    }
+
+    #[test]
+    fn test_parse_struct_fields_rust() {
+        use omni_graph::parser::CodeParser;
+        let rust_code = r#"
+        pub struct UserConfig {
+            pub username: String,
+            pub timeout_ms: u64,
+            active: bool,
+        }
+        "#;
+        let res = CodeParser::parse_file("test-ws", "src/config.rs", rust_code).expect("should parse rust");
+        let nodes = res.nodes;
+        let edges = res.edges;
+
+        // Should extract the struct
+        assert!(nodes.iter().any(|n| n.label == "UserConfig" && n.kind == "struct"));
+
+        // Should extract all 3 fields as kind: "field"
+        let fields: Vec<_> = nodes.iter().filter(|n| n.kind == "field").collect();
+        assert_eq!(fields.len(), 3);
+        assert!(fields.iter().any(|f| f.label == "username"));
+        assert!(fields.iter().any(|f| f.label == "timeout_ms"));
+        assert!(fields.iter().any(|f| f.label == "active"));
+
+        // Struct should CONTAINS fields
+        let contains_edges: Vec<_> = edges.iter().filter(|e| e.edge_type == "CONTAINS").collect();
+        assert_eq!(contains_edges.len(), 3);
+        assert!(contains_edges.iter().any(|e| e.target_label == "username"));
+
+        // Fields should reference types
+        let ref_edges: Vec<_> = edges.iter().filter(|e| e.edge_type == "REFERENCES").collect();
+        assert!(ref_edges.iter().any(|e| e.target_label == "String"));
+        assert!(ref_edges.iter().any(|e| e.target_label == "u64"));
+    }
+
+    #[test]
+    fn test_parse_interface_properties_ts() {
+        use omni_graph::parser::CodeParser;
+        let ts_code = r#"
+        interface SessionPayload {
+            sessionId: string;
+            tokenCount: number;
+        }
+        "#;
+        let res = CodeParser::parse_file("test-ws", "src/types.ts", ts_code).expect("should parse ts");
+        let nodes = res.nodes;
+        let edges = res.edges;
+
+        assert!(nodes.iter().any(|n| n.label == "SessionPayload" && n.kind == "interface"));
+
+        let fields: Vec<_> = nodes.iter().filter(|n| n.kind == "field").collect();
+        assert_eq!(fields.len(), 2);
+        assert!(fields.iter().any(|f| f.label == "sessionId"));
+        assert!(fields.iter().any(|f| f.label == "tokenCount"));
+
+        assert!(edges.iter().any(|e| e.edge_type == "CONTAINS" && e.target_label == "sessionId"));
+    }
+
+    #[test]
+    fn test_parse_struct_fields_go() {
+        use omni_graph::parser::CodeParser;
+        let go_code = r#"
+        package main
+        type ServerOptions struct {
+            Host string
+            Port int
+        }
+        "#;
+        let res = CodeParser::parse_file("test-ws", "options.go", go_code).expect("should parse go");
+        let nodes = res.nodes;
+        let edges = res.edges;
+
+        assert!(nodes.iter().any(|n| n.label == "ServerOptions" && n.kind == "struct"));
+
+        let fields: Vec<_> = nodes.iter().filter(|n| n.kind == "field").collect();
+        assert_eq!(fields.len(), 2);
+        assert!(fields.iter().any(|f| f.label == "Host"));
+        assert!(fields.iter().any(|f| f.label == "Port"));
+
+        assert!(edges.iter().any(|e| e.edge_type == "CONTAINS" && e.target_label == "Host"));
     }
 }
 

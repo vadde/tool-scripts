@@ -42,17 +42,33 @@ jobs:
             echo "has_go=true" >> "$GITHUB_OUTPUT"
           fi
 
-          if [ -f "$TOOL_DIR/src/web/package.json" ] || [ -f "$TOOL_DIR/package.json" ]; then
+          if [ -f "$TOOL_DIR/src/web/package.json" ] || [ -f "$TOOL_DIR/package.json" ] || [ -f "$TOOL_DIR/ui/package.json" ]; then
             echo "has_bun=true" >> "$GITHUB_OUTPUT"
             echo "has_node=true" >> "$GITHUB_OUTPUT"
           fi
 
-          if [ -f "$TOOL_DIR/Cargo.toml" ]; then
+          if [ -f "$TOOL_DIR/Cargo.toml" ] || [ -f "$TOOL_DIR/src/Cargo.toml" ]; then
             echo "has_rust=true" >> "$GITHUB_OUTPUT"
           fi
 
           if ls "$TOOL_DIR/src/"*.sh 2>/dev/null 1>&2; then
             echo "has_shell=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ─── Node.js Setup ───────────────────────────────────────────────────
+      - name: Set up Node.js
+        if: steps.detect.outputs.has_node == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Node/UI dependencies
+        if: steps.detect.outputs.has_node == 'true'
+        run: |
+          if [ -f ui/package.json ]; then
+            cd ui && npm install
+          elif [ -f package.json ]; then
+            npm install
           fi
 
       # ─── Bun Setup ───────────────────────────────────────────────────────
@@ -67,8 +83,6 @@ jobs:
         run: |
           if [ -f src/web/package.json ]; then
             cd src/web && bun install
-          elif [ -f package.json ]; then
-            bun install
           fi
 
       # ─── Go Setup ────────────────────────────────────────────────────────
@@ -120,31 +134,58 @@ jobs:
       # ─── Build ────────────────────────────────────────────────────────────
       - name: Build
         run: |
-          if [ -f Makefile ] && grep -q '^build:' Makefile; then
-            echo "🔨 Building ${{ inputs.tool-name }}..."
-            make build
+          if [ -f Makefile ]; then
+            if grep -q '^build-rust:' Makefile; then
+              echo "🔨 Building Rust binary..."
+              make build-rust
+            elif grep -q '^build:' Makefile; then
+              echo "🔨 Building ${{ inputs.tool-name }}..."
+              make build
+            fi
+            if grep -q '^build-ui:' Makefile; then
+              echo "🔨 Building UI assets..."
+              make build-ui
+            fi
           else
-            echo "ℹ️  No build target found, skipping build."
+            echo "ℹ️  No Makefile found, skipping build."
           fi
 
       # ─── Lint ─────────────────────────────────────────────────────────────
       - name: Lint
         run: |
-          if [ -f Makefile ] && grep -q '^lint:' Makefile; then
-            echo "🔍 Linting ${{ inputs.tool-name }}..."
-            make lint
+          if [ -f Makefile ]; then
+            if grep -q '^lint-rust:' Makefile; then
+              echo "🔍 Linting Rust code with Clippy..."
+              make lint-rust
+            elif grep -q '^lint:' Makefile; then
+              echo "🔍 Linting ${{ inputs.tool-name }}..."
+              make lint
+            fi
+            if grep -q '^lint-ui:' Makefile; then
+              echo "🔍 Linting UI code..."
+              make lint-ui
+            fi
           else
-            echo "ℹ️  No lint target found, skipping lint."
+            echo "ℹ️  No Makefile found, skipping lint."
           fi
 
       # ─── Test ─────────────────────────────────────────────────────────────
       - name: Test
         run: |
-          if [ -f Makefile ] && grep -q '^test:' Makefile; then
-            echo "🧪 Testing ${{ inputs.tool-name }}..."
-            make test
+          if [ -f Makefile ]; then
+            if grep -q '^test-rust:' Makefile; then
+              echo "🧪 Testing Rust suite..."
+              make test-rust
+            elif grep -q '^test:' Makefile; then
+              echo "🧪 Testing ${{ inputs.tool-name }}..."
+              make test
+            fi
+            if grep -q '^test-ui:' Makefile; then
+              echo "🧪 Testing UI suite..."
+              make test-ui
+            fi
           else
-            echo "ℹ️  No test target found, skipping test."
+            echo "ℹ️  No Makefile found, skipping test."
           fi
 
       # ─── Coverage (Python) ───────────────────────────────────────────────

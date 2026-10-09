@@ -19,8 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy manifest files
 COPY Cargo.toml Cargo.lock* ./
 
-# Copy source tree
+# Copy source tree and tests
 COPY src ./src
+COPY tests ./tests
 
 # Build production release binary
 RUN cargo build --release

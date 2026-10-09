@@ -136,3 +136,29 @@ For automated subagents, direct REST queries are available:
 1. When inspecting system configuration, Dockerfiles, or client-server communications (e.g. frontend fetching from backend endpoint), identify runtime connections that static AST parsers cannot detect.
 2. Run `make relate-graph SRC="ChatUI" TGT="FastAPI" TYPE="ROUTES_TO" PROJECT="QuarkDock"` (or call `POST /api/relationships`).
 3. Future agent sessions and blast-radius queries (`make graph-references SYM=FastAPI`) will immediately reveal these callers across system boundaries.
+
+---
+
+## 🌿 Git Worktree & Ephemeral Branch Fabric (EBF)
+
+When coding agents operate in Git worktrees located outside the main repository directory:
+
+1. **Auto-Detection**: Omni-Graph automatically inspects `.git` gitdir pointers in $O(1)$, resolving the worktree name, current branch, and parent repository workspace.
+2. **Cluster Continuity**: During worktree ingestion, Omni-Graph inherits community seeds from the parent workspace, preventing cluster ID shifts across branches.
+3. **Auto-Watch Live Sync**: Ingestion automatically enrolls the live filesystem watcher (`watch: true`), ensuring code edits by agents are immediately re-indexed into SurrealDB within 500ms.
+4. **Inspecting Worktrees**:
+   ```bash
+   curl -s http://localhost:8080/api/worktrees
+   ```
+5. **Ingesting a Worktree with Live Watch**:
+   ```bash
+   curl -s -X POST http://localhost:8080/api/ingest \
+     -H "Content-Type: application/json" \
+     -d '{"path": "/path/to/worktree", "watch": true}'
+   ```
+6. **Automatic & Manual Purging**:
+   - Dead worktrees whose directories have been removed are automatically swept upon `/api/workspaces` queries.
+   - To manually decommission a worktree and stop its watcher:
+     ```bash
+     curl -s -X DELETE http://localhost:8080/api/worktree/<worktree_name>
+     ```

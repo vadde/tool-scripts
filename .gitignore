@@ -12,6 +12,7 @@
 ehthumbs.db
 Thumbs.db
 Desktop.ini
+_site/
 
 # ─── IDE / Editors ──────────────────────────────────────────────────────────
 .idea/

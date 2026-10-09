@@ -154,6 +154,98 @@ impl CodeParser {
         }
     }
 
+    /// Extracts discrete imported symbols and modules from an import statement snippet (R-044)
+    pub fn extract_imported_symbols(language: &str, snippet: &str) -> Vec<String> {
+        let mut symbols = Vec::new();
+        let trimmed = snippet.trim().trim_end_matches(';');
+
+        if language == "python" {
+            // Examples:
+            // "from foo import bar, baz"
+            // "from foo.bar import baz as b"
+            // "import os, sys"
+            if let Some(after_import) = trimmed.rsplit("import ").next() {
+                for part in after_import.split(',') {
+                    let part = part.trim();
+                    let raw_name = part.split_whitespace().next().unwrap_or(part);
+                    let clean = raw_name.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                    if !clean.is_empty() && !symbols.contains(&clean.to_string()) {
+                        symbols.push(clean.to_string());
+                    }
+                }
+            }
+        } else if language == "rust" {
+            // Examples:
+            // "use crate::db::{DbClient, Payload};"
+            // "use std::collections::HashMap;"
+            // "use std::sync::{Arc, Mutex};"
+            if let Some(brace_start) = trimmed.find('{') {
+                if let Some(brace_end) = trimmed[brace_start..].find('}') {
+                    let inside = &trimmed[brace_start + 1..brace_start + brace_end];
+                    for part in inside.split(',') {
+                        let clean = part.trim().trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                        if !clean.is_empty() && !symbols.contains(&clean.to_string()) {
+                            symbols.push(clean.to_string());
+                        }
+                    }
+                }
+            } else if let Some(last_seg) = trimmed.rsplit("::").next() {
+                let raw_name = last_seg.split_whitespace().next().unwrap_or(last_seg);
+                let clean = raw_name.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                if !clean.is_empty() && !symbols.contains(&clean.to_string()) {
+                    symbols.push(clean.to_string());
+                }
+            }
+        } else if language == "go" {
+            // Examples:
+            // import "github.com/gin-gonic/gin"
+            // import g "github.com/gin-gonic/gin"
+            let unquoted = trimmed.trim_matches('"');
+            if let Some(last_seg) = unquoted.rsplit('/').next() {
+                let clean = last_seg.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                if !clean.is_empty() && !symbols.contains(&clean.to_string()) {
+                    symbols.push(clean.to_string());
+                }
+            }
+        } else if language == "javascript" || language == "typescript" {
+            // Examples:
+            // "import { foo, bar as b } from './utils'"
+            // "import React, { useState } from 'react'"
+            // "import defaultExport from './module'"
+            // "import * as fs from 'fs'"
+            if let Some(brace_start) = trimmed.find('{') {
+                if let Some(brace_end) = trimmed[brace_start..].find('}') {
+                    let inside = &trimmed[brace_start + 1..brace_start + brace_end];
+                    for part in inside.split(',') {
+                        let part = part.trim();
+                        let raw_name = part.split(" as ").next().unwrap_or(part).trim();
+                        let clean = raw_name.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                        if !clean.is_empty() && !symbols.contains(&clean.to_string()) {
+                            symbols.push(clean.to_string());
+                        }
+                    }
+                }
+            }
+            // Also extract module target from 'from ...'
+            if let Some(from_part) = trimmed.rsplit("from ").next() {
+                let mod_name = from_part.trim().trim_matches('\'').trim_matches('"');
+                if let Some(last_seg) = mod_name.rsplit('/').next() {
+                    let clean = last_seg.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                    if !clean.is_empty() && !symbols.contains(&clean.to_string()) {
+                        symbols.push(clean.to_string());
+                    }
+                }
+            } else if let Some(import_part) = trimmed.strip_prefix("import ") {
+                let clean = import_part.trim().trim_matches('\'').trim_matches('"').trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                if !clean.is_empty() && !symbols.contains(&clean.to_string()) {
+                    symbols.push(clean.to_string());
+                }
+            }
+        }
+
+        symbols
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn traverse_node(
         node: Node,
@@ -472,6 +564,81 @@ impl CodeParser {
                 node_id = Some(id);
             }
         }
+        // Extract struct fields and interface properties (R-057)
+        // Rust & Go: field_declaration
+        // TS/JS: property_signature, public_field_definition, field_definition, property_definition
+        else if kind == "field_declaration"
+            || kind == "property_signature"
+            || kind == "public_field_definition"
+            || kind == "field_definition"
+            || kind == "property_definition"
+        {
+            let mut field_names = Vec::new();
+            if let Some(name_node) = node.child_by_field_name("name").or_else(|| node.child_by_field_name("property")) {
+                field_names.push(name_node);
+            } else {
+                let mut cursor = node.walk();
+                for c in node.children(&mut cursor) {
+                    if c.kind() == "field_identifier" || c.kind() == "property_identifier" {
+                        field_names.push(c);
+                    }
+                }
+            }
+
+            for name_node in field_names {
+                let name = &content[name_node.byte_range()];
+                if name.trim().is_empty() {
+                    continue;
+                }
+                let snippet = &content[node.byte_range()];
+                let text = Self::safe_truncate(snippet, 300);
+
+                let id = format!("{}:{}:{}:{}", workspace, file_path, name, start_pos.row + 1);
+                nodes.push(ExtractedNode {
+                    id: id.clone(),
+                    workspace: workspace.to_string(),
+                    label: name.to_string(),
+                    kind: "field".to_string(),
+                    file_path: file_path.to_string(),
+                    language: language.to_string(),
+                    line_start: start_pos.row + 1,
+                    line_end: end_pos.row + 1,
+                    text: text.to_string(),
+                });
+
+                if let Some(parent) = current_parent_id {
+                    edges.push(ExtractedEdge {
+                        workspace: workspace.to_string(),
+                        source_id: parent.to_string(),
+                        target_label: name.to_string(),
+                        target_id: Some(id.clone()),
+                        edge_type: "CONTAINS".to_string(),
+                        category: "EXTRACTED".to_string(),
+                    });
+                }
+
+                let type_opt = node.child_by_field_name("type");
+                if let Some(type_node) = type_opt {
+                    let type_raw = &content[type_node.byte_range()].trim();
+                    let clean_type = type_raw
+                        .split(|c: char| !c.is_alphanumeric() && c != '_')
+                        .rfind(|s| !s.is_empty())
+                        .unwrap_or("");
+                    if !clean_type.is_empty() && clean_type.len() < 50 {
+                        edges.push(ExtractedEdge {
+                            workspace: workspace.to_string(),
+                            source_id: id.clone(),
+                            target_label: clean_type.to_string(),
+                            target_id: None,
+                            edge_type: "REFERENCES".to_string(),
+                            category: "EXTRACTED".to_string(),
+                        });
+                    }
+                }
+
+                node_id = Some(id);
+            }
+        }
         // Extract function call expressions, method calls, coroutine calls, constructors, and macros
         // Go: call_expression
         // Python: call
@@ -540,30 +707,17 @@ impl CodeParser {
                 text: snippet.trim().to_string(),
             });
 
-            // Extract target imported symbol or module name (R-044)
-            let trimmed = snippet.trim().trim_end_matches(';');
-            let imported_sym = if language == "python" {
-                trimmed.rsplit("import ").next().and_then(|s| s.split(',').next()).map(|s| s.trim())
-            } else if language == "rust" {
-                trimmed.rsplit("::").next().and_then(|s| s.split(' ').next()).map(|s| s.trim())
-            } else if language == "go" {
-                trimmed.trim_matches('"').rsplit('/').next().map(|s| s.trim())
-            } else {
-                trimmed.rsplit("from ").next().map(|s| s.trim().trim_matches('\'').trim_matches('"'))
-            };
-
-            if let Some(target_sym) = imported_sym {
-                let clean_sym = target_sym.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
-                if !clean_sym.is_empty() {
-                    edges.push(ExtractedEdge {
-                        workspace: workspace.to_string(),
-                        source_id: id.clone(),
-                        target_label: clean_sym.to_string(),
-                        target_id: None,
-                        edge_type: "IMPORTS".to_string(),
-                        category: "EXTRACTED".to_string(),
-                    });
-                }
+            // Extract target imported symbols and modules across languages (R-044)
+            let imported_symbols = Self::extract_imported_symbols(language, snippet);
+            for clean_sym in imported_symbols {
+                edges.push(ExtractedEdge {
+                    workspace: workspace.to_string(),
+                    source_id: id.clone(),
+                    target_label: clean_sym,
+                    target_id: None,
+                    edge_type: "IMPORTS".to_string(),
+                    category: "EXTRACTED".to_string(),
+                });
             }
         }
 

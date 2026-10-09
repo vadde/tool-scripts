@@ -5,6 +5,38 @@ All notable changes to this tool will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-10-09
+
+### Added
+- **Polyglot Struct Field & Interface Property Extraction (R-057)**: Extracted `field_declaration` (Rust, Go), `property_signature` (TypeScript), and `public_field_definition`/`field_definition` (TS/JS) into `kind: "field"` nodes linked via `CONTAINS` edges from parent structs/interfaces and `REFERENCES` edges to concrete types.
+- **Targeted Neighborhood Subgraph Retrieval (`DbClient::get_neighborhood_subgraph`)**: Localized 1-hop BFS in SurrealDB replaces full-graph HTTP downloads in `GraphRagEngine::query`.
+- **Strict Context Budgeting on Graph-RAG Synthesis**: Two-tier budgeting capping symbol definitions at 3,800 chars and reserving $\ge 1,800$ chars for call/import relationships, enforcing the <1500 token SLA.
+- **Relational Graph Edge Indexes (`schema.surql`)**: Defined `idx_edge_in`, `idx_edge_out`, `idx_edge_out_ws`, and `idx_edge_in_ws` on `linked_to` table for sub-millisecond edge traversals.
+- **Worktree Hierarchy Deduplication**: Pruned adopted worktrees from top-level listing in `/api/workspaces` while adding `?flat=true` parameter for flat backwards compatibility.
+- **Robust Multi-Statement SurrealQL Parsing (`extract_sql_arrays`)**: Neutralized `LET` statement index offset fragility by dynamically filtering non-null result arrays.
+
+## [0.2.1] - 2026-10-09
+
+### Added
+- **Ambient Live-Watch Auto-Enrollment**: Pre-invocation hooks dynamically detect active indexed workspaces and enroll them in background live-watch without user intervention.
+- **Multi-Symbol Polyglot Imports (R-044)**: Discrete `IMPORTS` edges extracted across TS/JS named imports (`import { A, B }`), Python multi-imports (`from m import A, B`), and Rust grouped use statements (`use m::{A, B}`).
+- **Two-Tier Subgraph Condenser Token Budgeting (R-028)**: Bounded symbol rendering guaranteeing $\ge 35\%$ of character budget is preserved for structural call/import traces (<1500 token SLA).
+- **Ingestion Security Path Containment**: Added canonical path resolution and `allowed_browse_roots()` verification on `POST /api/ingest`, rejecting unauthorized paths with `403 Forbidden`.
+- **Zero-Blackout Live Re-indexing**: Reordered live sync pipeline to generate vector embeddings before pruning old nodes, eliminating the 404 deletion window.
+
+## [0.2.0] - 2026-10-09
+
+### Added
+- **Ephemeral Branch Fabric (EBF) for Git Worktrees (R-051 - R-058)**:
+  - **O(1) Worktree Pointer Peeking (R-051)**: Detects `.git` worktree pointers in $O(1)$ without spawning subshells or executing `git` CLI, resolving parent repository path, branch name, and lineage.
+  - **Enforced Auto-Watch Enrollment (R-052)**: `/api/ingest` automatically starts the live watch daemon (`watch: true` default), ensuring worktrees edited by coding agents are immediately kept fresh without manual watcher setup.
+  - **Seed-Preserving Prior Inheritance (R-053)**: Worktree LPA galaxy clustering inherits community seeds from the parent workspace, preserving 99% cluster stability across branches.
+  - **Dead Worktree Garbage Collection (R-054)**: `/api/workspaces` automatically sweeps and purges deleted worktrees from SurrealDB, preventing phantom zombie workspaces.
+  - **Worktree Hierarchy & Lineage (R-055)**: `/api/workspaces` nests active worktrees under parent repositories (`worktrees: [...]`) while preserving backward-compatible flat workspace listing.
+  - **Worktree Visualizer & Branch Navigation (R-056)**: Cosmograph React UI displays worktree indicators, branch tags, and nested worktree switchers in the workspace selector.
+  - **Proactive Agent Hook & Remediation (R-057)**: Pre-invocation and pre-tool hooks detect unindexed worktrees and emit one-command self-healing ingest banners.
+  - **Rebase Storm Surge Suppression (R-058)**: Idempotent watch registration and event debounce windows prevent CPU thrashing during multi-file git rebases.
+
 ## [0.1.1] - 2026-10-07
 
 ### Added

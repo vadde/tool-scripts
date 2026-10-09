@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>tool-scripts — Living Engineering Documentation & Architecture eBook</title>
+  <meta name="description" content="Master architectural blueprint, theoretical foundations, and operational guide for omni-graph, session-explorer, and enterprise agentic engineering scripts.">
+  <link rel="stylesheet" href="style.css">
+  <!-- Mermaid.js for Interactive Architecture Diagrams -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <!-- Ambient Space Backgrounds -->
+  <div class="ambient-mesh"></div>
+  <div class="ambient-grid"></div>
+  <div id="reading-progress"></div>
+
+  <!-- Top Glass Header -->
+  <header class="header-glass">
+    <a href="#ch0-overview" class="brand-section">
+      <div class="brand-logo">TS</div>
+      <div>
+        <div class="brand-title">tool-scripts</div>
+        <div style="font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);">vadde/tool-scripts monorepo</div>
+      </div>
+      <span class="brand-badge">v0.2.2 Living Docs</span>
+    </a>
+
+    <div class="search-trigger" id="search-trigger">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <span>Quick search documentation...</span>
+      <span class="shortcut-kbd">⌘K</span>
+    </div>
+
+    <div class="header-actions">
+      <a href="#token-simulator" class="action-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+        <span>Token Simulator</span>
+      </a>
+      <a href="#api-playground" class="action-btn">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+        <span>API Playground</span>
+      </a>
+      <a href="https://github.com/vadde/tool-scripts" target="_blank" rel="noopener noreferrer" class="action-btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        <span>GitHub</span>
+      </a>
+    </div>
+  </header>
+
+  <!-- Global Search Modal -->
+  <div class="search-modal" id="search-modal">
+    <div class="search-box">
+      <div class="search-input-wrapper">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 12px; color: var(--accent-cyan);"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" class="search-input" id="search-input" placeholder="Type a concept, endpoint, or architecture keyword..." autocomplete="off">
+        <span class="shortcut-kbd" style="cursor: pointer;" onclick="document.getElementById('search-modal').classList.remove('open')">ESC</span>
+      </div>
+      <div class="search-results-list" id="search-results"></div>
+    </div>
+  </div>
+
+  <!-- Master Layout -->
+  <div class="layout-container">
+    
+    <!-- Left Navigation Sidebar -->
+    <aside class="sidebar">
+      <div class="nav-group-title">PART I — MONOREPO & AGENTS</div>
+      <a href="#ch0-overview" class="nav-link active">
+        <span>00. Grand Central Monorepo</span>
+        <span class="nav-pill pill-core">Core</span>
+      </a>
+      <a href="#sec-sdd-governance" class="nav-link">
+        <span>Spec-Driven Governance</span>
+      </a>
+      <a href="#sec-agent-shield" class="nav-link">
+        <span>Agentic Defense Shield</span>
+      </a>
+
+      <div class="nav-group-title">PART II — OMNI-GRAPH</div>
+      <a href="#ch1-omni-graph" class="nav-link">
+        <span>01. Omni-Graph Overview</span>
+        <span class="nav-pill pill-rust">Rust</span>
+      </a>
+      <a href="#sec-omni-arch" class="nav-link">
+        <span>4-Tier Container Topology</span>
+      </a>
+      <a href="#sec-omni-ebf" class="nav-link">
+        <span>Ephemeral Branch Fabric (EBF)</span>
+      </a>
+      <a href="#sec-omni-ast" class="nav-link">
+        <span>Polyglot AST & Struct Fields</span>
+      </a>
+      <a href="#sec-omni-budget" class="nav-link">
+        <span>Two-Tier Token Budget Math</span>
+      </a>
+      <a href="#sec-omni-relational" class="nav-link">
+        <span>SurrealDB Relational Indexing</span>
+      </a>
+      <a href="#token-simulator" class="nav-link">
+        <span>Interactive Token Simulator</span>
+      </a>
+      <a href="#api-playground" class="nav-link">
+        <span>REST API Playbook & Curl</span>
+      </a>
+
+      <div class="nav-group-title">PART III — SESSION EXPLORER</div>
+      <a href="#ch2-session-explorer" class="nav-link">
+        <span>02. Session Explorer</span>
+        <span class="nav-pill pill-go">Go</span>
+      </a>
+      <a href="#sec-session-arch" class="nav-link">
+        <span>Go + Bun Standalone Binary</span>
+      </a>
+      <a href="#sec-session-pipeline" class="nav-link">
+        <span>Trajectory Ingestion & SQLite</span>
+      </a>
+      <a href="#sec-session-usage" class="nav-link">
+        <span>Telemetry & Quickstart</span>
+      </a>
+
+      <div class="nav-group-title">PART IV — CI/CD & AUTOMATION</div>
+      <a href="#ch3-ci-pipeline" class="nav-link">
+        <span>03. CI/CD GitHub Workflows</span>
+      </a>
+      <a href="#sec-docs-drift" class="nav-link">
+        <span>Doc Sync & Constitution Gates</span>
+      </a>
+    </aside>
+
+    <!-- Main Notebook Reading Pane -->
+    <main class="content-area">
+
+      <!-- Hero Header -->
+      <section class="hero-glass" id="ch0-overview">
+        <div class="hero-tagline">Living Architectural Blueprint · Year 2500 Vision</div>
+        <h1 class="hero-heading">Enterprise Engineering Tools & Autonomous Workflows</h1>
+        <p class="hero-description">
+          A high-rigor polyglot monorepo engineered from first principles for human engineers and autonomous AI coding companions. Featuring <strong>Omni-Graph</strong> (Apple Silicon AST & Vector Knowledge Hub), <strong>Session Explorer</strong> (Agent Trajectory Intelligence), and a formal Spec-Driven Development (SDD) constitution.
+        </p>
+
+        <div class="hero-stats">
+          <div class="stat-card">
+            <div class="stat-val">2,790+ <span>nodes</span></div>
+            <div class="stat-lbl">Active AST Symbols (Polyglot)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-val">&lt; 1,500 <span>tokens</span></div>
+            <div class="stat-lbl">Graph-RAG Strict SLA Guarantee</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-val">72 / 72 <span>passed</span></div>
+            <div class="stat-lbl">Rust Test Suite (Dockerized)</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-val">0 <span>orphans</span></div>
+            <div class="stat-lbl">Relational Graph Edge Integrity</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Monorepo Architecture -->
+      <section class="chapter-section" id="sec-sdd-governance">
+        <div class="chapter-badge">Chapter 00 · Section 01</div>
+        <h2 class="chapter-title">Spec-Driven Development (SDD) & SDLC Constitution</h2>
+        <div class="chapter-meta">
+          <span>Governance: Spec-First</span>
+          <span>•</span>
+          <span>Verification: 100% Traceability</span>
+          <span>•</span>
+          <span>Agent Loop: ReAct + Reflexion</span>
+        </div>
+
+        <p>
+          In traditional codebases, autonomous coding agents rapidly diverge from human architectural intent because documentation and code live in disconnected universes. In <code>vadde/tool-scripts</code>, every single line of production code is governed by <strong>Spec-Driven Development (SDD)</strong>:
+        </p>
+
+        <div class="card-grid">
+          <div class="glass-card">
+            <h4>📋 Contract Before Code</h4>
+            <p>Every tool, script, and workflow begins with an airtight specification in <code>specs/catalog/&lt;tool&gt;.md</code> defining numbered requirements (<code>R-XXX</code>), acceptance criteria (<code>AC-XXX</code>), and non-functional guarantees (<code>NF-XXX</code>).</p>
+          </div>
+          <div class="glass-card">
+            <h4>🔄 SDLC Lifecycle Finite State Machine</h4>
+            <p>Tools traverse deterministic phases: <code>draft</code> → <code>spec-review</code> → <code>in-progress</code> → <code>testing</code> → <code>review</code> → <code>released</code>. Advancement is cryptographically blocked unless all checklist gates pass.</p>
+          </div>
+          <div class="glass-card">
+            <h4>🧭 Continuous Session Memory</h4>
+            <p>Every tool folder contains a mandatory <code>CONTEXT.md</code> (agent state snapshot) and append-only <code>DEVLOG.md</code>. Agents never start from zero or lose historical context between compacting sessions.</p>
+          </div>
+        </div>
+
+        <div class="callout callout-theory">
+          <div class="callout-header">Theoretical Principle: The Reflexion Pattern</div>
+          <div class="callout-body">
+            When tests fail or architectural invariants are breached, agents are forbidden from applying blind heuristic patches. Instead, agents must apply the <strong>Reflexion loop</strong>: extract the root cause from the compiler/runtime, correlate with the spec requirement, document the failure hypothesis, and execute a mathematically minimal, targeted correction.
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Agentic Defense Shield -->
+      <section class="chapter-section" id="sec-agent-shield">
+        <div class="chapter-badge">Chapter 00 · Section 02</div>
+        <h2 class="chapter-title">The Agentic Defense Shield & Reconnaissance Gates</h2>
+        <p>
+          Large Language Models possess context windows, but context windows are finite and vulnerable to noise contamination. Blindly reading a 3,000-line source file wastes tokens and destroys reasoning capabilities. The monorepo enforces the <strong>3-Tier Omniverse Reconnaissance Ladder</strong>:
+        </p>
+
+        <div class="diagram-box">
+          <pre class="mermaid">
+graph TD
+    User["Agent Trigger / PreInvocation Hook"] --> ReconCheck{"Recon Marker Present? /tmp/omni_recon"}
+    ReconCheck -- No --> GateEnforce["150-Line Source Gate ACTIVE"]
+    GateEnforce --> Tier1["Tier 1: Global Graph-RAG (make query Q=...)"]
+    Tier1 --> Tier2["Tier 2: Galaxy Cluster Boundaries (make galaxies)"]
+    Tier2 --> Tier3["Tier 3: AST Call Graph Condenser (make condense SYM=...)"]
+    Tier3 --> TouchMarker["Touch Recon Marker"]
+    TouchMarker --> GatePass["150-Line Gate UNLOCKED for Precision Reads"]
+    ReconCheck -- Yes --> GatePass
+          </pre>
+          <div class="diagram-caption">Figure 0.1: Deterministic Agent Reconnaissance Ladder & Guardrail State Machine</div>
+        </div>
+
+        <div class="callout callout-warning">
+          <div class="callout-header">The 150-Line Gate Invariant</div>
+          <div class="callout-body">
+            Directly viewing or catting more than 150 lines of source code without querying Omni-Graph's AST or condenser first is an immediate anti-pattern. The PreToolUse hook halts unauthorized large reads and directs the agent to retrieve exact AST symbol definitions or condensed slices.
+          </div>
+        </div>
+      </section>
+
+      <!-- PART II: OMNI-GRAPH -->
+      <section class="chapter-section" id="ch1-omni-graph">
+        <div class="chapter-badge">Chapter 01 · Primary Tool</div>
+        <h2 class="chapter-title">Omni-Graph: 100% Local Semantic Knowledge Hub</h2>
+        <div class="chapter-meta">
+          <span>Version: 0.2.2</span>
+          <span>•</span>
+          <span>Stack: Rust + SurrealDB v2 + HuggingFace TEI + React Cosmograph</span>
+          <span>•</span>
+          <span>Target: Apple Silicon M-Series</span>
+        </div>
+
+        <p>
+          <strong>Omni-Graph</strong> is a zero-telemetry, multi-container semantic graph engine that models software repositories as rich Abstract Syntax Tree (AST) graphs augmented with dense 384-dimensional vector embeddings. It solves code navigation, blast-radius analysis, and agent context starvation entirely on local hardware.
+        </p>
+
+        <h3 class="section-h2" id="sec-omni-arch">4-Tier Container Architecture</h3>
+        <p>Omni-Graph runs on an isolated Docker network (<code>omni-net</code>) coordinating four decoupled services:</p>
+
+        <div class="diagram-box">
+          <pre class="mermaid">
+flowchart TB
+    subgraph UI["Tier 4: WebGL Visualizer (:3000)"]
+        Cosmo["Cosmograph 3D Force Graph"]
+        Analytics["Dual-Source Agent Analytics"]
+    end
+
+    subgraph Rust["Tier 3: Rust Axum Orchestrator (:8080)"]
+        Parser["Tree-Sitter Polyglot Parser"]
+        Condenser["Context Condenser (<1500 Tokens)"]
+        RagEngine["GraphRagEngine (Hybrid Synthesizer)"]
+        Watcher["Notify Background Watcher Daemon"]
+    end
+
+    subgraph DB["Tier 1: SurrealDB v2 (:8000)"]
+        NodeTbl["node (SCHEMAFULL, HNSW 384-dim)"]
+        EdgeTbl["linked_to (TYPE RELATION, idx_edge_*)"]
+        GalaxyTbl["galaxy (Pre-Computed LPA Clusters)"]
+    end
+
+    subgraph TEI["Tier 2: HuggingFace TEI (:8081)"]
+        Model["BAAI/bge-small-en-v1.5 (ARM64 SIMD)"]
+    end
+
+    UI --> Rust
+    Rust --> DB
+    Rust --> TEI
+          </pre>
+          <div class="diagram-caption">Figure 1.1: Omni-Graph 4-Tier Container Topology & Dataflow</div>
+        </div>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>Port</th>
+                <th>Image / Technology</th>
+                <th>Operational Responsibility</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>omni-rust-app</code></td>
+                <td><code>8080</code></td>
+                <td>Rust 1.80+ (Axum, Tree-Sitter)</td>
+                <td>AST extraction, file watching, Graph-RAG synthesis, token budgeting.</td>
+              </tr>
+              <tr>
+                <td><code>omni-graph-db</code></td>
+                <td><code>8000</code></td>
+                <td>SurrealDB v2.x</td>
+                <td>Multi-model database: schemeful nodes, graph edges, and HNSW vector index.</td>
+              </tr>
+              <tr>
+                <td><code>omni-embedding-engine</code></td>
+                <td><code>8081</code></td>
+                <td>HuggingFace TEI (ARM64)</td>
+                <td>Sub-millisecond token embedding using <code>BAAI/bge-small-en-v1.5</code>.</td>
+              </tr>
+              <tr>
+                <td><code>omni-graph-ui</code></td>
+                <td><code>3000</code></td>
+                <td>React, Vite, Cosmograph</td>
+                <td>GPU-accelerated WebGL force-directed graph and real-time telemetry HUD.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="section-h2" id="sec-omni-ebf">Ephemeral Branch Fabric (EBF) & Git Worktrees</h3>
+        <p>
+          Coding agents frequently branch or create Git worktrees to isolate experimental code. Traditional code indexing tools either re-index the entire multi-gigabyte repository from scratch or fail completely. Omni-Graph solves this with the <strong>Ephemeral Branch Fabric (EBF)</strong> (Requirements <code>R-051</code> to <code>R-058</code>):
+        </p>
+
+        <div class="card-grid">
+          <div class="glass-card">
+            <h4>⚡ O(1) Worktree Pointer Peeking</h4>
+            <p>Instead of spawning slow subshells (<code>git rev-parse</code>), Omni-Graph reads the <code>.git</code> worktree pointer file directly in Rust in under 5 microseconds, resolving parent repository root, branch name, and lineage.</p>
+          </div>
+          <div class="glass-card">
+            <h4>🌱 Prior LPA Seed Inheritance</h4>
+            <p>When clustering a new worktree, Omni-Graph inherits community IDs from the parent workspace. Only modified files shift, preserving 99% cluster visual stability across branches.</p>
+          </div>
+          <div class="glass-card">
+            <h4>🧹 Automatic Dead Worktree GC</h4>
+            <p>When an agent deletes a temporary worktree, <code>/api/workspaces</code> immediately sweeps SurrealDB and purges dead nodes and edges, eliminating zombie workspace pollution.</p>
+          </div>
+          <div class="glass-card">
+            <h4>🌲 Worktree Tree Deduplication</h4>
+            <p>Worktrees are cleanly nested under their parent workspace (<code>worktrees: [...]</code>), omitting duplicate top-level listings while offering <code>?flat=true</code> for legacy callers.</p>
+          </div>
+        </div>
+
+        <h3 class="section-h2" id="sec-omni-ast">Polyglot AST Grammar & Struct Field Extraction</h3>
+        <p>
+          Omni-Graph utilizes Tree-Sitter grammars compiled natively in Rust. Unlike shallow regex matchers, Omni-Graph models true language semantics across four enterprise languages:
+        </p>
+
+        <ul>
+          <li><strong>Rust</strong>: Functions, methods in <code>impl</code> blocks (with <code>DECLARES</code> edges from structs), <code>struct</code> declarations with child <code>field_declaration</code> nodes (with <code>CONTAINS</code> and <code>REFERENCES</code> edges), <code>enum_item</code>, <code>trait_item</code>, <code>macro_definition</code>, and <code>macro_invocation</code>.</li>
+          <li><strong>Go</strong>: Package declarations, function declarations, method declarations with pointer receiver binding, <code>type_spec</code> structs with member <code>field_declaration</code> nodes, and discrete <code>import_spec</code> symbols.</li>
+          <li><strong>TypeScript / JavaScript</strong>: Lexical arrow functions, classes, <code>interface_declaration</code> with child <code>property_signature</code> nodes, type aliases, and multi-symbol named imports (<code>import { A, B }</code>).</li>
+          <li><strong>Python</strong>: Synchronous and <code>async</code> coroutine definitions, class definitions with multi-inheritance tracking, call sites, and multi-symbol imports (<code>from m import A, B</code>).</li>
+        </ul>
+
+        <div class="callout callout-math">
+          <div class="callout-header">Relational Edge Graph Schema</div>
+          <div class="callout-body">
+            Every edge in the <code>linked_to</code> table models directed relationships:
+            <br>
+            $$\text{Node}_{\text{source}} \xrightarrow[\text{category}]{\text{edge\_type}} \text{Node}_{\text{target}}$$
+            Where $\text{edge\_type} \in \{\text{CALLS}, \text{IMPORTS}, \text{CONTAINS}, \text{IMPLEMENTS}, \text{REFERENCES}\}$ and $\text{category} \in \{\text{EXTRACTED}, \text{INFERRED}\}$.
+          </div>
+        </div>
+
+        <h3 class="section-h2" id="sec-omni-budget">Two-Tier Context Condenser & Graph-RAG Token Budget Math</h3>
+        <p>
+          A common failure mode in code assistants is <strong>context starvation</strong>: a retrieval tool dumps 8,000 tokens of raw source code, blowing past agent context windows and truncating essential architectural call graphs. Omni-Graph enforces a mathematical token budget guarantee:
+        </p>
+
+        <div class="callout callout-theory">
+          <div class="callout-header">Mathematical Budget SLA: $\le 1,500$ Tokens</div>
+          <div class="callout-body">
+            Given that 1 LLM token $\approx 4$ characters of source code, the total character budget is capped at $C_{\text{max}} = 6,000$ characters:
+            <br><br>
+            $$C_{\text{total}} = C_{\text{root}} + \min(C_{\text{neighbors}}, 3800) + C_{\text{edges}} + C_{\text{macro}} \le 6,000 \text{ chars}$$
+            <br>
+            1. <strong>Seed / Root Symbols ($C_{\text{root}}$)</strong>: Receive full code snippets (bounded to 300 chars max).<br>
+            2. <strong>1-Hop Neighbors ($C_{\text{neighbors}}$)</strong>: Compressed to concise 1-line signatures (e.g. <code>fn authenticate(user: &User) -> Result</code>), strictly bounded at 3,800 characters.<br>
+            3. <strong>Structural Graph Traces ($C_{\text{edges}}$)</strong>: Reserved $\ge 1,800$ characters for structural relations: <code>source ──[CALLS]──▶ target</code>.<br>
+            4. <strong>Result</strong>: Guaranteed $\le 1,500$ tokens regardless of graph density or codebase scale!
+          </div>
+        </div>
+
+        <h3 class="section-h2" id="sec-omni-relational">SurrealDB Relational Indexing & Zero-Blackout Re-indexing</h3>
+        <p>
+          SurrealDB v2 handles both relational graph traversals and HNSW vector searches. In Round 4, four dedicated relational indexes were added to <code>linked_to</code>:
+        </p>
+
+        <div class="code-container">
+          <div class="code-header">
+            <span>SurrealQL · src/db/schema.surql</span>
+            <button class="copy-btn" data-target="surql-indexes">Copy</button>
+          </div>
+          <pre><code id="surql-indexes">-- Sub-millisecond graph edge traversals & caller lookups
+DEFINE INDEX idx_edge_workspace ON TABLE linked_to FIELDS workspace;
+DEFINE INDEX idx_edge_in        ON TABLE linked_to FIELDS in;
+DEFINE INDEX idx_edge_out       ON TABLE linked_to FIELDS out;
+DEFINE INDEX idx_edge_out_ws    ON TABLE linked_to FIELDS workspace, out;
+DEFINE INDEX idx_edge_in_ws     ON TABLE linked_to FIELDS workspace, in;</code></pre>
+        </div>
+
+        <p>
+          During live file modifications, the live watcher daemon performs an <strong>atomic zero-blackout swap</strong>: the HuggingFace TEI vector embedding is computed <em>prior</em> to pruning previous AST nodes. This eliminates the 404 deletion gap from ~250ms down to $\approx 1$ms.
+        </p>
+      </section>
+
+      <!-- Interactive Widget: Token Budget Simulator -->
+      <section class="interactive-widget" id="token-simulator">
+        <div class="widget-title">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+          <span>Interactive Context Condenser Token Simulator</span>
+        </div>
+        <p class="widget-desc">
+          Test and simulate Omni-Graph's mathematical token budget. Tweak the sliders to see how two-tier symbol truncation and edge reservation guarantee compliance with the &lt; 1,500 token SLA.
+        </p>
+
+        <div class="simulator-controls">
+          <div class="control-item">
+            <label>
+              <span>Root Symbol Snippet</span>
+              <span class="val" id="val-root-chars">300 chars</span>
+            </label>
+            <input type="range" id="sim-root-chars" min="100" max="800" step="50" value="300">
+          </div>
+          <div class="control-item">
+            <label>
+              <span>Neighbor Signatures Cap</span>
+              <span class="val" id="val-neighbor-chars">2400 chars</span>
+            </label>
+            <input type="range" id="sim-neighbor-chars" min="500" max="4500" step="100" value="2400">
+          </div>
+          <div class="control-item">
+            <label>
+              <span>Structural Relations Count</span>
+              <span class="val" id="val-edges-count">15 relations</span>
+            </label>
+            <input type="range" id="sim-edges-count" min="1" max="40" step="1" value="15">
+          </div>
+          <div class="control-item">
+            <label>
+              <span>Galaxy Macro Summary</span>
+              <span class="val" id="val-macro-chars">350 chars</span>
+            </label>
+            <input type="range" id="sim-macro-chars" min="100" max="1000" step="50" value="350">
+          </div>
+        </div>
+
+        <div class="simulator-results">
+          <div class="res-metric">
+            <div class="res-number" id="res-total-chars" style="color: #fff;">4,025</div>
+            <div class="res-label">Total Characters</div>
+          </div>
+          <div class="res-metric">
+            <div class="res-number" id="res-total-tokens" style="color: #34d399;">~1,007</div>
+            <div class="res-label">Estimated Tokens (Chars / 4)</div>
+          </div>
+          <div class="res-metric">
+            <div id="res-sla-badge" class="sla-badge sla-pass">SLA PASSED (≤ 1,500 Tokens)</div>
+            <div class="res-label">SLA Compliance Gate</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Interactive Widget: REST API Playground -->
+      <section class="interactive-widget" id="api-playground">
+        <div class="widget-title">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+          <span>Omni-Graph Live API Playground & Curl Generator</span>
+        </div>
+        <p class="widget-desc">
+          Select any Omni-Graph REST endpoint to generate ready-to-run curl commands formatted for terminal or agent tool invocations.
+        </p>
+
+        <div class="simulator-controls">
+          <div class="control-item">
+            <label><span>Endpoint Target</span></label>
+            <select id="api-endpoint" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
+              <option value="query">POST /api/query (Hybrid Graph-RAG Synthesis)</option>
+              <option value="condense">GET /api/condense (AST Neighborhood Slice)</option>
+              <option value="symbol">GET /api/symbol (LSP Symbol Definition)</option>
+              <option value="references">GET /api/references (LSP Caller Analysis)</option>
+              <option value="galaxies">GET /api/galaxies (Subsystem Clustering)</option>
+              <option value="workspaces">GET /api/workspaces (Hierarchy Lineage)</option>
+              <option value="worktrees">GET /api/worktrees (Active Git Worktrees)</option>
+              <option value="ingest">POST /api/ingest (Codebase Ingestion)</option>
+            </select>
+          </div>
+          <div class="control-item">
+            <label><span>Target Workspace</span></label>
+            <input type="text" id="api-ws" value="tool-scripts" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
+          </div>
+          <div class="control-item">
+            <label><span>Symbol Name (if applicable)</span></label>
+            <input type="text" id="api-sym" value="ContextCondenser" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
+          </div>
+          <div class="control-item">
+            <label><span>Prompt / Question (if applicable)</span></label>
+            <input type="text" id="api-q" value="How does token budgeting work?" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
+          </div>
+        </div>
+
+        <div class="code-container">
+          <div class="code-header">
+            <span>Generated Command</span>
+            <button class="copy-btn" data-target="api-curl-output">Copy Curl</button>
+          </div>
+          <pre><code id="api-curl-output">curl -s -X POST http://localhost:8080/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "How does token budgeting work?", "workspace": "tool-scripts"}'</code></pre>
+        </div>
+      </section>
+
+      <!-- PART III: SESSION EXPLORER -->
+      <section class="chapter-section" id="ch2-session-explorer">
+        <div class="chapter-badge">Chapter 02 · Secondary Tool</div>
+        <h2 class="chapter-title">Session Explorer: Agent Observability & Telemetry</h2>
+        <div class="chapter-meta">
+          <span>Version: 0.1.0</span>
+          <span>•</span>
+          <span>Stack: Go 1.22+ (Single Binary) + Bun + SQLite</span>
+          <span>•</span>
+          <span>Telemetry: Trajectory Inspection</span>
+        </div>
+
+        <p>
+          <strong>Session Explorer</strong> is a standalone intelligence browser for Antigravity IDE agent conversation histories. It parses JSONL transcripts located in <code>~/.gemini/antigravity-ide/brain/</code>, indexing tool calls, execution errors, user prompt intents, and agent reasoning traces.
+        </p>
+
+        <h3 class="section-h2" id="sec-session-arch">Go + Bun Standalone Binary Architecture</h3>
+        <p>
+          Built for zero runtime friction, Session Explorer embeds its entire web application, marked.js markdown engine, and syntax highlighting directly inside the compiled Go binary using <code>//go:embed</code>:
+        </p>
+
+        <div class="diagram-box">
+          <pre class="mermaid">
+flowchart LR
+    Logs["~/.gemini/antigravity-ide/brain/ (JSONL Transcripts)"] --> Scanner["Go Concurrent Scanner (Worker Pool)"]
+    Scanner --> SQLite["In-Memory / File SQLite Index"]
+    SQLite --> Api["Go HTTP Server (REST Endpoints)"]
+    Assets["Bun Web Frontend (Liquid Glass)"] --> Embed["go:embed static assets"]
+    Embed --> Binary["Standalone 'session-explorer' Binary (0 Deps)"]
+    Binary --> Browser["Local Web Browser (:9876)"]
+          </pre>
+          <div class="diagram-caption">Figure 2.1: Session Explorer Embedded Binary Architecture & Log Processing Pipeline</div>
+        </div>
+
+        <div class="card-grid">
+          <div class="glass-card">
+            <h4>⚡ 200ms Concurrent Ingestion</h4>
+            <p>Concurrently parses tens of thousands of JSONL transcript lines in under 200 milliseconds using Go goroutine worker pools.</p>
+          </div>
+          <div class="glass-card">
+            <h4>📊 Dual-Source Telemetry</h4>
+            <p>Correlates agent tool calls with Omni-Graph LSP usage, estimating tokens saved by preventing full-file dumps.</p>
+          </div>
+          <div class="glass-card">
+            <h4>💾 Universal Conversation Export</h4>
+            <p>One-click export of any agent conversation trajectory to Markdown (<code>.md</code>) or structured JSON (<code>.json</code>).</p>
+          </div>
+        </div>
+
+        <h3 class="section-h2" id="sec-session-usage">CLI Commands & Quickstart</h3>
+        <div class="code-container">
+          <div class="code-header">
+            <span>Terminal · Makefile Targets</span>
+            <button class="copy-btn" data-target="session-cmds">Copy</button>
+          </div>
+          <pre><code id="session-cmds"># Launch Session Explorer (auto-opens browser at http://localhost:9876)
+make session-explorer
+
+# Launch on custom port
+make run-tool T=session-explorer ARGS="--port 8080"
+
+# Headless mode (no auto-opening browser)
+cd tools/session-explorer && make run-headless
+
+# Run unit tests and automated mock dataset demo
+make test-tool T=session-explorer
+make demo-tool T=session-explorer</code></pre>
+        </div>
+      </section>
+
+      <!-- PART IV: CI/CD & AUTOMATION -->
+      <section class="chapter-section" id="ch3-ci-pipeline">
+        <div class="chapter-badge">Chapter 03 · Infrastructure & CI</div>
+        <h2 class="chapter-title">Continuous Integration & Documentation Sync Gates</h2>
+        <div class="chapter-meta">
+          <span>Engine: GitHub Actions</span>
+          <span>•</span>
+          <span>Pipelines: CI, Tool-CI, Docs-Publish</span>
+          <span>•</span>
+          <span>Governance: Zero Drift</span>
+        </div>
+
+        <p>
+          The repository enforces continuous integration across all supported languages (Rust, Go, TypeScript, Python, Shell) using matrix workflows:
+        </p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Workflow</th>
+                <th>Trigger</th>
+                <th>Responsibilities & Quality Gates</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>ci.yml</code></td>
+                <td>Push / PR to <code>main</code>, <code>develop</code></td>
+                <td>Detects changed tools, executes spec validation (<code>validate-specs.sh</code>), runs repository markdown link checks.</td>
+              </tr>
+              <tr>
+                <td><code>tool-ci.yml</code></td>
+                <td>Reusable (Called by CI)</td>
+                <td>Auto-detects language stack. Executes Rust Clippy with strict <code>-D warnings</code>, runs <code>cargo test</code>, Go vet/test, and Bun web builds.</td>
+              </tr>
+              <tr>
+                <td><code>docs-publish.yml</code></td>
+                <td>Push to <code>main</code></td>
+                <td>Builds the master liquid-glass static documentation portal via <code>scripts/build-docs.sh</code> and deploys to GitHub Pages.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="section-h2" id="sec-docs-drift">The Documentation Synchronization Gate</h3>
+        <p>
+          Under Rule 06 (<code>06-documentation.md</code>), no tool may transition to <code>review</code> or <code>released</code> if documentation has drifted from the active implementation:
+        </p>
+
+        <div class="callout callout-success">
+          <div class="callout-header">The 4-Point Documentation Gate</div>
+          <div class="callout-body">
+            1. <strong>Spec Alignment</strong>: <code>specs/catalog/&lt;tool&gt;.md</code> requirements matrix updated with 100% test traceability.<br>
+            2. <strong>Tool Catalog</strong>: <code>tools/README.md</code> regenerated via <code>make catalog</code>.<br>
+            3. <strong>Living Docs Portal</strong>: <code>docs/site/index.html</code> chapters and architecture diagrams updated with newly added endpoints or features.<br>
+            4. <strong>SDLC Quad</strong>: <code>STATUS.md</code>, <code>CONTEXT.md</code>, <code>CHANGELOG.md</code>, and <code>DEVLOG.md</code> updated according to Rule 07.
+          </div>
+        </div>
+      </section>
+
+      <!-- Chapter Pager -->
+      <div class="chapter-pager">
+        <a href="#ch0-overview" class="pager-btn">
+          <span class="pager-label">Top</span>
+          <span class="pager-title">↑ Grand Central Orientation</span>
+        </a>
+        <a href="#token-simulator" class="pager-btn" style="text-align: right;">
+          <span class="pager-label">Interactive</span>
+          <span class="pager-title">Token Simulator →</span>
+        </a>
+      </div>
+
+    </main>
+
+    <!-- Table of Contents (Right Sticky) -->
+    <aside class="toc-sidebar">
+      <div class="toc-title">On This Page</div>
+      <ul class="toc-list">
+        <li class="toc-item"><a href="#ch0-overview" class="toc-link active">Grand Central Monorepo</a></li>
+        <li class="toc-item"><a href="#sec-sdd-governance" class="toc-link">Spec-Driven Governance</a></li>
+        <li class="toc-item"><a href="#sec-agent-shield" class="toc-link">Agentic Defense Shield</a></li>
+        <li class="toc-item"><a href="#ch1-omni-graph" class="toc-link">Omni-Graph Overview</a></li>
+        <li class="toc-item"><a href="#sec-omni-arch" class="toc-link">4-Tier Container Topology</a></li>
+        <li class="toc-item"><a href="#sec-omni-ebf" class="toc-link">Ephemeral Branch Fabric (EBF)</a></li>
+        <li class="toc-item"><a href="#sec-omni-ast" class="toc-link">Polyglot AST & Fields</a></li>
+        <li class="toc-item"><a href="#sec-omni-budget" class="toc-link">Token Budget Math</a></li>
+        <li class="toc-item"><a href="#sec-omni-relational" class="toc-link">Relational Indexing</a></li>
+        <li class="toc-item"><a href="#token-simulator" class="toc-link">Token Simulator</a></li>
+        <li class="toc-item"><a href="#api-playground" class="toc-link">API Playground</a></li>
+        <li class="toc-item"><a href="#ch2-session-explorer" class="toc-link">Session Explorer</a></li>
+        <li class="toc-item"><a href="#sec-session-arch" class="toc-link">Go + Bun Architecture</a></li>
+        <li class="toc-item"><a href="#sec-session-usage" class="toc-link">Session CLI Usage</a></li>
+        <li class="toc-item"><a href="#ch3-ci-pipeline" class="toc-link">CI/CD Workflows</a></li>
+      </ul>
+    </aside>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

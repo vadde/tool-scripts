@@ -3,7 +3,7 @@
 > A 100% local, multi-container semantic knowledge hub that models codebases as rich AST graphs augmented with vector embeddings and community clustering — purpose-built for Apple Silicon ARM64 unified memory.
 
 ![Status](https://img.shields.io/badge/status-in--progress-blue)
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.2-emerald)
 ![Language](https://img.shields.io/badge/language-rust%20%2B%20react-orange)
 ![Engine](https://img.shields.io/badge/database-SurrealDB%20v2-green)
 ![Embeddings](https://img.shields.io/badge/embeddings-HF%20TEI%20(384--dim)-purple)
@@ -234,15 +234,17 @@ make setup-agent
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | Aggregated health check for Rust, SurrealDB, and TEI |
 | `GET` | `/api/stats` | Ingestion statistics (total nodes, edges, languages, workspaces) |
-| `GET` | `/api/workspaces` | Lists all indexed codebases/workspaces and file counts |
+| `GET` | `/api/workspaces` | Lists all indexed codebases/workspaces with nested worktree hierarchies (`?flat=true` supported) |
+| `GET` | `/api/worktrees` | Discovers all active git worktrees across indexed repositories |
 | `GET` | `/api/graph?workspace=...` | Full graph topology (`{ nodes: [...], links: [...] }`) |
 | `GET` | `/api/search?q=...&workspace=...&k=N` | Vector similarity search on HNSW 384-dim index |
-| `GET` | `/api/symbol?name=...&workspace=...` | Symbolic definition lookup (LSP definition) |
+| `GET` | `/api/symbol?name=...&workspace=...` | Symbolic definition lookup (LSP definition, supports struct fields) |
 | `GET` | `/api/references?symbol=...&workspace=...`| Call and reference lineage (LSP references) |
-| `GET` | `/api/condense?symbol=...&workspace=...&hops=2` | Condensed AST subgraph slice (<1500 tokens) |
-| `POST` | `/api/query` | Hybrid Graph-RAG retrieval (vector seeds + AST + community) |
+| `GET` | `/api/condense?symbol=...&workspace=...&hops=2` | Bounded AST subgraph slice with guaranteed call traces (&lt;1500 tokens) |
+| `POST` | `/api/query` | Targeted Graph-RAG retrieval via 1-hop BFS with two-tier token budgeting (&lt;1500 tokens) |
 | `POST` | `/api/cluster` | Recomputes Louvain/Leiden community assignments |
-| `POST` | `/api/ingest` | Triggers recursive directory AST parsing & indexing |
+| `POST` | `/api/ingest` | Triggers directory AST parsing & indexing (with path security containment) |
+| `POST` | `/api/watch/start` | Enrolls directory into real-time notify live sync |
 
 ---
 

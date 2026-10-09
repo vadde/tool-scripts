@@ -1,7 +1,7 @@
 ---
 tool: omni-graph
 status: in-progress
-last_session: 2026-10-07
+last_session: 2026-10-09
 last_agent: "@antigravity"
 blockers: []
 ---
@@ -17,7 +17,7 @@ blockers: []
 ## Current State
 
 - **SDLC Phase**: `in-progress`
-- **Version**: 0.1.1
+- **Version**: 0.2.2
 - **Language**: Rust (backend orchestrator) + React/TypeScript (frontend UI)
 - **Category**: GenAI
 - **Architecture**: Multi-container Docker microservices (4 services on `omni-net`)
@@ -26,10 +26,22 @@ blockers: []
 
 | Metric | Done | Total | Status |
 |--------|------|-------|--------|
-| Spec Requirements (R-XXX) | 50 | 50 | 🟢 100% Complete |
+| Spec Requirements (R-XXX) | 58 | 58 | 🟢 100% Complete |
 | Acceptance Criteria (AC-XXX) | 24 | 24 | 🟢 100% Complete |
 | Non-Functional (NF-XXX) | 11 | 11 | 🟢 100% Complete |
-| Test Coverage | 64/64 Unit & Integration Tests | 64 | 🟢 100% Verified in Docker |
+| Test Coverage | 72/72 Unit & Integration Tests | 72 | 🟢 100% Verified in Docker |
+| Polyglot Struct Field & Interface Properties (R-057) | Complete | — | 🟢 Rust, Go, TS, JS Field Nodes with CONTAINS & REFERENCES Edges |
+| Targeted Graph-RAG Neighborhood Subgraph | Complete | — | 🟢 Localized 1-Hop BFS in SurrealDB Eliminating Full-Graph Fetch |
+| Graph-RAG Strict Context Budgeting (<1500 tokens) | Complete | — | 🟢 Two-Tier Budgeting with Guaranteed Structural Edge Capacity |
+| Relational Graph Edge Indexes (linked_to) | Complete | — | 🟢 idx_edge_in/out/ws Built on SurrealDB |
+| Worktree Hierarchy Deduplication | Complete | — | 🟢 Pruned Top-Level Worktrees with ?flat=true Fallback |
+| Multi-Statement SurrealQL Parsing Resilience | Complete | — | 🟢 extract_sql_arrays Eliminates LET Statement Offset Fragility |
+| Ambient Live-Watch Auto-Enrollment | Complete | — | 🟢 Zero-Friction Pre-Invocation Hook & Live Watch Active |
+| Multi-Symbol Polyglot Imports (R-044) | Complete | — | 🟢 Discrete IMPORTS Edges across TS/JS, Python, Rust, Go |
+| Subgraph Condenser Token Budget (<1500 tokens, R-028) | Complete | — | 🟢 Two-Tier Budgeting with Guaranteed Call Traces |
+| Ingest Security Path Containment | Complete | — | 🟢 Canonical Path Checking & 403 Forbidden Guard on /api/ingest |
+| Zero-Blackout Live Re-indexing | Complete | — | 🟢 Embedding Pre-computation Eliminating 404 Window |
+| Ephemeral Branch Fabric (R-051 - R-058) | Complete | — | 🟢 O(1) Worktree Peeking, Seed LPA, Auto-Watch, Auto-Purge |
 | Zero Orphaned Edges (R-045, R-046, R-050) | Complete | — | 🟢 Verified in SurrealDB (`in.id IS NONE OR out.id IS NONE` = 0) |
 | Polyglot AST Grammar (R-031, R-040, R-041) | Complete | — | 🟢 Go methods/structs/consts/imports, TS arrow fns/types, Rust impl/enum/trait, Python async |
 | Trait & Class Inheritance (R-048) | Complete | — | 🟢 Rust `impl Trait for Struct`, Python inheritance, TS `extends`/`implements` |

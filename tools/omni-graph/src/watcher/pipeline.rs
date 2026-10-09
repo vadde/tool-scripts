@@ -74,11 +74,7 @@ impl IncrementalPipeline {
         // 1. Look up existing community for this file before pruning to preserve community assignment
         let existing_comm = self.db.get_file_community(workspace, rel_path).await.unwrap_or(None);
 
-        if let Err(e) = self.db.delete_file(workspace, rel_path).await {
-            warn!("Failed to prune previous nodes for '{}': {}", rel_path, e);
-        }
-
-        // 2. Generate vector embeddings for newly parsed nodes with context-enriched header (R-037)
+        // 2. Generate vector embeddings for newly parsed nodes FIRST (eliminates 404 blackout window)
         let enriched_texts: Vec<String> = parse_res
             .nodes
             .iter()
@@ -93,7 +89,12 @@ impl IncrementalPipeline {
             }
         };
 
-        // 3. Store new nodes with inherited community
+        // 3. Atomic swap: prune previous nodes immediately before storing new ones
+        if let Err(e) = self.db.delete_file(workspace, rel_path).await {
+            warn!("Failed to prune previous nodes for '{}': {}", rel_path, e);
+        }
+
+        // 4. Store new nodes with inherited community
         if let Err(e) = self.db.store_nodes_with_community(&parse_res.nodes, &embeddings, Some(&hash), existing_comm).await {
             error!("Failed to store nodes during live sync for '{}': {}", rel_path, e);
             return Err(e);

@@ -36,8 +36,10 @@ impl ContextCondenser {
             .filter(|n| n.label.eq_ignore_ascii_case(target_symbol) || n.id == target_symbol)
             .collect();
 
+        let mut root_node_ids = HashSet::new();
         for root in &root_nodes {
             relevant_node_ids.insert(root.id.clone());
+            root_node_ids.insert(root.id.clone());
             related_files_set.insert(root.file_path.clone());
         }
 
@@ -81,18 +83,46 @@ impl ContextCondenser {
             }
         }
 
-        // 3. Format compact Markdown block
+        // 3. Format compact Markdown block with two-tier token budgeting (R-028)
+        // Reserves at least 35% of token budget (~2100 chars) for Section 4 structural traces
+        const MAX_OUTPUT_CHARS: usize = 6000;
+        const MAX_SYMBOLS_CHARS: usize = 3800;
+
         let mut md = String::new();
         md.push_str(&format!("### 🧭 Omni-Graph AST Subgraph: `{}`\n\n", target_symbol));
         md.push_str("> High-fidelity deterministic AST slice (condensed for agent reasoning).\n\n");
 
         md.push_str("#### Identified Symbols & Signatures\n");
+        let mut symbols_overflow = false;
         for n in nodes.iter().filter(|n| relevant_node_ids.contains(&n.id)) {
             related_files_set.insert(n.file_path.clone());
-            md.push_str(&format!(
+
+            let is_root = root_node_ids.contains(&n.id);
+            let snippet = if is_root {
+                n.text.trim().to_string()
+            } else {
+                let first_line = n.text.lines().next().unwrap_or("").trim();
+                if first_line.len() > 140 {
+                    format!("{}...", &first_line[..137])
+                } else {
+                    first_line.to_string()
+                }
+            };
+
+            let entry = format!(
                 "- **`{}`** ({}) in [`{}:{}`]({})\n  ```{}\n  {}\n  ```\n",
-                n.label, n.kind, n.file_path, n.line_start, n.file_path, n.language, n.text.trim()
-            ));
+                n.label, n.kind, n.file_path, n.line_start, n.file_path, n.language, snippet
+            );
+
+            if md.len() + entry.len() > MAX_SYMBOLS_CHARS {
+                symbols_overflow = true;
+                break;
+            }
+            md.push_str(&entry);
+        }
+
+        if symbols_overflow {
+            md.push_str("\n> ℹ️ Additional neighbor signatures condensed to preserve call trace budget.\n");
         }
 
         if truncated_count > 0 {
@@ -104,17 +134,17 @@ impl ContextCondenser {
 
         md.push_str("\n#### Structural Relationships (Call / Import Traces)\n");
         for link in links.iter().filter(|l| relevant_node_ids.contains(&l.source) || relevant_node_ids.contains(&l.target)) {
-            md.push_str(&format!(
+            let edge_str = format!(
                 "- `{}` ──[{}: {}]──▶ `{}`\n",
                 link.source, link.category, link.edge_type, link.target
-            ));
-            // Hard cap on output length (~1500 tokens at 4 chars/token = 6000 chars)
-            if md.len() > 6000 {
+            );
+            if md.len() + edge_str.len() > MAX_OUTPUT_CHARS {
                 md.push_str(
                     "\n> ⚠️ Output truncated at ~1500 tokens. Use smaller HOPS or narrower workspace filter.\n"
                 );
                 break;
             }
+            md.push_str(&edge_str);
         }
 
         let token_estimate = md.len() / 4; // Standard heuristic: 4 chars/token

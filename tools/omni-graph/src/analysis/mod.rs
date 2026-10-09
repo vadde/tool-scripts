@@ -397,21 +397,23 @@ impl GraphRagEngine {
         let query_vec = embedder.embed_single(prompt).await?;
         let vector_hits = db.search_vector(&query_vec, top_k, workspace).await?;
 
-        // 2. Fetch Graph Topology
-        let (all_nodes, all_links) = db.get_graph(workspace).await?;
-
-        // 3. Collect Seed Symbols and relevant nodes
+        // 2. Collect Seed Symbols and IDs
         let mut seed_symbols = Vec::new();
         let mut seed_node_ids = HashSet::new();
+        let mut seed_node_ids_vec = Vec::new();
         let mut touched_communities = HashSet::new();
 
         for hit in &vector_hits {
             seed_symbols.push(hit.label.clone());
             seed_node_ids.insert(hit.id.clone());
+            seed_node_ids_vec.push(hit.id.clone());
             if let Some(c) = hit.community {
                 touched_communities.insert(c);
             }
         }
+
+        // 3. Fetch Localized Neighborhood Subgraph (Targeted 1-hop BFS, avoids full graph download)
+        let (all_nodes, all_links) = db.get_neighborhood_subgraph(&seed_node_ids_vec, workspace).await?;
 
         // 4. One-hop AST neighbor expansion
         let mut expanded_node_ids = seed_node_ids.clone();
@@ -423,21 +425,60 @@ impl GraphRagEngine {
             }
         }
 
-        // 5. Build Subgraph Markdown
+        // 5. Build Subgraph Markdown with strict budgeting (< 3,800 chars for definitions, >= 1,800 chars reserved for edges)
         let mut sub_md = String::new();
         sub_md.push_str("#### Microscopic AST Slice (Seeds & Direct Callers/Callees)\n");
-        for n in all_nodes.iter().filter(|n| expanded_node_ids.contains(&n.id)) {
-            sub_md.push_str(&format!(
-                "- **`{}`** ({}) in `{}:{}`\n  ```{}\n  {}\n  ```\n",
-                n.label, n.kind, n.file_path, n.line_start, n.language, n.text.trim()
-            ));
+
+        // Sort nodes so seed hits appear first with snippet, followed by 1-line neighbor signatures
+        let mut matched_nodes: Vec<&DbNode> = all_nodes.iter().filter(|n| expanded_node_ids.contains(&n.id)).collect();
+        matched_nodes.sort_by_key(|n| if seed_node_ids.contains(&n.id) { 0 } else { 1 });
+
+        let mut defs_chars = 0;
+        const MAX_DEFS_CHARS: usize = 3800;
+
+        for n in matched_nodes {
+            if defs_chars >= MAX_DEFS_CHARS {
+                sub_md.push_str("- *(+ additional AST symbols truncated to preserve context budget)*\n");
+                break;
+            }
+
+            let entry = if seed_node_ids.contains(&n.id) {
+                let snippet = if n.text.len() > 300 {
+                    format!("{}...", n.text[..300].trim_end())
+                } else {
+                    n.text.trim().to_string()
+                };
+                format!(
+                    "- **`{}`** ({}) in `{}:{}`\n  ```{}\n  {}\n  ```\n",
+                    n.label, n.kind, n.file_path, n.line_start, n.language, snippet
+                )
+            } else {
+                let sig = n.text.lines().find(|l| !l.trim().is_empty()).unwrap_or(&n.text).trim();
+                format!(
+                    "- `{}` ({}) in `{}:{}`: `{}`\n",
+                    n.label, n.kind, n.file_path, n.line_start, sig
+                )
+            };
+
+            defs_chars += entry.len();
+            sub_md.push_str(&entry);
         }
 
         sub_md.push_str("\n#### Direct Structural Relations\n");
-        for link in all_links.iter().filter(|l| expanded_node_ids.contains(&l.source) && expanded_node_ids.contains(&l.target)) {
+        for (link_count, link) in all_links
+            .iter()
+            .filter(|l| expanded_node_ids.contains(&l.source) && expanded_node_ids.contains(&l.target))
+            .enumerate()
+        {
+            if link_count >= 25 {
+                sub_md.push_str("- *(additional relations truncated)*\n");
+                break;
+            }
+            let src_clean = crate::db::clean_record_id(&link.source);
+            let tgt_clean = crate::db::clean_record_id(&link.target);
             sub_md.push_str(&format!(
                 "- `{}` ──[{}: {}]──▶ `{}`\n",
-                link.source, link.category, link.edge_type, link.target
+                src_clean, link.category, link.edge_type, tgt_clean
             ));
         }
 

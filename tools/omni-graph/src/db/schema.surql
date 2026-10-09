@@ -50,15 +50,23 @@ DEFINE FIELD IF NOT EXISTS category   ON TABLE linked_to TYPE string;    -- EXTR
 DEFINE FIELD IF NOT EXISTS metadata   ON TABLE linked_to TYPE option<object>;
 DEFINE FIELD IF NOT EXISTS created_at ON TABLE linked_to TYPE datetime DEFAULT time::now();
 
--- Indexes on relation endpoints for rapid traversal
+-- Indexes on relation endpoints for rapid traversal & caller lookup (R-006, R-046)
 DEFINE INDEX IF NOT EXISTS idx_edge_workspace ON TABLE linked_to FIELDS workspace;
 DEFINE INDEX IF NOT EXISTS idx_edge_type      ON TABLE linked_to FIELDS type;
+DEFINE INDEX IF NOT EXISTS idx_edge_in        ON TABLE linked_to FIELDS in;
+DEFINE INDEX IF NOT EXISTS idx_edge_out       ON TABLE linked_to FIELDS out;
+DEFINE INDEX IF NOT EXISTS idx_edge_out_ws    ON TABLE linked_to FIELDS out, workspace;
+DEFINE INDEX IF NOT EXISTS idx_edge_in_ws     ON TABLE linked_to FIELDS in, workspace;
 
 -- ─── 5. Workspace Root Path Metadata ──────────────────────────────────────────
 DEFINE TABLE IF NOT EXISTS workspace_meta SCHEMAFULL;
-DEFINE FIELD IF NOT EXISTS workspace  ON TABLE workspace_meta TYPE string;
-DEFINE FIELD IF NOT EXISTS root_path  ON TABLE workspace_meta TYPE string;
-DEFINE FIELD IF NOT EXISTS updated_at ON TABLE workspace_meta TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS workspace        ON TABLE workspace_meta TYPE string;
+DEFINE FIELD IF NOT EXISTS root_path        ON TABLE workspace_meta TYPE string;
+DEFINE FIELD IF NOT EXISTS is_worktree      ON TABLE workspace_meta TYPE option<bool>;
+DEFINE FIELD IF NOT EXISTS parent_workspace ON TABLE workspace_meta TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS branch           ON TABLE workspace_meta TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS worktree_name    ON TABLE workspace_meta TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS updated_at       ON TABLE workspace_meta TYPE datetime DEFAULT time::now();
 DEFINE INDEX IF NOT EXISTS idx_workspace_meta_name ON TABLE workspace_meta FIELDS workspace;
 
 -- ─── 6. Live Agent API Telemetry ──────────────────────────────────────────────

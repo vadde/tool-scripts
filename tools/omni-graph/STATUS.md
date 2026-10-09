@@ -1,11 +1,11 @@
 ---
 tool: omni-graph
 status: in-progress
-version: 0.1.1
+version: 0.2.2
 language: rust
 category: GenAI
 created: 2026-09-24
-last_updated: 2026-10-07
+last_updated: 2026-10-09
 owner: "@vadde"
 spec: ../../specs/catalog/omni-graph.md
 ---
@@ -17,7 +17,7 @@ spec: ../../specs/catalog/omni-graph.md
 ### Status Definitions
 
 | Status | Phase | Description |
-|--------|-------|-------------|
+|--------|------|-------------|
 | `draft` | 🟤 Ideation | Initial idea, spec being written |
 | `spec-review` | 🟡 Specification | Spec complete, awaiting review |
 | `in-progress` | 🔵 Implementation | Active development |
@@ -35,6 +35,8 @@ spec: ../../specs/catalog/omni-graph.md
 | 2026-09-24 | `spec-review` | `in-progress` | Spec approved with Dual Setup strategy; implementation begins |
 | 2026-10-07 | `in-progress` | `in-progress` | Forensic audit & hardening: Polyglot AST grammar, relational integrity, exact sorting, deterministic LPA, scoped edge resolution, and Graph-RAG galaxy records (R-031 to R-038) |
 | 2026-10-07 | `in-progress` | `in-progress` | Second-round forensic audit: Cross-file receiver/impl scoping, cascading edge pruning, batch stale file pruning, trait/class inheritance, Rust macro indexing, clean record ID normalization, achieving 0 orphaned edges (R-039 to R-050) |
+| 2026-10-09 | `in-progress` | `in-progress` | Third-round forensic audit: Ambient live-watch auto-enrollment, polyglot multi-symbol imports (R-044), two-tier condenser token budgeting (<1500 tokens, R-028), zero-blackout live re-indexing, and ingestion path security containment |
+| 2026-10-09 | `in-progress` | `in-progress` | Fourth-round forensic audit: Polyglot struct field & interface property AST extraction (R-057), targeted neighborhood Graph-RAG retrieval, strict Graph-RAG token budgeting, worktree hierarchy deduplication, SurrealQL statement index resilience (`extract_sql_arrays`), and relational graph edge indexing (`linked_to`) |
 
 ---
 
@@ -104,6 +106,14 @@ spec: ../../specs/catalog/omni-graph.md
 | R-048 | Trait & Class Inheritance Relationship Extraction | `src/parser/` | `tests/unit_tests.rs` | ✅ |
 | R-049 | Rust Macro Definition & Invocation Indexing | `src/parser/` | `tests/unit_tests.rs` | ✅ |
 | R-050 | Unified Record ID Normalization (clean_record_id) | `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-051 | O(1) Git Worktree Pointer Peeking & Lineage Mapping | `src/ingestion/worktree.rs`, `src/db/` | `tests/unit_tests.rs` | ✅ |
+| R-052 | Enforced Auto-Watch Registration on Worktree Ingestion | `src/api/`, `src/watcher/` | `tests/unit_tests.rs` | ✅ |
+| R-053 | Seed-Preserving Prior Inheritance for Worktree Galaxy Clustering | `src/ingestion/`, `src/db/`, `src/analysis/` | `tests/unit_tests.rs` | ✅ |
+| R-054 | Dead Worktree Garbage Collection & Workspace Pruning | `src/db/`, `src/api/` | `tests/unit_tests.rs` | ✅ |
+| R-055 | Worktree Hierarchy & Lineage Representation in /api/workspaces | `src/db/`, `src/api/` | `tests/unit_tests.rs` | ✅ |
+| R-056 | Worktree Visualizer & Branch Navigation in UI | `ui/src/App.tsx` | — | ✅ |
+| R-057 | Proactive Agent Hook & Worktree Auto-Remediation Banner | `.agents/scripts/`, `scripts/` | `tests/unit_tests.rs` | ✅ |
+| R-058 | Rebase Storm Debouncing & Surge Suppression | `src/watcher/` | `tests/unit_tests.rs` | ✅ |
 
 **Status Legend**: ⬜ Not started · 🔨 In progress · ✅ Implemented · 🧪 Tested · ❌ Blocked
 

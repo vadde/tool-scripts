@@ -83,20 +83,10 @@ make status
 
 | Tool | Category | Language | Status | Description |
 |------|----------|----------|--------|-------------|
-| _Coming soon_ | — | — | — | _First tools are in development_ |
+| [omni-graph](tools/omni-graph/) | GenAI & ML | Rust / React | `in-progress` v0.2.2 | 100% local semantic knowledge hub modeling codebases as AST graphs + vector embeddings with Ephemeral Branch Fabric and strict &lt;1500 token Graph-RAG SLA. |
+| [session-explorer](tools/session-explorer/) | GenAI & ML | Go / Bun | `review` v0.1.0 | High-performance, single-binary session intelligence explorer and browser for Antigravity IDE agent conversation histories. |
 
-### Categories
-
-| 🧮 Math & Computation | 🤖 GenAI & ML | 🛠️ DevOps | 📊 Data & Analytics |
-|---|---|---|---|
-| Numerical tools | LLM utilities | CI/CD helpers | ETL pipelines |
-| Statistical analysis | Prompt engineering | Infrastructure | Format conversion |
-| Algorithms | Model evaluation | Deployment | Visualization |
-
-| 🔌 Plugins | ⚡ Utilities | 🔬 Scientific | 🌐 Web & API |
-|---|---|---|---|
-| Editor extensions | Validators | Simulations | API clients |
-| CLI tools | Converters | Research | Web scrapers |
+📖 **Living Documentation Portal**: [https://vadde.github.io/tool-scripts/](https://vadde.github.io/tool-scripts/) · Or run `make docs-serve` locally.
 
 ---
 

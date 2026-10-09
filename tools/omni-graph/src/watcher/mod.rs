@@ -123,11 +123,11 @@ impl WatchManager {
         let mut watchers = self.watchers.lock().await;
 
         // Check if already watching
-        if watchers.contains_key(workspace) {
-            return Err(format!(
-                "Already watching workspace '{}'. Stop it first.",
-                workspace
-            ));
+        if let Some(active) = watchers.get(workspace) {
+            let s = active.status.read().await;
+            if s.path == path && s.status == "watching" {
+                return Ok(s.clone());
+            }
         }
 
         let root = PathBuf::from(path);

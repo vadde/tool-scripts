@@ -340,3 +340,22 @@ clean: ## Clean all build artifacts across all tools
 		fi; \
 	done
 	@printf "$(GREEN)✅ Clean complete!$(NC)\n"
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Documentation Portal
+# ═══════════════════════════════════════════════════════════════════════════
+
+docs: ## Build static living documentation portal (_site)
+	@bash $(SCRIPTS_DIR)/build-docs.sh
+
+docs-serve: docs ## Build and serve living documentation portal on http://localhost:4000
+	@printf "$(CYAN)📚 Serving tool-scripts Living Documentation on http://localhost:4000...$(NC)\n"
+	@if command -v python3 >/dev/null; then \
+		python3 -m http.server 4000 --directory _site; \
+	elif command -v npx >/dev/null; then \
+		npx -y serve _site -p 4000; \
+	else \
+		echo "❌ Neither python3 nor npx found to serve static documentation."; \
+		exit 1; \
+	fi
+

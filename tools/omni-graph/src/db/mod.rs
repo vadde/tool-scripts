@@ -40,6 +40,21 @@ pub fn clean_record_id(raw: &str) -> &str {
         .trim_matches('\'')
 }
 
+/// Extracts all non-null result arrays from a multi-statement SurrealDB response.
+/// Ignores LET statements (which return null results) and retrieves the result arrays
+/// of successive SELECT statements safely regardless of statement index offsets.
+pub fn extract_sql_arrays(resp: &serde_json::Value) -> Vec<&Vec<serde_json::Value>> {
+    let mut arrays = Vec::new();
+    if let Some(arr) = resp.as_array() {
+        for stmt in arr {
+            if let Some(res) = stmt.get("result").and_then(|r| r.as_array()) {
+                arrays.push(res);
+            }
+        }
+    }
+    arrays
+}
+
 #[derive(Clone, Debug)]
 pub struct DbClient {
     base_url: String,
@@ -575,19 +590,81 @@ impl DbClient {
         let mut nodes = Vec::new();
         let mut links = Vec::new();
 
-        if let Some(arr) = resp.as_array() {
-            if let Some(node_res) = arr.get(5).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
-                for item in node_res {
-                    if let Ok(n) = serde_json::from_value::<DbNode>(item.clone()) {
-                        nodes.push(n);
-                    }
+        let arrays = extract_sql_arrays(&resp);
+        if arrays.len() >= 2 {
+            for item in arrays[0] {
+                if let Ok(n) = serde_json::from_value::<DbNode>(item.clone()) {
+                    nodes.push(n);
                 }
             }
-            if let Some(link_res) = arr.get(6).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
-                for item in link_res {
-                    if let Ok(l) = serde_json::from_value::<DbLink>(item.clone()) {
-                        links.push(l);
-                    }
+            for item in arrays[1] {
+                if let Ok(l) = serde_json::from_value::<DbLink>(item.clone()) {
+                    links.push(l);
+                }
+            }
+        }
+
+        // If localized query returned nodes, return immediately; else fall back to full graph
+        if !nodes.is_empty() {
+            Ok((nodes, links))
+        } else {
+            self.get_graph(workspace).await
+        }
+    }
+
+    /// Localized 1-hop neighborhood subgraph around a set of seed nodes (R-043)
+    /// Used by Graph-RAG to retrieve targeted AST context without pulling full-graph topology.
+    pub async fn get_neighborhood_subgraph(
+        &self,
+        seed_ids: &[String],
+        workspace: Option<&str>,
+    ) -> Result<(Vec<DbNode>, Vec<DbLink>), String> {
+        if seed_ids.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        let esc_ws = workspace.map(surql_escape).unwrap_or_default();
+        let ws_clause = if !esc_ws.is_empty() {
+            format!("AND workspace = '{}'", esc_ws)
+        } else {
+            String::new()
+        };
+
+        // Collect seed ID representations for SurrealQL
+        let seed_id_exprs: Vec<String> = seed_ids
+            .iter()
+            .map(|id| {
+                let clean = clean_record_id(id);
+                format!("type::thing('node', '{}')", surql_escape(clean))
+            })
+            .collect();
+        let seeds_surql_array = format!("[{}]", seed_id_exprs.join(", "));
+
+        // Query 1-hop edges + distinct member nodes directly in SurrealDB
+        let q = format!(
+            "LET $seeds = {};\n\
+             LET $hop1_links = (SELECT id, workspace, in AS source, out AS target, type, category FROM linked_to WHERE (in IN $seeds OR out IN $seeds) {});\n\
+             LET $all_links = array::distinct($hop1_links);\n\
+             LET $all_node_ids = array::slice(array::distinct(array::concat($all_links.source, $all_links.target, $seeds)), 0, 40);\n\
+             SELECT id, workspace, label, kind, file_path, language, line_start, line_end, text, community FROM node WHERE id IN $all_node_ids;\n\
+             SELECT id, workspace, source, target, type, category FROM $all_links;\n",
+            seeds_surql_array, ws_clause
+        );
+
+        let resp = self.query_sql(&q).await?;
+        let mut nodes = Vec::new();
+        let mut links = Vec::new();
+
+        let arrays = extract_sql_arrays(&resp);
+        if arrays.len() >= 2 {
+            for item in arrays[0] {
+                if let Ok(n) = serde_json::from_value::<DbNode>(item.clone()) {
+                    nodes.push(n);
+                }
+            }
+            for item in arrays[1] {
+                if let Ok(l) = serde_json::from_value::<DbLink>(item.clone()) {
+                    links.push(l);
                 }
             }
         }
@@ -644,16 +721,95 @@ impl DbClient {
         }))
     }
 
-    /// Record the root filesystem path for a workspace
-    pub async fn record_workspace_root(&self, workspace: &str, root_path: &str) -> Result<(), String> {
+    /// Record full workspace metadata including worktree lineage (R-051)
+    pub async fn record_workspace_meta(
+        &self,
+        workspace: &str,
+        root_path: &str,
+        is_worktree: bool,
+        parent_workspace: Option<&str>,
+        branch: Option<&str>,
+        worktree_name: Option<&str>,
+    ) -> Result<(), String> {
         let esc_ws = surql_escape(workspace);
         let esc_path = surql_escape(root_path);
+        let parent_field = match parent_workspace {
+            Some(p) => format!(", parent_workspace: '{}'", surql_escape(p)),
+            None => String::new(),
+        };
+        let branch_field = match branch {
+            Some(b) => format!(", branch: '{}'", surql_escape(b)),
+            None => String::new(),
+        };
+        let wt_field = match worktree_name {
+            Some(w) => format!(", worktree_name: '{}'", surql_escape(w)),
+            None => String::new(),
+        };
         let q = format!(
-            "UPSERT type::thing('workspace_meta', '{}') CONTENT {{ workspace: '{}', root_path: '{}', updated_at: time::now() }};",
-            esc_ws, esc_ws, esc_path
+            "UPSERT type::thing('workspace_meta', '{}') CONTENT {{ workspace: '{}', root_path: '{}', is_worktree: {}, updated_at: time::now(){}{}{} }};",
+            esc_ws, esc_ws, esc_path, is_worktree, parent_field, branch_field, wt_field
         );
         self.query_sql(&q).await?;
         Ok(())
+    }
+
+    /// Record the root filesystem path for a workspace (defaulting to anchor repo)
+    pub async fn record_workspace_root(&self, workspace: &str, root_path: &str) -> Result<(), String> {
+        self.record_workspace_meta(workspace, root_path, false, None, None, None).await
+    }
+
+    /// Retrieve community assignments from parent workspace translated to target workspace for seed inheritance (R-053)
+    pub async fn get_community_seeds_for_parent(
+        &self,
+        parent_workspace: &str,
+        target_workspace: &str,
+    ) -> Result<HashMap<String, i32>, String> {
+        let esc_parent = surql_escape(parent_workspace);
+        let q = format!(
+            "SELECT id, community FROM node WHERE workspace = '{}' AND community != NONE;",
+            esc_parent
+        );
+        let resp = self.query_sql(&q).await?;
+        let mut seeds = HashMap::new();
+        if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            for item in arr {
+                if let (Some(id_str), Some(comm)) = (
+                    item.get("id").and_then(|v| v.as_str()),
+                    item.get("community").and_then(|v| v.as_i64()),
+                ) {
+                    let clean_id = clean_record_id(id_str);
+                    let target_id = clean_id.replacen(parent_workspace, target_workspace, 1);
+                    seeds.insert(format!("node:`{}`", target_id), comm as i32);
+                    seeds.insert(target_id, comm as i32);
+                }
+            }
+        }
+        Ok(seeds)
+    }
+
+    /// Purge dead worktrees whose root directory no longer exists on disk (R-054)
+    pub async fn purge_dead_worktrees(&self) -> Result<Vec<String>, String> {
+        let q = "SELECT workspace, root_path FROM workspace_meta WHERE is_worktree = true;";
+        let resp = self.query_sql(q).await?;
+        let mut purged = Vec::new();
+        if let Some(arr) = resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            for item in arr {
+                if let (Some(ws), Some(path_str)) = (
+                    item.get("workspace").and_then(|v| v.as_str()),
+                    item.get("root_path").and_then(|v| v.as_str()),
+                ) {
+                    let p = std::path::Path::new(path_str);
+                    if !p.exists() {
+                        info!("Dead worktree detected on disk at '{}' ({}); auto-purging...", path_str, ws);
+                        let _ = self.purge_workspace(ws).await;
+                        let del_meta = format!("DELETE FROM type::thing('workspace_meta', '{}');", surql_escape(ws));
+                        let _ = self.query_sql(&del_meta).await;
+                        purged.push(ws.to_string());
+                    }
+                }
+            }
+        }
+        Ok(purged)
     }
 
     /// Retrieve the root filesystem path for a workspace
@@ -672,8 +828,33 @@ impl DbClient {
         Ok(None)
     }
 
-    /// List all distinct workspaces with metadata (including root_path)
+    /// List all distinct workspaces with metadata (including root_path and worktree lineage) (R-055)
     pub async fn get_workspaces(&self) -> Result<Vec<serde_json::Value>, String> {
+        self.get_workspaces_internal(false).await
+    }
+
+    /// List all distinct workspaces flat without nesting worktrees (R-055)
+    pub async fn get_workspaces_flat(&self) -> Result<Vec<serde_json::Value>, String> {
+        self.get_workspaces_internal(true).await
+    }
+
+    /// Internal workspace query supporting both nested and flat modes
+    pub async fn get_workspaces_internal(&self, flat: bool) -> Result<Vec<serde_json::Value>, String> {
+        // First run automatic garbage collection on dead worktrees (R-054)
+        let _ = self.purge_dead_worktrees().await;
+
+        // Fetch all recorded workspace metadata
+        let meta_q = "SELECT workspace, root_path, is_worktree, parent_workspace, branch, worktree_name FROM workspace_meta;";
+        let meta_resp = self.query_sql(meta_q).await.unwrap_or_default();
+        let mut meta_map: HashMap<String, serde_json::Value> = HashMap::new();
+        if let Some(arr) = meta_resp.as_array().and_then(|a| a.first()).and_then(|r| r.get("result")).and_then(|res| res.as_array()) {
+            for m in arr {
+                if let Some(ws) = m.get("workspace").and_then(|v| v.as_str()) {
+                    meta_map.insert(ws.to_string(), m.clone());
+                }
+            }
+        }
+
         let q = "SELECT workspace, count() AS total_nodes, array::distinct(language) AS languages, array::distinct(file_path) AS files FROM node GROUP BY workspace;";
         let resp = self.query_sql(q).await?;
         let mut map: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
@@ -715,7 +896,29 @@ impl DbClient {
                     } else {
                         let mut obj = item.clone();
                         obj["workspace"] = serde_json::Value::String(canonical_ws.clone());
-                        let mut resolved_root: Option<String> = self.get_workspace_root(&canonical_ws).await.unwrap_or(None);
+                        let mut resolved_root: Option<String> = None;
+
+                        if let Some(m) = meta_map.get(&canonical_ws) {
+                            if let Some(rp) = m.get("root_path").and_then(|v| v.as_str()) {
+                                resolved_root = Some(rp.to_string());
+                            }
+                            if let Some(is_wt) = m.get("is_worktree").and_then(|v| v.as_bool()) {
+                                obj["is_worktree"] = serde_json::Value::Bool(is_wt);
+                            }
+                            if let Some(pw) = m.get("parent_workspace").and_then(|v| v.as_str()) {
+                                obj["parent_workspace"] = serde_json::Value::String(pw.to_string());
+                            }
+                            if let Some(br) = m.get("branch").and_then(|v| v.as_str()) {
+                                obj["branch"] = serde_json::Value::String(br.to_string());
+                            }
+                            if let Some(wn) = m.get("worktree_name").and_then(|v| v.as_str()) {
+                                obj["worktree_name"] = serde_json::Value::String(wn.to_string());
+                            }
+                        }
+
+                        if resolved_root.is_none() {
+                            resolved_root = self.get_workspace_root(&canonical_ws).await.unwrap_or(None);
+                        }
                         
                         if resolved_root.is_none() {
                             let sample_files: Vec<String> = files.iter()
@@ -731,11 +934,45 @@ impl DbClient {
                         if let Some(rp) = resolved_root {
                             obj["root_path"] = serde_json::Value::String(rp);
                         }
+                        obj["worktrees"] = serde_json::Value::Array(Vec::new());
                         map.insert(canonical_ws, obj);
                     }
                 }
             }
         }
+
+        // Second pass: nest worktrees under their parent workspaces (R-055)
+        if !flat {
+            let worktree_keys: Vec<(String, String)> = map.iter()
+                .filter_map(|(k, v)| {
+                    let is_wt = v.get("is_worktree").and_then(|b| b.as_bool()).unwrap_or(false);
+                    let parent = v.get("parent_workspace").and_then(|s| s.as_str()).map(|s| s.to_string());
+                    if is_wt {
+                        parent.map(|p| (k.clone(), p))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            for (wt_key, parent_key) in worktree_keys {
+                if let Some(wt_entry) = map.get(&wt_key).cloned() {
+                    if let Some(parent_entry) = map.get_mut(&parent_key) {
+                        if let Some(arr) = parent_entry.get_mut("worktrees").and_then(|a| a.as_array_mut()) {
+                            arr.push(serde_json::json!({
+                                "workspace": wt_key,
+                                "branch": wt_entry.get("branch").and_then(|v| v.as_str()).unwrap_or(""),
+                                "root_path": wt_entry.get("root_path").and_then(|v| v.as_str()).unwrap_or(""),
+                                "total_nodes": wt_entry.get("total_nodes").and_then(|v| v.as_u64()).unwrap_or(0),
+                            }));
+                        }
+                        // Prune adopted worktree from top-level map to eliminate UI duplicate display
+                        map.remove(&wt_key);
+                    }
+                }
+            }
+        }
+
         let mut list: Vec<serde_json::Value> = map.into_values().collect();
         list.sort_by(|a, b| {
             let name_a = a.get("workspace").and_then(|v| v.as_str()).unwrap_or("");
@@ -956,6 +1193,10 @@ impl DbClient {
         } else {
             let _ = self.query_sql(&format!("DELETE FROM node WHERE workspace = '{}';", esc_ws)).await;
         }
+
+        // 4. Delete workspace metadata
+        let _ = self.query_sql(&format!("DELETE FROM workspace_meta WHERE workspace = '{}';", esc_ws)).await;
+        let _ = self.query_sql(&format!("DELETE FROM type::thing('workspace_meta', '{}');", esc_ws)).await;
 
         info!("Purged {} nodes + edges + galaxies for workspace '{}'", purged_count, workspace);
         Ok(purged_count)

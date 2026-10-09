@@ -60,12 +60,24 @@ interface GraphLink {
   workspace?: string;
 }
 
+interface WorktreeChild {
+  workspace: string;
+  branch: string;
+  root_path: string;
+  total_nodes: number;
+}
+
 interface WorkspaceInfo {
   workspace: string;
   total_nodes: number;
   languages: string[];
   files: string[];
   root_path?: string;
+  is_worktree?: boolean;
+  parent_workspace?: string;
+  branch?: string;
+  worktree_name?: string;
+  worktrees?: WorktreeChild[];
 }
 
 interface HealthResponse {
@@ -1064,11 +1076,47 @@ export default function App() {
                       if (selectedWorkspace !== ws.workspace) e.currentTarget.style.background = 'transparent';
                     }}
                   >
-                    <div>
-                      <div style={{ fontWeight: 600 }}>📁 {ws.workspace}</div>
+                    <div style={{ width: '100%' }}>
+                      <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>{ws.is_worktree ? '🌿' : '📁'}</span>
+                        <span>{ws.workspace}</span>
+                        {ws.branch && (
+                          <span style={{ fontSize: '0.65rem', padding: '1px 5px', borderRadius: 4, background: 'rgba(34, 197, 94, 0.2)', color: '#4ade80' }}>
+                            {ws.branch}
+                          </span>
+                        )}
+                      </div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                         {ws.total_nodes} nodes • {ws.languages.join(', ')}
+                        {ws.parent_workspace && ` • branch of ${ws.parent_workspace}`}
                       </div>
+                      {ws.worktrees && ws.worktrees.length > 0 && (
+                        <div style={{ marginTop: 6, paddingLeft: 8, borderLeft: '2px solid rgba(34, 197, 94, 0.4)', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          {ws.worktrees.map((wt) => (
+                            <div
+                              key={wt.workspace}
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                handleSelectWorkspace(wt.workspace);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                fontSize: '0.7rem',
+                                padding: '2px 6px',
+                                borderRadius: 4,
+                                color: selectedWorkspace === wt.workspace ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                                cursor: 'pointer',
+                                background: selectedWorkspace === wt.workspace ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                              }}
+                            >
+                              <span>🌿 {wt.branch || wt.workspace}</span>
+                              <span style={{ fontSize: '0.65rem' }}>{wt.total_nodes} nodes</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     {selectedWorkspace === ws.workspace && <Check size={14} />}
                   </button>

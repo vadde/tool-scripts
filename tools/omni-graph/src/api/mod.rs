@@ -15,7 +15,7 @@ use axum::{
         sse::{Event as SseEvent, KeepAlive, Sse},
         IntoResponse,
     },
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -80,6 +80,7 @@ pub struct IngestPayload {
     pub path: String,
     pub project: Option<String>,
     pub refresh: Option<bool>,
+    pub watch: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -204,6 +205,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/watch/status", get(watch_status_handler))
         .route("/api/watch/status/:workspace", get(watch_workspace_status_handler))
         .route("/api/watch/events", get(watch_events_sse_handler))
+        .route("/api/worktrees", get(worktrees_handler))
+        .route("/api/worktree/:name", delete(worktree_delete_handler))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -249,9 +252,23 @@ async fn stats_handler(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct WorkspacesParams {
+    pub flat: Option<bool>,
+}
+
 /// GET /api/workspaces
-async fn workspaces_handler(State(state): State<AppState>) -> impl IntoResponse {
-    match state.db.get_workspaces().await {
+async fn workspaces_handler(
+    State(state): State<AppState>,
+    Query(params): Query<WorkspacesParams>,
+) -> impl IntoResponse {
+    let flat = params.flat.unwrap_or(false);
+    let res = if flat {
+        state.db.get_workspaces_flat().await
+    } else {
+        state.db.get_workspaces().await
+    };
+    match res {
         Ok(workspaces) => (StatusCode::OK, Json(workspaces)).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -557,7 +574,7 @@ async fn condense_handler(
     }
 }
 
-/// POST /api/ingest (R-010, AC-009)
+/// POST /api/ingest (R-010, AC-009, R-052)
 async fn ingest_handler(
     State(state): State<AppState>,
     Json(payload): Json<IngestPayload>,
@@ -566,10 +583,40 @@ async fn ingest_handler(
     let path = payload.path;
     let project = payload.project;
     let refresh = payload.refresh.unwrap_or(false);
-    info!("Ingest request received for path: {}, project: {:?}, refresh: {}", path, project, refresh);
+    let auto_watch = payload.watch.unwrap_or(true);
+    info!("Ingest request received for path: {}, project: {:?}, refresh: {}, watch: {}", path, project, refresh, auto_watch);
+
+    // Security: Validate path existence, canonicalize symlinks, and verify root containment (R-051 / AppSec)
+    let roots = allowed_browse_roots();
+    let current_dir = std::path::PathBuf::from(&path);
+    let canonical = match current_dir.canonicalize() {
+        Ok(c) => c,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "status": "error",
+                    "message": format!("Path does not exist or cannot be resolved: {}", path)
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    if !is_path_allowed(&canonical, &roots) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "status": "error",
+                "message": format!("Access denied: path '{}' is outside allowed roots", path),
+                "allowed_roots": roots.iter().map(|r| r.to_string_lossy().to_string()).collect::<Vec<_>>()
+            })),
+        )
+            .into_response();
+    }
 
     let pipeline = state.pipeline.clone();
-    let path_clone = path.clone();
+    let path_clone = canonical.to_string_lossy().to_string();
     let project_clone = project.clone();
 
     // Run ingestion in a spawned task so client aborts/timeouts do not cancel mid-flight
@@ -582,6 +629,22 @@ async fn ingest_handler(
         Err(e) => Err(format!("Ingestion task terminated unexpectedly: {}", e)),
     };
     let duration_ms = start.elapsed().as_millis() as i64;
+
+    // Automatically enroll live watch daemon if enabled (R-052)
+    let mut live_watch = false;
+    if let Ok(ref ingest_res) = res {
+        if auto_watch {
+            match state.watcher.start_watch(&path, &ingest_res.workspace, None).await {
+                Ok(_) => {
+                    info!("Auto-started live watch for workspace '{}'", ingest_res.workspace);
+                    live_watch = true;
+                }
+                Err(e) => {
+                    warn!("Auto-watch registration returned for '{}': {}", ingest_res.workspace, e);
+                }
+            }
+        }
+    }
 
     // Record telemetry asynchronously
     let db = state.db.clone();
@@ -603,7 +666,8 @@ async fn ingest_handler(
             StatusCode::OK,
             Json(serde_json::json!({
                 "status": "success",
-                "result": res
+                "result": res,
+                "live_watch": live_watch
             })),
         )
             .into_response(),
@@ -1301,6 +1365,58 @@ async fn watch_events_sse_handler(
     });
 
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+/// GET /api/worktrees (R-055, R-056)
+async fn worktrees_handler(State(state): State<AppState>) -> impl IntoResponse {
+    match state.db.get_workspaces_flat().await {
+        Ok(workspaces) => {
+            let mut worktrees = Vec::new();
+            for ws in workspaces {
+                let is_wt = ws.get("is_worktree").and_then(|v| v.as_bool()).unwrap_or(false);
+                if is_wt {
+                    let ws_name = ws.get("workspace").and_then(|v| v.as_str()).unwrap_or("");
+                    let is_watching = state.watcher.get_workspace_status(ws_name).await.is_some();
+                    let mut entry = ws.clone();
+                    entry["is_watching"] = serde_json::Value::Bool(is_watching);
+                    worktrees.push(entry);
+                }
+            }
+            (StatusCode::OK, Json(serde_json::json!({
+                "worktrees": worktrees,
+                "total": worktrees.len()
+            }))).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        ).into_response(),
+    }
+}
+
+/// DELETE /api/worktree/:name (R-054)
+async fn worktree_delete_handler(
+    State(state): State<AppState>,
+    AxumPath(name): AxumPath<String>,
+) -> impl IntoResponse {
+    let ws = normalize_workspace(Some(&name)).unwrap_or(name);
+    // 1. Stop watcher if running
+    let _ = state.watcher.stop_watch(&ws).await;
+    // 2. Purge workspace records, nodes, edges, galaxies, and metadata
+    match state.db.purge_workspace(&ws).await {
+        Ok(count) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "status": "purged",
+                "workspace": ws,
+                "purged_nodes": count
+            })),
+        ).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e })),
+        ).into_response(),
+    }
 }
 
 

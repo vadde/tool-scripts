@@ -46,6 +46,14 @@ A forensic audit of Omni-Graph revealed nine architectural vulnerabilities and f
 | **R-048** | **Trait & Class Inheritance Relationship Extraction**: Extract Rust `impl Trait for Struct` as `IMPLEMENTS` edges; extract TypeScript `implements` and `extends` heritage clauses; extract Python base classes as `EXTENDS` edges. | P1 | Trait implementations and class hierarchies are visible in graph. |
 | **R-049** | **Rust Macro Definition & Invocation Indexing**: Parse `macro_definition` as macro symbols and `macro_invocation` as call expressions with macro target labels. | P1 | Rust macros are indexed and referenced in call graphs. |
 | **R-050** | **Unified Record ID Normalization**: Centralize SurrealDB record ID cleaning (`clean_record_id`) across all modules to handle bare, bracketed (`⟨...⟩`), and backticked IDs uniformly. | P1 | Eliminates ID parsing bugs across SurrealDB v2 variants. |
+| **R-051** | **Git Worktree Lineage Auto-Detection**: Inspect `.git` file for `gitdir:`, extract parent repository root, branch name, and worktree name in $O(1)$ time. Persist lineage in `workspace_meta`. | P0 | Verified via `detect_git_worktree` unit tests. |
+| **R-052** | **Ingest-Time Live Watch Auto-Enrollment**: Automatically invoke `WatchManager::start_watch` on ingested directory when `watch != Some(false)`. Eliminate stale graph states for active coding agents. | P0 | Ingestion response returns active watch status and file events stream live. |
+| **R-053** | **Seed-Preserving Galaxy Inheritance**: Pre-populate community seeds from `parent_workspace` when clustering a worktree to guarantee 99% galaxy cluster and subsystem stability across git branches. | P0 | Verified via LPA seed inheritance tests on worktree graphs. |
+| **R-054** | **Worktree Garbage Collection & Auto-Pruning**: Background sweep detects deleted worktree directories and cascades cleanups in SurrealDB, eliminating zombie workspaces. | P1 | Pruning removes orphaned nodes, edges, galaxies, and watcher. |
+| **R-055** | **Hierarchical Workspace API Representation**: `GET /api/workspaces` returns structured anchor codebases with nested active worktrees. | P1 | Grouped parent-worktree JSON structure verified. |
+| **R-056** | **UI Worktree Switcher & Delta Visualizer**: React/Cosmograph UI provides branch selector under parent workspace with live watching status pulse and glowing delta halos for branch-modified nodes. | P1 | UI renders branch selector and highlights modified nodes. |
+| **R-057** | **Worktree-Aware PreToolUse & PreInvocation Hooks**: Hook scripts resolve worktree lineage and provide tailored single-command sync banners that auto-attach watch daemons. | P0 | Hooks recognize worktrees and trigger zero-friction auto-sync. |
+| **R-058** | **Cross-Branch Symbol Diff API**: `GET /api/diff?worktree=<name>&parent=<parent>` compares worktree AST nodes against parent baseline to isolate branch blast radius. | P2 | Returns added, modified, and removed symbols across branches. |
 
 ---
 
@@ -58,8 +66,12 @@ A forensic audit of Omni-Graph revealed nine architectural vulnerabilities and f
    - Deterministic LPA tie-breaking.
    - Two-tier symbol lookup sorting.
    - Record ID cleaner unit tests.
-2. End-to-end container verification on `tool-scripts` and `tutor-intelligence`:
+   - Git worktree detection (`detect_git_worktree`) across regular repos, worktree files, and detached states.
+   - Seed-preserving worktree LPA clustering stability.
+2. End-to-end container verification on `tool-scripts`, `tutor-intelligence`, and `ti-strat-089`:
    - Re-index and confirm 0 orphaned edges (`SELECT count() FROM linked_to WHERE in.id IS NONE OR out.id IS NONE`).
+   - Confirm automatic watch daemon enrollment on worktree ingest.
+   - Test live file modification in `ti-strat-089` and verify single-file incremental update in <100ms.
    - Re-index and confirm 0 duplicate nodes for modified files.
 3. Strict Clippy check: `make -C tools/omni-graph lint-rust` (`-D warnings`).
 4. Strict UI check: `tsc --noEmit`.

@@ -29,12 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build documentation index
+      - name: Build documentation portal
         run: |
-          mkdir -p _site
-          cp -r docs/* _site/
-          cp README.md _site/index.md
-          echo "Documentation built successfully"
+          chmod +x scripts/build-docs.sh
+          bash scripts/build-docs.sh
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
