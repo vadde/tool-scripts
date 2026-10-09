@@ -1150,10 +1150,10 @@ tr:hover td {
 .canvas-viewport {
   overflow: auto;
   padding: 28px 24px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 240px;
+  display: block;
+  text-align: center;
+  min-height: 220px;
+  max-height: 600px;
   cursor: grab;
   user-select: none;
 }
@@ -1163,12 +1163,11 @@ tr:hover td {
 }
 
 .canvas-content-surface {
-  transform-origin: center center;
+  transform-origin: center top;
   transition: transform 0.12s ease-out;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: auto;
+  display: inline-block;
+  margin: 0 auto;
+  text-align: center;
   max-width: 100%;
 }
 
@@ -1234,31 +1233,28 @@ tr:hover td {
 .theater-surface {
   transform-origin: center center;
   transition: transform 0.1s ease-out;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  display: inline-block;
+  text-align: center;
   max-width: 95%;
 }
 
 /* Mermaid SVG Readability & Natural Scale Overrides */
 .mermaid {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  width: auto;
-  margin: 0 auto;
+  display: inline-block !important;
+  margin: 0 auto !important;
+  text-align: center !important;
+  overflow: visible !important;
 }
 
 .mermaid svg {
+  display: inline-block !important;
   max-width: 100% !important;
-  max-height: 480px !important;
   height: auto !important;
-  width: auto !important;
 }
 
 .mermaid svg text, .mermaid svg .label {
   font-family: var(--font-mono) !important;
-  font-size: 14px !important;
+  font-size: 13.5px !important;
   font-weight: 600 !important;
   fill: #f8fafc !important;
 }

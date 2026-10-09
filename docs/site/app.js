@@ -467,82 +467,113 @@ function initCanvasZoomAndTheater() {
   });
 }
 
-// ─── 5. ScrollSpy for Sidebar & TOC ───────────────────────────────────────────
+// ─── 5. ScrollSpy for Sidebar & TOC (1:1 Element Level Tracking) ─────────────
 function initScrollSpy() {
-  const sections = Array.from(document.querySelectorAll('.chapter-section'));
-  const navTreeLinks = document.querySelectorAll('.nav-tree-link');
-  const tocLinks = document.querySelectorAll('.toc-link');
-  const treeHeaders = document.querySelectorAll('.nav-tree-header');
+  const navTreeLinks = Array.from(document.querySelectorAll('.nav-tree-link'));
+  const tocLinks = Array.from(document.querySelectorAll('.toc-link'));
+  const treeHeaders = Array.from(document.querySelectorAll('.nav-tree-header'));
+
+  // Collect all unique target elements referenced in the navigation
+  const targetMap = new Map();
+  navTreeLinks.forEach(link => {
+    const href = link.getAttribute('href');
+    if (href && href.startsWith('#')) {
+      const el = document.querySelector(href);
+      if (el) targetMap.set(href.slice(1), el);
+    }
+  });
+
+  const trackedItems = Array.from(targetMap.entries()).map(([id, element]) => ({ id, element }));
 
   let isTicking = false;
+  let isNavClicking = false; // Prevents scroll event from overriding active click during smooth scroll
 
   window.addEventListener('scroll', () => {
+    if (isNavClicking) return;
     if (!isTicking) {
       window.requestAnimationFrame(() => {
-        updateActiveSections();
+        updateActiveNav();
         isTicking = false;
       });
       isTicking = true;
     }
   }, { passive: true });
 
-  function updateActiveSections() {
-    const scrollPos = window.scrollY + 140; // Offset below sticky header
+  function updateActiveNav() {
+    const scrollPos = window.scrollY + 160; // Offset below sticky header
 
-    let currentSection = null;
+    // Filter to items currently visible in the DOM (not collapsed away)
+    const visibleItems = trackedItems.filter(item => {
+      return item.element.offsetHeight > 0 || item.element.offsetParent !== null;
+    });
+
+    if (visibleItems.length === 0) return;
+
+    let activeId = visibleItems[0].id;
 
     // Check if near bottom of page
-    const isAtBottom = (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - 60);
+    const isAtBottom = (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - 70);
 
-    if (isAtBottom && sections.length > 0) {
-      currentSection = sections[sections.length - 1];
+    if (isAtBottom) {
+      activeId = visibleItems[visibleItems.length - 1].id;
     } else {
-      for (let i = 0; i < sections.length; i++) {
-        const sec = sections[i];
-        const top = sec.offsetTop;
-        const height = sec.offsetHeight;
-        if (scrollPos >= top && scrollPos < top + height) {
-          currentSection = sec;
+      for (let i = 0; i < visibleItems.length; i++) {
+        const item = visibleItems[i];
+        const top = item.element.getBoundingClientRect().top + window.scrollY;
+        if (scrollPos >= top) {
+          activeId = item.id;
+        } else {
           break;
         }
       }
     }
 
-    if (currentSection) {
-      const id = currentSection.id;
-
-      // Update TOC links
-      tocLinks.forEach((link) => {
-        if (link.getAttribute('href') === `#${id}`) {
-          link.classList.add('active');
-        } else {
-          link.classList.remove('active');
-        }
-      });
-
-      // Update Nav Tree active branch indicator WITHOUT mutating tree open/close state!
-      treeHeaders.forEach((header) => {
-        const target = header.getAttribute('data-target');
-        if (target === `#${id}`) {
-          header.classList.add('active-branch');
-        } else {
-          header.classList.remove('active-branch');
-        }
-      });
-
-      // Update Nav Tree link active states
-      navTreeLinks.forEach((link) => {
-        if (link.getAttribute('href') === `#${id}`) {
-          link.classList.add('active');
-        } else {
-          link.classList.remove('active');
-        }
-      });
+    if (activeId) {
+      applyActiveNavId(activeId);
     }
   }
 
+  function applyActiveNavId(id) {
+    // 1. Update Left Nav tree links
+    navTreeLinks.forEach((link) => {
+      if (link.getAttribute('href') === `#${id}`) {
+        link.classList.add('active');
+        // Ensure its containing group header has active-branch styling
+        const parentGroup = link.closest('.nav-tree-group');
+        if (parentGroup) {
+          treeHeaders.forEach(h => h.classList.remove('active-branch'));
+          parentGroup.querySelector('.nav-tree-header')?.classList.add('active-branch');
+        }
+      } else {
+        link.classList.remove('active');
+      }
+    });
+
+    // 2. Update TOC links
+    tocLinks.forEach((link) => {
+      if (link.getAttribute('href') === `#${id}`) {
+        link.classList.add('active');
+      } else {
+        link.classList.remove('active');
+      }
+    });
+  }
+
+  // When clicking a link in left nav, immediately activate it and lock spy briefly
+  navTreeLinks.forEach(link => {
+    link.addEventListener('click', () => {
+      const href = link.getAttribute('href');
+      if (href && href.startsWith('#')) {
+        const id = href.slice(1);
+        applyActiveNavId(id);
+        isNavClicking = true;
+        setTimeout(() => { isNavClicking = false; }, 850);
+      }
+    });
+  });
+
   // Initial calculation
-  updateActiveSections();
+  updateActiveNav();
 }
 
 // ─── 6. Copy Code Snippet Buttons ─────────────────────────────────────────────

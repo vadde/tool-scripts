@@ -352,7 +352,7 @@ flowchart TB
 
     subgraph Rust["Tier 3: Rust Axum Orchestrator (:8080)"]
         Parser["Tree-Sitter Polyglot Parser"]
-        Condenser["Context Condenser (<1500 Tokens)"]
+        Condenser["Context Condenser (≤ 1500 Tokens)"]
         RagEngine["GraphRagEngine (Hybrid Synthesizer)"]
         Watcher["Notify Background Watcher Daemon"]
     end
