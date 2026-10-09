@@ -6,6 +6,7 @@ let isFocusModeActive = false; // When true, expanding one chapter auto-collapse
 
 document.addEventListener('DOMContentLoaded', () => {
   initReadingProgressBar();
+  initMathRendering();
   initTreeNavigation();
   initCollapsibleChapters();
   initCanvasZoomAndTheater();
@@ -16,6 +17,36 @@ document.addEventListener('DOMContentLoaded', () => {
   initApiPlayground();
   initMermaid();
 });
+
+// ─── 0. KaTeX Mathematical Notation Typesetting ──────────────────────────────
+function initMathRendering() {
+  if (window.renderMathInElement) {
+    try {
+      renderMathInElement(document.body, {
+        delimiters: [
+          { left: '$$', right: '$$', display: true },
+          { left: '$', right: '$', display: false }
+        ],
+        throwOnError: false
+      });
+    } catch (e) {
+      console.warn('KaTeX auto-render warning:', e);
+    }
+  } else {
+    // Retry once in case CDN script loads asynchronously
+    setTimeout(() => {
+      if (window.renderMathInElement) {
+        renderMathInElement(document.body, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false }
+          ],
+          throwOnError: false
+        });
+      }
+    }, 400);
+  }
+}
 
 // ─── 1. Reading Progress Bar ──────────────────────────────────────────────────
 function initReadingProgressBar() {
@@ -30,7 +61,7 @@ function initReadingProgressBar() {
   }, { passive: true });
 }
 
-// ─── 2. Hierarchical Tree Navigation & Sidebar Rail ───────────────────────────
+// ─── 2. Bi-Directional Tree Navigation & Sidebar Rail ─────────────────────────
 function initTreeNavigation() {
   const sidebar = document.getElementById('main-sidebar');
   const railToggle = document.getElementById('sidebar-rail-toggle');
@@ -46,12 +77,33 @@ function initTreeNavigation() {
     });
   }
 
-  // Expand / Collapse Tree Group Headers
+  // Expand / Collapse Tree Group Headers with Content Sync
   document.querySelectorAll('.nav-tree-header').forEach((header) => {
-    header.addEventListener('click', (e) => {
+    header.addEventListener('click', () => {
       const group = header.closest('.nav-tree-group');
-      if (group) {
-        group.classList.toggle('expanded');
+      if (!group) return;
+
+      const isNowExpanded = !group.classList.contains('expanded');
+      group.classList.toggle('expanded');
+
+      // Bi-Directional Sync: Also expand/collapse corresponding chapter in content pane!
+      const targetId = header.getAttribute('data-target');
+      if (targetId) {
+        const targetSection = document.querySelector(targetId);
+        if (targetSection) {
+          if (isNowExpanded) {
+            targetSection.classList.remove('is-collapsed');
+            if (isFocusModeActive) {
+              document.querySelectorAll('.chapter-section').forEach(s => {
+                if (s !== targetSection) s.classList.add('is-collapsed');
+              });
+            }
+            targetSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            pulseElement(targetSection);
+          } else {
+            targetSection.classList.add('is-collapsed');
+          }
+        }
       }
     });
   });
@@ -69,14 +121,31 @@ function initTreeNavigation() {
     });
   }
 
-  // When clicking any link in tree navigation, auto-expand its target chapter section
+  // When clicking any link in tree navigation, auto-expand target and smooth scroll with flash focus
   document.querySelectorAll('.nav-tree-link').forEach((link) => {
     link.addEventListener('click', (e) => {
       const href = link.getAttribute('href');
       if (href && href.startsWith('#')) {
-        const targetSec = document.querySelector(href);
-        if (targetSec) {
-          ensureSectionExpanded(targetSec);
+        e.preventDefault();
+        const targetEl = document.querySelector(href);
+        if (targetEl) {
+          // 1. Ensure containing chapter is expanded
+          ensureSectionExpanded(targetEl);
+
+          // 2. Expand parent tree group in sidebar
+          const parentGroup = link.closest('.nav-tree-group');
+          if (parentGroup) parentGroup.classList.add('expanded');
+
+          // 3. Smooth scroll directly to target
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+          // 4. Visual flash focus feedback
+          pulseElement(targetEl);
+
+          // 5. Update URL hash without jumping
+          if (history.pushState) {
+            history.pushState(null, null, href);
+          }
         }
       }
     });
@@ -105,6 +174,9 @@ function initCollapsibleChapters() {
           });
         }
         section.classList.remove('is-collapsed');
+
+        // Sync with left navigation: expand corresponding tree group
+        syncNavGroupForSection(section.id, true);
       } else {
         section.classList.add('is-collapsed');
       }
@@ -151,17 +223,46 @@ function initCollapsibleChapters() {
   }
 }
 
-// Helper: Ensure a target section is expanded when navigated to
+// Helper: Ensure a target section and any nested containers are expanded
 function ensureSectionExpanded(targetElement) {
   const parentSection = targetElement.closest('.chapter-section') || targetElement;
-  if (parentSection && parentSection.classList.contains('is-collapsed')) {
-    if (isFocusModeActive) {
-      document.querySelectorAll('.chapter-section').forEach(s => {
-        if (s !== parentSection) s.classList.add('is-collapsed');
-      });
+  if (parentSection) {
+    if (parentSection.classList.contains('is-collapsed')) {
+      if (isFocusModeActive) {
+        document.querySelectorAll('.chapter-section').forEach(s => {
+          if (s !== parentSection) s.classList.add('is-collapsed');
+        });
+      }
+      parentSection.classList.remove('is-collapsed');
     }
-    parentSection.classList.remove('is-collapsed');
+
+    // Sync corresponding tree in left nav
+    syncNavGroupForSection(parentSection.id, true);
   }
+}
+
+// Helper: Synchronize corresponding Left Navigation tree group
+function syncNavGroupForSection(sectionId, expand) {
+  const treeLink = document.querySelector(`.nav-tree-link[href="#${sectionId}"]`) ||
+                   document.querySelector(`.nav-tree-header[data-target="#${sectionId}"]`);
+  if (treeLink) {
+    const group = treeLink.closest('.nav-tree-group');
+    if (group && expand) {
+      group.classList.add('expanded');
+    }
+  }
+}
+
+// Helper: Flash focus glow on target element
+function pulseElement(el) {
+  const targetCard = el.classList.contains('glass-card') || el.classList.contains('chapter-section')
+    ? el 
+    : el.closest('.glass-card, .canvas-container, .callout, .chapter-section') || el;
+  
+  targetCard.classList.remove('flash-focus');
+  void targetCard.offsetWidth; // Trigger reflow
+  targetCard.classList.add('flash-focus');
+  setTimeout(() => targetCard.classList.remove('flash-focus'), 1900);
 }
 
 // ─── 4. Interactive Zoomable Visual Canvas & Fullscreen Theater ───────────────
@@ -189,7 +290,7 @@ function initCanvasZoomAndTheater() {
     const zoomResetBtn = canvas.querySelector('.zoom-reset-btn');
     const zoomBadge = canvas.querySelector('.zoom-level-badge');
     const fullscreenBtn = canvas.querySelector('.fullscreen-btn');
-    const titleTag = canvas.querySelector('.canvas-type-tag')?.innerText || 'Diagram View';
+    const titleTag = canvas.querySelector('.canvas-type-tag')?.innerText || 'Architecture View';
 
     if (!viewport || !surface) return;
 
@@ -274,7 +375,7 @@ function initCanvasZoomAndTheater() {
     if (!theaterModal || !theaterSurface) return;
     theaterTitle.innerText = title;
     theaterSurface.innerHTML = innerContent;
-    activeTheaterZoom = 1.25; // Default larger scale in theater
+    activeTheaterZoom = 1.25; // Default comfortable reading scale in theater
     activeTheaterPanX = 0;
     activeTheaterPanY = 0;
     updateTheaterTransform();
@@ -368,46 +469,80 @@ function initCanvasZoomAndTheater() {
 
 // ─── 5. ScrollSpy for Sidebar & TOC ───────────────────────────────────────────
 function initScrollSpy() {
-  const sections = document.querySelectorAll('.chapter-section, .section-h2');
+  const sections = Array.from(document.querySelectorAll('.chapter-section'));
   const navTreeLinks = document.querySelectorAll('.nav-tree-link');
   const tocLinks = document.querySelectorAll('.toc-link');
+  const treeHeaders = document.querySelectorAll('.nav-tree-header');
 
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      if (entry.isIntersecting) {
-        const id = entry.target.id;
-        if (!id) return;
+  let isTicking = false;
 
-        // Update Tree Nav Link & Active Branch Group
-        navTreeLinks.forEach((link) => {
-          if (link.getAttribute('href') === `#${id}`) {
-            link.classList.add('active');
-            const parentGroup = link.closest('.nav-tree-group');
-            if (parentGroup) {
-              parentGroup.classList.add('expanded');
-              parentGroup.querySelector('.nav-tree-header')?.classList.add('active-branch');
-            }
-          } else {
-            link.classList.remove('active');
-          }
-        });
+  window.addEventListener('scroll', () => {
+    if (!isTicking) {
+      window.requestAnimationFrame(() => {
+        updateActiveSections();
+        isTicking = false;
+      });
+      isTicking = true;
+    }
+  }, { passive: true });
 
-        // Update TOC
-        tocLinks.forEach((link) => {
-          if (link.getAttribute('href') === `#${id}`) {
-            link.classList.add('active');
-          } else {
-            link.classList.remove('active');
-          }
-        });
+  function updateActiveSections() {
+    const scrollPos = window.scrollY + 140; // Offset below sticky header
+
+    let currentSection = null;
+
+    // Check if near bottom of page
+    const isAtBottom = (window.innerHeight + window.scrollY) >= (document.documentElement.scrollHeight - 60);
+
+    if (isAtBottom && sections.length > 0) {
+      currentSection = sections[sections.length - 1];
+    } else {
+      for (let i = 0; i < sections.length; i++) {
+        const sec = sections[i];
+        const top = sec.offsetTop;
+        const height = sec.offsetHeight;
+        if (scrollPos >= top && scrollPos < top + height) {
+          currentSection = sec;
+          break;
+        }
       }
-    });
-  }, {
-    rootMargin: '-80px 0px -70% 0px',
-    threshold: 0
-  });
+    }
 
-  sections.forEach((sec) => observer.observe(sec));
+    if (currentSection) {
+      const id = currentSection.id;
+
+      // Update TOC links
+      tocLinks.forEach((link) => {
+        if (link.getAttribute('href') === `#${id}`) {
+          link.classList.add('active');
+        } else {
+          link.classList.remove('active');
+        }
+      });
+
+      // Update Nav Tree active branch indicator WITHOUT mutating tree open/close state!
+      treeHeaders.forEach((header) => {
+        const target = header.getAttribute('data-target');
+        if (target === `#${id}`) {
+          header.classList.add('active-branch');
+        } else {
+          header.classList.remove('active-branch');
+        }
+      });
+
+      // Update Nav Tree link active states
+      navTreeLinks.forEach((link) => {
+        if (link.getAttribute('href') === `#${id}`) {
+          link.classList.add('active');
+        } else {
+          link.classList.remove('active');
+        }
+      });
+    }
+  }
+
+  // Initial calculation
+  updateActiveSections();
 }
 
 // ─── 6. Copy Code Snippet Buttons ─────────────────────────────────────────────
@@ -529,10 +664,14 @@ function initSearchModal() {
         </div>
         <div class="result-snippet">${item.snippet}</div>
       `;
-      a.addEventListener('click', () => {
+      a.addEventListener('click', (e) => {
         closeModal();
         const targetSec = document.getElementById(item.id);
-        if (targetSec) ensureSectionExpanded(targetSec);
+        if (targetSec) {
+          ensureSectionExpanded(targetSec);
+          targetSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          pulseElement(targetSec);
+        }
       });
       resultsContainer.appendChild(a);
     });

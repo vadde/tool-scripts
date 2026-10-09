@@ -6,6 +6,10 @@
   <title>tool-scripts — Living Engineering Documentation & Architecture eBook</title>
   <meta name="description" content="Master architectural blueprint, theoretical foundations, and operational guide for omni-graph, session-explorer, and enterprise agentic engineering scripts.">
   <link rel="stylesheet" href="style.css">
+  <!-- KaTeX for Beautiful Mathematical Formula Typesetting -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
   <!-- Mermaid.js for Interactive Architecture Diagrams -->
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
 </head>
@@ -98,7 +102,7 @@
 
       <!-- Tree Group 0: Monorepo & Governance -->
       <div class="nav-tree-group expanded">
-        <div class="nav-tree-header active-branch">
+        <div class="nav-tree-header active-branch" data-target="#sec-sdd-governance">
           <div class="tree-title-group">
             <span class="tree-chevron">▶</span>
             <span class="tree-icon">🧭</span>
@@ -115,7 +119,7 @@
 
       <!-- Tree Group 1: Omni-Graph -->
       <div class="nav-tree-group expanded">
-        <div class="nav-tree-header">
+        <div class="nav-tree-header" data-target="#ch1-omni-graph">
           <div class="tree-title-group">
             <span class="tree-chevron">▶</span>
             <span class="tree-icon">🌌</span>
@@ -137,7 +141,7 @@
 
       <!-- Tree Group 2: Session Explorer -->
       <div class="nav-tree-group expanded">
-        <div class="nav-tree-header">
+        <div class="nav-tree-header" data-target="#ch2-session-explorer">
           <div class="tree-title-group">
             <span class="tree-chevron">▶</span>
             <span class="tree-icon">🔎</span>
@@ -154,7 +158,7 @@
 
       <!-- Tree Group 3: CI/CD & Automation -->
       <div class="nav-tree-group expanded">
-        <div class="nav-tree-header">
+        <div class="nav-tree-header" data-target="#ch3-ci-pipeline">
           <div class="tree-title-group">
             <span class="tree-chevron">▶</span>
             <span class="tree-icon">⚡</span>
@@ -195,7 +199,7 @@
 
         <div class="hero-stats">
           <div class="stat-card">
-            <div class="stat-val">2,860+ <span>nodes</span></div>
+            <div class="stat-val">2,892+ <span>nodes</span></div>
             <div class="stat-lbl">Active AST Symbols (Polyglot)</div>
           </div>
           <div class="stat-card">
@@ -268,7 +272,10 @@
                 <span class="zoom-level-badge">100%</span>
                 <button class="canvas-tool-btn zoom-in-btn" title="Zoom In">+</button>
                 <button class="canvas-tool-btn zoom-reset-btn" title="Reset Zoom">⟲</button>
-                <button class="canvas-tool-btn fullscreen-btn" title="View Fullscreen Theater">⛶ Theater</button>
+                <button class="canvas-tool-btn fullscreen-btn" title="View Fullscreen Theater">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                  <span>Theater</span>
+                </button>
               </div>
             </div>
             <div class="canvas-viewport">
@@ -286,7 +293,7 @@ graph TD
                 </pre>
               </div>
             </div>
-            <div class="canvas-caption">Figure 0.1: Deterministic Agent Reconnaissance Ladder & Guardrail State Machine (Use controls to zoom & pan)</div>
+            <div class="canvas-caption">Figure 0.1: Deterministic Agent Reconnaissance Ladder & Guardrail State Machine</div>
           </div>
 
           <div class="callout callout-warning">
@@ -328,7 +335,10 @@ graph TD
                 <span class="zoom-level-badge">100%</span>
                 <button class="canvas-tool-btn zoom-in-btn" title="Zoom In">+</button>
                 <button class="canvas-tool-btn zoom-reset-btn" title="Reset Zoom">⟲</button>
-                <button class="canvas-tool-btn fullscreen-btn" title="View Fullscreen Theater">⛶ Theater</button>
+                <button class="canvas-tool-btn fullscreen-btn" title="View Fullscreen Theater">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                  <span>Theater</span>
+                </button>
               </div>
             </div>
             <div class="canvas-viewport">
@@ -363,7 +373,7 @@ flowchart TB
                 </pre>
               </div>
             </div>
-            <div class="canvas-caption">Figure 1.1: Omni-Graph 4-Tier Container Topology & Dataflow (Zoom or view fullscreen)</div>
+            <div class="canvas-caption">Figure 1.1: Omni-Graph 4-Tier Container Topology & Dataflow</div>
           </div>
 
           <!-- Interactive Zoomable Canvas: Microservices Table -->
@@ -375,7 +385,10 @@ flowchart TB
                 <span class="zoom-level-badge">100%</span>
                 <button class="canvas-tool-btn zoom-in-btn" title="Zoom In">+</button>
                 <button class="canvas-tool-btn zoom-reset-btn" title="Reset Zoom">⟲</button>
-                <button class="canvas-tool-btn fullscreen-btn" title="View Fullscreen Theater">⛶ Theater</button>
+                <button class="canvas-tool-btn fullscreen-btn" title="View Fullscreen Theater">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                  <span>Theater</span>
+                </button>
               </div>
             </div>
             <div class="canvas-viewport">
@@ -512,109 +525,127 @@ DEFINE INDEX idx_edge_in_ws     ON TABLE linked_to FIELDS workspace, in;</code><
         </div>
       </section>
 
-      <!-- Interactive Widget: Token Budget Simulator -->
-      <section class="interactive-widget" id="token-simulator">
-        <div class="widget-title">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
-          <span>Interactive Context Condenser Token Simulator</span>
-        </div>
-        <p class="widget-desc">
-          Test and simulate Omni-Graph's mathematical token budget. Tweak the sliders to see how two-tier symbol truncation and edge reservation guarantee compliance with the &lt; 1,500 token SLA.
-        </p>
-
-        <div class="simulator-controls">
-          <div class="control-item">
-            <label>
-              <span>Root Symbol Snippet</span>
-              <span class="val" id="val-root-chars">300 chars</span>
-            </label>
-            <input type="range" id="sim-root-chars" min="100" max="800" step="50" value="300">
+      <!-- CHAPTER MODULE: Interactive Token Budget Simulator -->
+      <section class="chapter-section" id="token-simulator">
+        <div class="chapter-header-trigger">
+          <div>
+            <div class="chapter-badge">Chapter 01 · Interactive Module 1.1</div>
+            <h2 class="chapter-title" style="margin-bottom: 4px; font-size: 1.6rem;">Interactive Context Condenser Token Simulator</h2>
+            <div style="font-size: 0.85rem; color: var(--text-dim);">Real-time token estimation, character bounding, and SLA validation</div>
           </div>
-          <div class="control-item">
-            <label>
-              <span>Neighbor Signatures Cap</span>
-              <span class="val" id="val-neighbor-chars">2400 chars</span>
-            </label>
-            <input type="range" id="sim-neighbor-chars" min="500" max="4500" step="100" value="2400">
-          </div>
-          <div class="control-item">
-            <label>
-              <span>Structural Relations Count</span>
-              <span class="val" id="val-edges-count">15 relations</span>
-            </label>
-            <input type="range" id="sim-edges-count" min="1" max="40" step="1" value="15">
-          </div>
-          <div class="control-item">
-            <label>
-              <span>Galaxy Macro Summary</span>
-              <span class="val" id="val-macro-chars">350 chars</span>
-            </label>
-            <input type="range" id="sim-macro-chars" min="100" max="1000" step="50" value="350">
+          <div class="chapter-toggle-indicator">
+            <div class="chapter-toggle-icon">▼</div>
           </div>
         </div>
 
-        <div class="simulator-results">
-          <div class="res-metric">
-            <div class="res-number" id="res-total-chars" style="color: #fff;">4,025</div>
-            <div class="res-label">Total Characters</div>
+        <div class="chapter-body">
+          <p style="color: var(--text-muted); margin-bottom: 24px;">
+            Test and simulate Omni-Graph's mathematical token budget. Tweak the sliders to see how two-tier symbol truncation and edge reservation guarantee compliance with the &lt; 1,500 token SLA.
+          </p>
+
+          <div class="simulator-controls">
+            <div class="control-item">
+              <label>
+                <span>Root Symbol Snippet</span>
+                <span class="val" id="val-root-chars">300 chars</span>
+              </label>
+              <input type="range" id="sim-root-chars" min="100" max="800" step="50" value="300">
+            </div>
+            <div class="control-item">
+              <label>
+                <span>Neighbor Signatures Cap</span>
+                <span class="val" id="val-neighbor-chars">2400 chars</span>
+              </label>
+              <input type="range" id="sim-neighbor-chars" min="500" max="4500" step="100" value="2400">
+            </div>
+            <div class="control-item">
+              <label>
+                <span>Structural Relations Count</span>
+                <span class="val" id="val-edges-count">15 relations</span>
+              </label>
+              <input type="range" id="sim-edges-count" min="1" max="40" step="1" value="15">
+            </div>
+            <div class="control-item">
+              <label>
+                <span>Galaxy Macro Summary</span>
+                <span class="val" id="val-macro-chars">350 chars</span>
+              </label>
+              <input type="range" id="sim-macro-chars" min="100" max="1000" step="50" value="350">
+            </div>
           </div>
-          <div class="res-metric">
-            <div class="res-number" id="res-total-tokens" style="color: #34d399;">~1,007</div>
-            <div class="res-label">Estimated Tokens (Chars / 4)</div>
-          </div>
-          <div class="res-metric">
-            <div id="res-sla-badge" class="sla-badge sla-pass">SLA PASSED (≤ 1,500 Tokens)</div>
-            <div class="res-label">SLA Compliance Gate</div>
+
+          <div class="simulator-results">
+            <div class="res-metric">
+              <div class="res-number" id="res-total-chars" style="color: #fff;">4,025</div>
+              <div class="res-label">Total Characters</div>
+            </div>
+            <div class="res-metric">
+              <div class="res-number" id="res-total-tokens" style="color: #34d399;">~1,007</div>
+              <div class="res-label">Estimated Tokens (Chars / 4)</div>
+            </div>
+            <div class="res-metric">
+              <div id="res-sla-badge" class="sla-badge sla-pass">SLA PASSED (≤ 1,500 Tokens)</div>
+              <div class="res-label">SLA Compliance Gate</div>
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- Interactive Widget: REST API Playground -->
-      <section class="interactive-widget" id="api-playground">
-        <div class="widget-title">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-          <span>Omni-Graph Live API Playground & Curl Generator</span>
-        </div>
-        <p class="widget-desc">
-          Select any Omni-Graph REST endpoint to generate ready-to-run curl commands formatted for terminal or agent tool invocations.
-        </p>
-
-        <div class="simulator-controls">
-          <div class="control-item">
-            <label><span>Endpoint Target</span></label>
-            <select id="api-endpoint" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
-              <option value="query">POST /api/query (Hybrid Graph-RAG Synthesis)</option>
-              <option value="condense">GET /api/condense (AST Neighborhood Slice)</option>
-              <option value="symbol">GET /api/symbol (LSP Symbol Definition)</option>
-              <option value="references">GET /api/references (LSP Caller Analysis)</option>
-              <option value="galaxies">GET /api/galaxies (Subsystem Clustering)</option>
-              <option value="workspaces">GET /api/workspaces (Hierarchy Lineage)</option>
-              <option value="worktrees">GET /api/worktrees (Active Git Worktrees)</option>
-              <option value="ingest">POST /api/ingest (Codebase Ingestion)</option>
-            </select>
+      <!-- CHAPTER MODULE: REST API Playground -->
+      <section class="chapter-section" id="api-playground">
+        <div class="chapter-header-trigger">
+          <div>
+            <div class="chapter-badge">Chapter 01 · Interactive Module 1.2</div>
+            <h2 class="chapter-title" style="margin-bottom: 4px; font-size: 1.6rem;">Omni-Graph Live API Playground & Curl Generator</h2>
+            <div style="font-size: 0.85rem; color: var(--text-dim);">Terminal-ready curl generator for all graph, vector, and AST endpoints</div>
           </div>
-          <div class="control-item">
-            <label><span>Target Workspace</span></label>
-            <input type="text" id="api-ws" value="tool-scripts" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
-          </div>
-          <div class="control-item">
-            <label><span>Symbol Name (if applicable)</span></label>
-            <input type="text" id="api-sym" value="ContextCondenser" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
-          </div>
-          <div class="control-item">
-            <label><span>Prompt / Question (if applicable)</span></label>
-            <input type="text" id="api-q" value="How does token budgeting work?" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
+          <div class="chapter-toggle-indicator">
+            <div class="chapter-toggle-icon">▼</div>
           </div>
         </div>
 
-        <div class="code-container">
-          <div class="code-header">
-            <span>Generated Command</span>
-            <button class="copy-btn" data-target="api-curl-output">Copy Curl</button>
+        <div class="chapter-body">
+          <p style="color: var(--text-muted); margin-bottom: 24px;">
+            Select any Omni-Graph REST endpoint to generate ready-to-run curl commands formatted for terminal or agent tool invocations.
+          </p>
+
+          <div class="simulator-controls">
+            <div class="control-item">
+              <label><span>Endpoint Target</span></label>
+              <select id="api-endpoint" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
+                <option value="query">POST /api/query (Hybrid Graph-RAG Synthesis)</option>
+                <option value="condense">GET /api/condense (AST Neighborhood Slice)</option>
+                <option value="symbol">GET /api/symbol (LSP Symbol Definition)</option>
+                <option value="references">GET /api/references (LSP Caller Analysis)</option>
+                <option value="galaxies">GET /api/galaxies (Subsystem Clustering)</option>
+                <option value="workspaces">GET /api/workspaces (Hierarchy Lineage)</option>
+                <option value="worktrees">GET /api/worktrees (Active Git Worktrees)</option>
+                <option value="ingest">POST /api/ingest (Codebase Ingestion)</option>
+              </select>
+            </div>
+            <div class="control-item">
+              <label><span>Target Workspace</span></label>
+              <input type="text" id="api-ws" value="tool-scripts" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
+            </div>
+            <div class="control-item">
+              <label><span>Symbol Name (if applicable)</span></label>
+              <input type="text" id="api-sym" value="ContextCondenser" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
+            </div>
+            <div class="control-item">
+              <label><span>Prompt / Question (if applicable)</span></label>
+              <input type="text" id="api-q" value="How does token budgeting work?" style="width: 100%; background: #0f172a; color: #fff; border: 1px solid var(--bg-card-border); padding: 10px; border-radius: 8px;">
+            </div>
           </div>
-          <pre><code id="api-curl-output">curl -s -X POST http://localhost:8080/api/query \
+
+          <div class="code-container">
+            <div class="code-header">
+              <span>Generated Command</span>
+              <button class="copy-btn" data-target="api-curl-output">Copy Curl</button>
+            </div>
+            <pre><code id="api-curl-output">curl -s -X POST http://localhost:8080/api/query \
   -H "Content-Type: application/json" \
   -d '{"prompt": "How does token budgeting work?", "workspace": "tool-scripts"}'</code></pre>
+          </div>
         </div>
       </section>
 
@@ -650,7 +681,10 @@ DEFINE INDEX idx_edge_in_ws     ON TABLE linked_to FIELDS workspace, in;</code><
                 <span class="zoom-level-badge">100%</span>
                 <button class="canvas-tool-btn zoom-in-btn" title="Zoom In">+</button>
                 <button class="canvas-tool-btn zoom-reset-btn" title="Reset Zoom">⟲</button>
-                <button class="canvas-tool-btn fullscreen-btn" title="View Fullscreen Theater">⛶ Theater</button>
+                <button class="canvas-tool-btn fullscreen-btn" title="View Fullscreen Theater">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                  <span>Theater</span>
+                </button>
               </div>
             </div>
             <div class="canvas-viewport">
@@ -666,7 +700,7 @@ flowchart LR
                 </pre>
               </div>
             </div>
-            <div class="canvas-caption">Figure 2.1: Session Explorer Embedded Binary Architecture & Log Processing Pipeline (Zoom or view fullscreen)</div>
+            <div class="canvas-caption">Figure 2.1: Session Explorer Embedded Binary Architecture & Log Processing Pipeline</div>
           </div>
 
           <div class="card-grid">
@@ -733,7 +767,10 @@ make demo-tool T=session-explorer</code></pre>
                 <span class="zoom-level-badge">100%</span>
                 <button class="canvas-tool-btn zoom-in-btn" title="Zoom In">+</button>
                 <button class="canvas-tool-btn zoom-reset-btn" title="Reset Zoom">⟲</button>
-                <button class="canvas-tool-btn fullscreen-btn" title="View Fullscreen Theater">⛶ Theater</button>
+                <button class="canvas-tool-btn fullscreen-btn" title="View Fullscreen Theater">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                  <span>Theater</span>
+                </button>
               </div>
             </div>
             <div class="canvas-viewport">
